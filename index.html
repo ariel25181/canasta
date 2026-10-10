@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#3E8E5A">
+<title>Canasta</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{--bg:#FAF7F0;--card:#fff;--g:#3E8E5A;--gd:#2f7048;--r:#D9534F;--tx:#23312A;--mu:#6b7a70;--ln:#ebe5d6}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--tx);font:16px/1.4 Nunito,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 calc(84px + env(safe-area-inset-bottom))}
+main{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:1.6rem;margin:8px 0 16px;font-weight:800}
+h2{font-size:1.1rem;margin:20px 0 8px;font-weight:800}
+.card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(35,49,42,.08)}
+.big{font-size:2.2rem;font-weight:800;font-variant-numeric:tabular-nums}
+.mu{color:var(--mu);font-size:.9rem}
+.up{color:var(--r);font-weight:700}.down{color:var(--g);font-weight:700}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--ln)}
+.row:last-child{border:0}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+button,.btn{font:inherit;font-weight:700;border:0;border-radius:14px;padding:12px 18px;background:var(--g);color:#fff;cursor:pointer;display:inline-block}
+button:hover,.btn:hover{background:var(--gd)}
+button.ghost{background:transparent;color:var(--g);border:2px solid var(--g)}
+button.x{background:transparent;color:var(--r);padding:6px 10px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #9fd3b0;outline-offset:2px}
+input,select{font:inherit;width:100%;padding:10px 12px;border:1.5px solid var(--ln);border-radius:12px;background:#fff;color:var(--tx)}
+.it{display:grid;grid-template-columns:1fr 56px 90px 36px;gap:6px;margin-bottom:6px}
+.fields{display:grid;gap:8px;margin-bottom:12px}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--ln);display:flex;justify-content:space-around;align-items:center;padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
+nav button{background:none;color:var(--mu);padding:6px 14px;font-size:.85rem;display:flex;flex-direction:column;align-items:center;gap:2px}
+nav button.on{color:var(--g)}
+nav button.scan{background:var(--g);color:#fff;border-radius:50%;width:60px;height:60px;margin-top:-28px;font-size:1.6rem;justify-content:center;box-shadow:0 4px 12px rgba(62,142,90,.4)}
+.empty{text-align:center;padding:32px 8px;color:var(--mu)}
+#toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%}
+@media(min-width:900px){nav{max-width:420px;left:50%;transform:translateX(-50%);border-radius:20px 20px 0 0}}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+<main id="app"></main>
+<nav id="nav" hidden>
+  <button data-v="home">🏠<span>Inicio</span></button>
+  <button class="scan" data-v="scan" aria-label="Escanear ticket">📷</button>
+  <button data-v="history">🧾<span>Compras</span></button>
+  <button data-v="settings">⚙️<span>Ajustes</span></button>
+</nav>
+<script>
+// 1) Pegá acá los datos de tu proyecto de Supabase (Settings > API)
+const SB_URL='https://ddzklkweeftwqqbaozty.supabase.co', SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkemtsa3dlZWZ0d3FxYmFvenR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzMjA0OTEsImV4cCI6MjEwNjg5NjQ5MX0.Ma79cMLtflb7cA2nCbj_NwwFDmLR2QC-2ElunLy9D6E';
+const sb=supabase.createClient(SB_URL,SB_KEY);
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(n||0);
+const CAT={lacteos:'🥛',carnes:'🥩',panaderia:'🍞',verduras:'🥬',frutas:'🍎',bebidas:'🥤',limpieza:'🧴',almacen:'🥫',otros:'🛒'};
+const today=()=>new Date().toISOString().slice(0,10);
+let user=null,view='home',draft=null;
+
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
+function app(h){$('#app').innerHTML=h}
+
+/* ---------- Auth ---------- */
+function login(){
+  $('#nav').hidden=true;
+  app(`<h1>🧺 Canasta</h1><div class="card"><p>Registrá tus compras del súper y mirá cómo cambian los precios.</p>
+  <div class="fields"><input id="em" type="email" placeholder="Email" autocomplete="email"><input id="pw" type="password" placeholder="Contraseña (mín. 6)" autocomplete="current-password"></div>
+  <button onclick="auth('in')">Entrar</button> <button class="ghost" onclick="auth('up')">Crear cuenta</button></div>`);
+}
+async function auth(k){
+  const email=$('#em').value.trim(),password=$('#pw').value;
+  const {error}=k==='in'?await sb.auth.signInWithPassword({email,password}):await sb.auth.signUp({email,password});
+  if(error)return toast(error.message);
+  boot();
+}
+async function boot(){
+  const {data}=await sb.auth.getSession();
+  user=data.session?.user||null;
+  if(!user)return login();
+  $('#nav').hidden=false;go('home');
+}
+
+/* ---------- Navigation ---------- */
+function go(v){
+  view=v;
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  ({home,scan,history,settings})[v]();
+}
+$('#nav').onclick=e=>{const b=e.target.closest('button');if(b)go(b.dataset.v)};
+
+/* ---------- Home ---------- */
+async function home(){
+  app('<p class="mu">Cargando…</p>');
+  const n=new Date(),y=n.getFullYear(),m=n.getMonth();
+  const ms=(yy,mm)=>new Date(yy,mm,1).toLocaleDateString('sv').slice(0,10);
+  const m0=ms(y,m),m1=ms(y,m-1);
+  const {data:rs=[],error}=await sb.from('receipts').select('*').gte('purchased_at',m1).order('purchased_at',{ascending:false});
+  if(error)return app(`<div class="card">No se pudo cargar: ${esc(error.message)}</div>`);
+  const cur=rs.filter(r=>r.purchased_at>=m0),prev=rs.filter(r=>r.purchased_at<m0);
+  const sum=a=>a.reduce((s,r)=>s+Number(r.total),0),c=sum(cur),p=sum(prev);
+  const d=p?((c-p)/p*100):null;
+  let top='';
+  if(cur.length){
+    const {data:its=[]}=await sb.from('receipt_items').select('name,total_price,category').in('receipt_id',cur.map(r=>r.id));
+    const agg={};its.forEach(i=>{const k=i.name.toLowerCase();agg[k]=agg[k]||{n:i.name,c:i.category,t:0,q:0};agg[k].t+=Number(i.total_price);agg[k].q++});
+    const l=Object.values(agg).sort((a,b)=>b.t-a.t).slice(0,5);
+    top=`<h2>Lo que más gastás</h2><div class="card">${l.map(i=>`<div class="row"><span>${CAT[i.c]||'🛒'} ${esc(i.n)} <span class="mu">×${i.q}</span></span><span class="num">${money(i.t)}</span></div>`).join('')}</div>`;
+  }
+  app(`<h1>Este mes</h1>
+  <div class="card"><div class="mu">Gastaste en el súper</div><div class="big">${money(c)}</div>
+  <div class="mu">${cur.length} compra${cur.length===1?'':'s'}${d===null?'':` · <span class="${d>0?'up':'down'}">${d>0?'+':''}${d.toFixed(1)}%</span> vs. el mes pasado`}</div></div>
+  ${top}
+  ${rs.length?'':`<div class="empty">Todavía no cargaste compras.<br><br><button onclick="go('scan')">Escanear mi primer ticket</button></div>`}`);
+}
+
+/* ---------- Scan ---------- */
+function scan(){
+  draft=null;
+  app(`<h1>Nuevo ticket</h1><div class="card"><p>Sacale una foto al ticket y revisá los datos antes de guardar.</p>
+  <label class="btn">📷 Sacar o elegir foto<input id="f" type="file" accept="image/*" capture="environment" hidden></label>
+  <button class="ghost" onclick="manual()">Cargar a mano</button><p id="st" class="mu"></p></div>`);
+  $('#f').onchange=async e=>{
+    const f=e.target.files[0];if(!f)return;
+    $('#st').textContent='Leyendo el ticket…';
+    try{draft=norm(await extract(await resize(f)));form()}catch(err){$('#st').textContent='';toast(err.message)}
+  };
+}
+function manual(){draft={store:'',date:today(),items:[{name:'',qty:1,total_price:0,category:'otros'}]};form()}
+const resize=f=>new Promise((ok,no)=>{const i=new Image();i.onerror=()=>no(Error('No se pudo abrir la imagen'));i.onload=()=>{const k=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.8).split(',')[1])};i.src=URL.createObjectURL(f)});
+async function extract(b64){
+  const key=localStorage.getItem('gk');
+  if(!key)throw Error('Falta la clave de Gemini en Ajustes');
+  const prompt=`Extraé los datos de este ticket de supermercado argentino. Respondé solo JSON: {"store":string,"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros"}]}. Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago.`;
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:'image/jpeg',data:b64}}]}],generationConfig:{responseMimeType:'application/json'}})});
+  const j=await r.json();
+  if(!r.ok)throw Error(j.error?.message||'Error al leer el ticket');
+  return JSON.parse(j.candidates[0].content.parts[0].text);
+}
+const norm=d=>({store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros'}))});
+
+function form(){
+  const t=draft.items.reduce((s,i)=>s+i.total_price,0);
+  app(`<h1>Revisá el ticket</h1>
+  <div class="fields"><input placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value"><input type="date" value="${draft.date}" oninput="draft.date=this.value"></div>
+  <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
+  ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>`).join('')}
+  <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros'});form()">+ Agregar producto</button></p>
+  <div class="card row"><b>Total</b><b class="num">${money(t)}</b></div>
+  <button onclick="save()">Guardar compra</button>`);
+}
+async function save(){
+  const items=draft.items.filter(i=>i.name.trim());
+  if(!draft.store.trim())return toast('Poné el nombre del supermercado');
+  if(!items.length)return toast('Agregá al menos un producto');
+  const total=items.reduce((s,i)=>s+i.total_price,0);
+  const {data:r,error}=await sb.from('receipts').insert({store:draft.store.trim(),purchased_at:draft.date,total}).select().single();
+  if(error)return toast(error.message);
+  const {error:e2}=await sb.from('receipt_items').insert(items.map(i=>({receipt_id:r.id,name:i.name.trim(),qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,category:i.category})));
+  if(e2){await sb.from('receipts').delete().eq('id',r.id);return toast(e2.message)}
+  toast('Compra guardada');go('home');
+}
+
+/* ---------- History ---------- */
+async function history(){
+  app('<p class="mu">Cargando…</p>');
+  const {data:rs=[],error}=await sb.from('receipts').select('*').order('purchased_at',{ascending:false}).limit(100);
+  if(error)return app(`<div class="card">${esc(error.message)}</div>`);
+  app(`<h1>Mis compras</h1>${rs.length?rs.map(r=>`<div class="card" id="r${r.id}"><div class="row" style="border:0;cursor:pointer" onclick="detail('${r.id}')"><span><b>${esc(r.store)}</b><br><span class="mu">${r.purchased_at}</span></span><b class="num">${money(r.total)}</b></div><div id="d${r.id}"></div></div>`).join(''):'<div class="empty">Acá van a aparecer tus compras.</div>'}`);
+}
+async function detail(id){
+  const box=$('#d'+id);
+  if(box.innerHTML){box.innerHTML='';return}
+  const {data:its=[]}=await sb.from('receipt_items').select('*').eq('receipt_id',id);
+  box.innerHTML=its.map(i=>`<div class="row"><span>${CAT[i.category]||'🛒'} ${esc(i.name)} <span class="mu">×${i.qty}</span></span><span class="num">${money(i.total_price)}</span></div>`).join('')+`<p><button class="x" onclick="del('${id}')">Eliminar compra</button></p>`;
+}
+async function del(id){
+  if(!confirm('¿Eliminar esta compra?'))return;
+  const {error}=await sb.from('receipts').delete().eq('id',id);
+  if(error)return toast(error.message);
+  history();
+}
+
+/* ---------- Settings ---------- */
+function settings(){
+  app(`<h1>Ajustes</h1><div class="card"><h2 style="margin-top:0">Lectura de tickets</h2>
+  <p class="mu">Clave de Gemini (se guarda solo en este dispositivo).</p>
+  <input id="gk" type="password" placeholder="Clave de Gemini" value="${esc(localStorage.getItem('gk')||'')}"><p><button onclick="localStorage.setItem('gk',$('#gk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
+  <div class="card"><div class="mu">${esc(user.email)}</div><p><button class="ghost" onclick="sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
+}
+
+boot();
+</script>
+</body>
+</html>
