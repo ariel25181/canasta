@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="20261011161959">
+<meta name="app-version" content="20261011211237">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -39,7 +39,7 @@ nav button{background:none;color:var(--mu);padding:6px 8px;font-size:.78rem;disp
 nav button.on{color:var(--g)}
 nav button.scan{background:var(--g);color:#fff;border-radius:50%;width:60px;height:60px;margin-top:-28px;font-size:1.6rem;justify-content:center;box-shadow:0 4px 12px rgba(62,142,90,.4)}
 .empty{text-align:center;padding:32px 8px;color:var(--mu)}
-#mapbox[hidden]{display:none}#mapbox.full{position:fixed;inset:0;z-index:20;background:var(--bg);padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));overflow:auto;display:flex;flex-direction:column}#mapbox.full #map{flex:1;height:auto;min-height:240px}
+#mapbox[hidden]{display:none}#mapbox.full{position:fixed;inset:0;z-index:20;background:var(--bg);padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));overflow:auto;display:flex;flex-direction:column}#mapbox.full #mwrap{flex:1;min-height:240px}#mapbox.full #map{height:100%}
 #map{height:clamp(340px,62vh,600px);border-radius:14px;overflow:hidden;margin:8px 0;background:#e8e2d3}#map iframe{width:100%;height:100%;border:0}
 .sb{position:sticky;top:0;background:var(--bg);padding:4px 0 8px;z-index:2}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}
@@ -51,6 +51,12 @@ nav button.scan{background:var(--g);color:#fff;border-radius:50%;width:60px;heig
 .pp{text-align:right}.p2{font-size:1.5rem;font-weight:800;font-variant-numeric:tabular-nums}
 .sim{font-size:.75rem;background:#fff3cd;border-radius:6px;padding:1px 6px;margin-left:6px}
 a.btn.sm{padding:8px 14px;font-size:.9rem;text-decoration:none}
+.opt{display:block;width:100%;text-align:left;background:#fff;color:var(--tx);border:1.5px solid var(--ln);border-radius:12px;padding:10px 12px;margin-bottom:6px;font-weight:400}
+.opt:hover{background:#eef6f0;color:var(--tx)}
+#mwrap{position:relative;margin:8px 0}#mwrap #map{margin:0}
+#mpin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);font-size:2.2rem;line-height:1;pointer-events:none;filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))}
+#mgps{position:absolute;right:10px;bottom:10px;width:46px;height:46px;border-radius:50%;background:#fff;color:var(--tx);padding:0;box-shadow:0 2px 6px rgba(0,0,0,.25);font-size:1.3rem}
+.mhead{display:flex;align-items:center;gap:8px;margin-bottom:8px}.mhead b{flex:1}.mgrp{margin:8px 0 2px}
 #toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%}
 @media(min-width:900px){nav{max-width:420px;left:50%;transform:translateX(-50%);border-radius:20px 20px 0 0}}
 </style>
@@ -74,7 +80,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const money=n=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(n||0);
 const CAT={lacteos:'🥛',carnes:'🥩',panaderia:'🍞',verduras:'🥬',frutas:'🍎',bebidas:'🥤',limpieza:'🧴',almacen:'🥫',otros:'🛒'};
 const today=()=>new Date().toISOString().slice(0,10);
-let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,found=null,lastH={},curH=null,pendingReload=false,psort='price',pTok=0,prRows=[];
+let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,found=null,lastH={},curH=null,revTok=0,pendingReload=false,psort='price',pTok=0,prRows=[];
 
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
 function app(h){curH=null;$('#app').innerHTML=h}
@@ -202,7 +208,7 @@ const norm=d=>({lat:null,lng:null,address:String(d.store_address||'').trim(),des
 function form(){
   const t=draft.items.reduce((s,i)=>s+i.total_price,0);
   app(`<h1>${draft.id?'Editar compra':'Revisá el ticket'}</h1>
-  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value"><input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="draft.address=this.value;draft.lat=draft.lng=null"><button class="ghost" type="button" onclick="mapOpen()">📍 Elegir en Google Maps</button><div id="mapbox" hidden><button class="ghost" type="button" id="mfull" onclick="mapFull()" style="margin-bottom:8px">⛶ Pantalla completa</button><input id="msearch" placeholder="Buscá el local y tocá Enter" hidden><div id="map"></div><div id="mmsg" class="mu"></div></div></div>
+  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value"><input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="draft.address=this.value;draft.lat=draft.lng=null"><button class="ghost" type="button" onclick="mapOpen()">📍 Elegir en Google Maps</button><div id="mapbox" hidden><div class="mhead"><b>Ubicación del local</b><button class="ghost" type="button" id="mfull" onclick="mapFull()" style="padding:6px 12px" aria-label="Pantalla completa">⛶</button><button class="x" type="button" onclick="mapClose()" aria-label="Cerrar">✕</button></div><input id="msearch" type="search" placeholder="Buscá el local o la dirección" autocomplete="off" hidden><div id="msug"></div><div id="mchips"></div><div id="mwrap"><div id="map"></div><div id="mpin">📍</div><button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button></div><div id="mmsg" class="mu"></div></div></div>
   <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
   ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>`).join('')}
   <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros'});form()">+ Agregar producto</button></p>
@@ -238,46 +244,129 @@ async function _save(){
 }
 
 /* ---------- Asistente de Google Maps ---------- */
+let gm=null,gcd=null,Pl=null,AS=null,stok=null,sugs=[],sugT=0,lockUntil=0,mineL=[],nearL=[];
+const ll=o=>({lat:typeof o.lat==='function'?o.lat():o.lat,lng:typeof o.lng==='function'?o.lng():o.lng});
+const shortAddr=a=>String(a||'').split(',').map(x=>x.trim().replace(/^[A-Z]?\d{4}[A-Z]{0,3}\s*/,'')).filter(x=>x&&!/^argentina$/i.test(x)).slice(0,3).join(', ');
+const hav=(a,b)=>{const r=x=>x*Math.PI/180,h=Math.sin(r(b.lat-a.lat)/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(r(b.lng-a.lng)/2)**2;return 12742*Math.asin(Math.sqrt(h))};
 function getPos(){return new Promise(ok=>{if(pos||!navigator.geolocation)return ok(pos);navigator.geolocation.getCurrentPosition(p=>{pos={lat:p.coords.latitude,lng:p.coords.longitude};ok(pos)},()=>ok(null),{timeout:10000,maximumAge:600000})})}
 async function mapOpen(){
   mapShown=true;found=null;$('#mapbox').hidden=false;
   const c=await getPos(),key=localStorage.getItem('mk'),q=draft.store.trim();
-  $('#msearch').hidden=!key;
-  if(!c)$('#mmsg').textContent='No pude usar tu ubicación. Permitila en el navegador para que el mapa se abra donde estás.';
   if(key)return mapJs(key,c,q);
+  $('#mpin').style.display='none';$('#mgps').style.display='none';$('#msearch').hidden=true;
   const src=`https://maps.google.com/maps?output=embed&z=15&hl=es&q=${encodeURIComponent(q||'supermercado')}${c?`&ll=${c.lat},${c.lng}`:''}`;
   $('#map').innerHTML=`<iframe src="${src}" loading="lazy" title="Mapa"></iframe>`;
-  $('#mmsg').innerHTML=`Buscá tu local y copiá la dirección. <a href="https://www.google.com/maps/search/${encodeURIComponent(q||'supermercado')}${c?`/@${c.lat},${c.lng},15z`:''}" target="_blank" rel="noopener">Abrir en Google Maps</a>. Con una clave de Maps en Ajustes aparece el botón para poner la dirección encontrada.`;
+  $('#mmsg').innerHTML=`Buscá tu local y copiá la dirección. <a href="https://www.google.com/maps/search/${encodeURIComponent(q||'supermercado')}${c?`/@${c.lat},${c.lng},15z`:''}" target="_blank" rel="noopener">Abrir en Google Maps</a>. Con una clave de Maps en Ajustes tenés sugerencias, locales cercanos y confirmación con un toque.`;
 }
+function mapClose(){mapShown=false;const b=$('#mapbox');b.hidden=true;b.classList.remove('full')}
 function mapFull(){
   const on=$('#mapbox').classList.toggle('full');
-  $('#mfull').textContent=on?'✕ Cerrar pantalla completa':'⛶ Pantalla completa';
-  if(window._gm&&window.google)setTimeout(()=>{const c=window._gm.getCenter();google.maps.event.trigger(window._gm,'resize');window._gm.setCenter(c)},80);
+  $('#mfull').textContent=on?'✕':'⛶';
+  if(gm&&window.google){lockUntil=Date.now()+1500;setTimeout(()=>{const c=gm.getCenter();google.maps.event.trigger(gm,'resize');gm.setCenter(c)},80)}
 }
-function showFound(){
-  const m=$('#mmsg');if(!m||!found)return;
-  m.innerHTML=found.addr?`<div class="card" style="margin:8px 0 0"><div class="mu">Dirección encontrada por Google Maps</div><b>${esc(found.addr)}</b><p style="margin:10px 0 0"><button onclick="useFound()">Poner dirección encontrada por Google Maps</button></p></div>`:'Google Maps no encontró una dirección para ese punto.';
-}
-function useFound(){
-  if(!found||!found.addr)return;
-  draft.address=found.addr;draft.lat=found.loc?found.loc.lat():null;draft.lng=found.loc?found.loc.lng():null;
-  $('#addr').value=draft.address;
-  if(found.name&&!draft.store.trim()){draft.store=found.name;$('#store').value=found.name}
-  $('#mmsg').textContent='✅ Dirección cargada en el campo. Revisala y guardá.';
+async function mapGps(){
+  pos=null;const c=await getPos();
+  if(!c||!gm)return toast('No pude obtener tu ubicación. Permitila en el navegador.');
+  lockUntil=0;gm.setZoom(17);gm.setCenter(c);
 }
 function loadMaps(key){return window.google&&google.maps&&google.maps.importLibrary?Promise.resolve():new Promise((ok,no)=>{window.__mi=ok;const s=document.createElement('script');s.src=`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&loading=async&language=es&callback=__mi`;s.onerror=()=>no(Error('No se pudo cargar Google Maps'));document.head.appendChild(s)})}
 async function mapJs(key,c,q){
-  try{await loadMaps(key);const {Place}=await google.maps.importLibrary('places');
-    const center=c||{lat:-34.6037,lng:-58.3816},map=new google.maps.Map($('#map'),{center,zoom:c?16:11,mapTypeControl:false,streetViewControl:false,fullscreenControl:false}),mk=new google.maps.Marker({map});window._gm=map;
-    if(c)new google.maps.Marker({map,position:c,title:'Vos',icon:{path:google.maps.SymbolPath.CIRCLE,scale:7,fillColor:'#4285F4',fillOpacity:1,strokeColor:'#fff',strokeWeight:2}});
-    const fill=(name,addr,loc)=>{found={name,addr:addr||'',loc};if(loc){mk.setPosition(loc);map.panTo(loc)}showFound()};
-    map.addListener('click',async e=>{if(!e.placeId)return;e.stop();try{const p=new Place({id:e.placeId,requestedLanguage:'es'});await p.fetchFields({fields:['displayName','formattedAddress','location']});fill(p.displayName,p.formattedAddress,p.location)}catch(err){$('#mmsg').textContent='No pude leer ese lugar: '+err.message}});
-    $('#msearch').onkeydown=async e=>{if(e.key!=='Enter')return;e.preventDefault();const t=e.target.value.trim();if(!t)return;try{const r=await Place.searchByText({textQuery:t,fields:['displayName','formattedAddress','location'],locationBias:c?{center:c,radius:5000}:undefined,maxResultCount:1,language:'es'});if(!r.places.length)return $('#mmsg').textContent='No encontré ese local cerca.';const p=r.places[0];map.setZoom(17);fill(p.displayName,p.formattedAddress,p.location)}catch(err){$('#mmsg').textContent='Error de búsqueda: '+err.message}};
-    if(q&&!$('#msearch').value)$('#msearch').value=q;
-    $('#mmsg').textContent='Tocá el local en el mapa, o buscalo arriba y tocá Enter.';
-    if(q){try{const r0=await Place.searchByText({textQuery:q,fields:['displayName','formattedAddress','location'],locationBias:c?{center:c,radius:5000}:undefined,maxResultCount:1,language:'es'});if(r0.places.length){const p0=r0.places[0];map.setZoom(16);fill(p0.displayName,p0.formattedAddress,p0.location)}}catch(e){}}
-  }catch(err){$('#mmsg').textContent='Maps: '+err.message}
+  const m=$('#mmsg');m.textContent='Cargando mapa…';
+  try{
+    await loadMaps(key);
+    const lib=await google.maps.importLibrary('places');
+    Pl=lib.Place;AS=lib.AutocompleteSuggestion;stok=new lib.AutocompleteSessionToken();gcd=new google.maps.Geocoder();
+    const has=draft.lat!=null,center=has?{lat:draft.lat,lng:draft.lng}:(c||{lat:-34.6037,lng:-58.3816});
+    gm=new google.maps.Map($('#map'),{center,zoom:has||c?17:12,mapTypeControl:false,streetViewControl:false,fullscreenControl:false,gestureHandling:'greedy'});
+    if(c)new google.maps.Marker({map:gm,position:c,title:'Vos',icon:{path:google.maps.SymbolPath.CIRCLE,scale:7,fillColor:'#4285F4',fillOpacity:1,strokeColor:'#fff',strokeWeight:2}});
+    gm.addListener('dragstart',()=>{m.textContent='Soltá el mapa donde está el local…'});
+    gm.addListener('idle',()=>{if(Date.now()>=lockUntil)revGeo(gm.getCenter())});
+    gm.addListener('click',async e=>{if(!e.placeId)return;e.stop();try{const p=new Pl({id:e.placeId,requestedLanguage:'es'});await p.fetchFields({fields:['displayName','formattedAddress','location']});setFound(p.displayName,p.formattedAddress,p.location)}catch(err){m.textContent='No pude leer ese lugar: '+err.message}});
+    const inp=$('#msearch');inp.hidden=false;inp.value=q||'';
+    inp.oninput=()=>{clearTimeout(sugT);sugT=setTimeout(()=>suggest(inp.value),250)};
+    if(q)suggest(q);
+    loadChips(c);
+  }catch(err){m.textContent='Maps: '+err.message}
 }
+function setFound(name,addr,loc){
+  found={name:name||'',addr:shortAddr(addr),loc:loc?ll(loc):null};
+  if(loc){lockUntil=Date.now()+1500;gm.setZoom(17);gm.setCenter(ll(loc))}
+  showFound();
+}
+async function revGeo(c){
+  const m=$('#mmsg'),my=++revTok,loc=ll(c);
+  if(!m)return;
+  try{
+    const r=await gcd.geocode({location:loc,language:'es'});
+    if(my!==revTok)return;
+    const x=(r.results||[])[0];
+    found={name:'',addr:x?shortAddr(x.formatted_address):'',loc};showFound();
+  }catch(e){
+    if(my!==revTok)return;
+    m.innerHTML='No pude leer la dirección de ese punto ('+esc(e.code||e.message)+'). Revisá que la <b>Geocoding API</b> esté activada en tu clave de Google Cloud, o elegí un local de la lista.';
+  }
+}
+function showFound(){
+  const m=$('#mmsg');if(!m||!found)return;
+  m.innerHTML=found.addr?`<div class="card" style="margin:8px 0 0"><div class="mu">${found.name?'📍 '+esc(found.name):'Dirección en el pin'}</div><b>${esc(found.addr)}</b><p style="margin:10px 0 0"><button onclick="useFound()" style="width:100%">Confirmar ubicación</button></p></div>`:'No encontré una dirección en ese punto: mové el mapa un poco.';
+}
+function useFound(){
+  if(!found||!found.addr)return;
+  draft.address=found.addr;draft.lat=found.loc?found.loc.lat:null;draft.lng=found.loc?found.loc.lng:null;
+  $('#addr').value=draft.address;
+  if(found.name&&!draft.store.trim()){draft.store=found.name;$('#store').value=found.name}
+  mapClose();toast('Dirección cargada');
+  $('#addr').scrollIntoView({block:'center',behavior:'smooth'});
+}
+async function suggest(t){
+  const box=$('#msug');t=String(t||'').trim();
+  if(t.length<2){box.innerHTML='';sugs=[];return}
+  try{
+    const o=pos||ll(gm.getCenter()),req={input:t,language:'es',sessionToken:stok,origin:o,locationBias:{center:o,radius:8000}};
+    const {suggestions}=await AS.fetchAutocompleteSuggestions(req);
+    sugs=(suggestions||[]).filter(x=>x.placePrediction).slice(0,5);
+    box.innerHTML=sugs.map((x,k)=>{const p=x.placePrediction;return `<button class="opt" onclick="pickSug(${k})"><b>${esc(p.mainText?p.mainText.text:p.text.text)}</b>${p.distanceMeters!=null?` <span class="mu">· ${fmtD(p.distanceMeters/1000)}</span>`:''}<br><span class="mu">${esc(p.secondaryText?p.secondaryText.text:'')}</span></button>`}).join('')||'<p class="mu">Sin resultados: probá con otro nombre o con la dirección.</p>';
+  }catch(e){box.innerHTML=`<p class="mu">No pude buscar: ${esc(e.message)}</p>`}
+}
+async function pickSug(k){
+  const p=sugs[k].placePrediction.toPlace();
+  try{
+    await p.fetchFields({fields:['displayName','formattedAddress','location']});
+    $('#msug').innerHTML='';$('#msearch').value=p.displayName||'';
+    stok=new google.maps.places.AutocompleteSessionToken();
+    setFound(p.displayName,p.formattedAddress,p.location);
+  }catch(e){$('#mmsg').textContent='No pude leer ese lugar: '+e.message}
+}
+async function loadChips(c){
+  const box=$('#mchips');if(!box)return;
+  try{
+    const [{data:rs=[]},{data:pp=[]}]=await Promise.all([
+      sb.from('receipts').select('store,store_address').not('store_address','is',null).order('purchased_at',{ascending:false}).limit(60),
+      sb.from('price_points').select('store,store_address,lat,lng').not('lat','is',null).limit(200)]);
+    const co={};pp.forEach(x=>{co[(x.store+'|'+x.store_address).toLowerCase()]={lat:x.lat,lng:x.lng}});
+    const seen=new Set();mineL=[];
+    rs.forEach(r=>{const k=(r.store+'|'+r.store_address).toLowerCase();if(seen.has(k))return;seen.add(k);mineL.push({store:r.store,addr:r.store_address,loc:co[k]||null})});
+    mineL=mineL.slice(0,6);
+    box.innerHTML=(mineL.length?`<div class="mu mgrp">Tus locales</div><div class="chips">${mineL.map((x,k)=>`<button class="chip" onclick="pickMine(${k})">${esc(x.store)}</button>`).join('')}</div>`:'')+'<div id="mnear"></div>';
+  }catch(e){box.innerHTML='<div id="mnear"></div>'}
+  if(!c)return;
+  try{
+    const {places}=await Pl.searchNearby({fields:['displayName','formattedAddress','location'],locationRestriction:{center:c,radius:2500},includedPrimaryTypes:['supermarket','grocery_store'],maxResultCount:8,language:'es'});
+    nearL=(places||[]).map(p=>({name:p.displayName,addr:p.formattedAddress,loc:p.location,d:hav(c,ll(p.location))})).sort((a,b)=>a.d-b.d).slice(0,6);
+    const n=$('#mnear');
+    if(n&&nearL.length)n.innerHTML=`<div class="mu mgrp">Cerca tuyo</div><div class="chips">${nearL.map((x,k)=>`<button class="chip" onclick="pickNear(${k})">${esc(x.name)} · ${fmtD(x.d)}</button>`).join('')}</div>`;
+  }catch(e){}
+}
+async function pickMine(k){
+  const x=mineL[k];
+  if(x.loc)return setFound(x.store,x.addr,x.loc);
+  try{
+    const r=await gcd.geocode({address:x.addr,language:'es',region:'ar'});
+    const g=(r.results||[])[0];
+    if(g)setFound(x.store,x.addr,g.geometry.location);else{found={name:x.store,addr:x.addr,loc:null};showFound()}
+  }catch(e){found={name:x.store,addr:x.addr,loc:null};showFound()}
+}
+function pickNear(k){const x=nearL[k];setFound(x.name,x.addr,x.loc)}
 
 /* ---------- Precios ---------- */
 const nk=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
@@ -370,7 +459,7 @@ function settings(){
   <p class="mu">Clave de Gemini (se guarda solo en este dispositivo).</p>
   <input id="gk" type="password" placeholder="Clave de Gemini" value="${esc(localStorage.getItem('gk')||'')}"><p><button onclick="localStorage.setItem('gk',$('#gk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
   <div class="card"><h2 style="margin-top:0">Precios compartidos</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('share')!=='0'?'checked':''} onchange="localStorage.setItem('share',this.checked?'1':'0')"><span>Compartir mis precios de forma anónima con otros usuarios <span class="mu">(producto, precio, local y fecha; nunca tu nombre ni tu email). Se aplica a los tickets que cargues desde ahora.</span></span></label></div>
-  <div class="card"><h2 style="margin-top:0">Google Maps (opcional)</h2><p class="mu">Con una clave de Maps JavaScript API y Places API (New), el mapa se abre en tu ubicación y aparece un botón para poner en el ticket la dirección que encuentra Google Maps. Sin clave se muestra un mapa simple.</p><input id="mk" type="password" placeholder="Clave de Google Maps" value="${esc(localStorage.getItem('mk')||'')}"><p><button onclick="localStorage.setItem('mk',$('#mk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
+  <div class="card"><h2 style="margin-top:0">Google Maps (opcional)</h2><p class="mu">Con una clave con Maps JavaScript API, Places API (New) y Geocoding API activadas, podés buscar el local con sugerencias, ver los más cercanos y confirmar la ubicación con un pin. Sin clave se muestra un mapa simple.</p><input id="mk" type="password" placeholder="Clave de Google Maps" value="${esc(localStorage.getItem('mk')||'')}"><p><button onclick="localStorage.setItem('mk',$('#mk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
   <div class="card"><div class="mu">${esc(user.email)}</div><p><button class="ghost" onclick="sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
 }
 
