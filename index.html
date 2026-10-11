@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
+<meta name="app-version" content="20261011161959">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -38,7 +39,8 @@ nav button{background:none;color:var(--mu);padding:6px 8px;font-size:.78rem;disp
 nav button.on{color:var(--g)}
 nav button.scan{background:var(--g);color:#fff;border-radius:50%;width:60px;height:60px;margin-top:-28px;font-size:1.6rem;justify-content:center;box-shadow:0 4px 12px rgba(62,142,90,.4)}
 .empty{text-align:center;padding:32px 8px;color:var(--mu)}
-#map{height:280px;border-radius:14px;overflow:hidden;margin:8px 0;background:#e8e2d3}#map iframe{width:100%;height:100%;border:0}
+#mapbox[hidden]{display:none}#mapbox.full{position:fixed;inset:0;z-index:20;background:var(--bg);padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));overflow:auto;display:flex;flex-direction:column}#mapbox.full #map{flex:1;height:auto;min-height:240px}
+#map{height:clamp(340px,62vh,600px);border-radius:14px;overflow:hidden;margin:8px 0;background:#e8e2d3}#map iframe{width:100%;height:100%;border:0}
 .sb{position:sticky;top:0;background:var(--bg);padding:4px 0 8px;z-index:2}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}
 .chip{background:#fff;color:var(--tx);border:1.5px solid var(--ln);border-radius:999px;padding:7px 14px;font-weight:700;font-size:.9rem;white-space:nowrap}
@@ -72,10 +74,18 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const money=n=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(n||0);
 const CAT={lacteos:'🥛',carnes:'🥩',panaderia:'🍞',verduras:'🥬',frutas:'🍎',bebidas:'🥤',limpieza:'🧴',almacen:'🥫',otros:'🛒'};
 const today=()=>new Date().toISOString().slice(0,10);
-let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,psort='price',pTok=0,prRows=[];
+let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,found=null,lastH={},curH=null,pendingReload=false,psort='price',pTok=0,prRows=[];
 
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
-function app(h){$('#app').innerHTML=h}
+function app(h){curH=null;$('#app').innerHTML=h}
+function show(k,h,silent){
+  lastH[k]=h;
+  if(view!==k||draft)return;
+  if(silent&&k==='history'&&[...document.querySelectorAll('#app [id^="d"]')].some(e=>e.innerHTML))return;
+  if(curH===h)return;
+  const y=scrollY;app(h);curH=h;if(silent)scrollTo(0,y);
+}
+const safe=()=>!(document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
 
 /* ---------- Auth ---------- */
 function login(){
@@ -94,11 +104,13 @@ async function boot(){
   const {data}=await sb.auth.getSession();
   user=data.session?.user||null;
   if(!user)return login();
-  $('#nav').hidden=false;go('home');
+  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');go(g||'home');
 }
 
 /* ---------- Navigation ---------- */
 function go(v){
+  draft=null;mapShown=false;found=null;
+  if(pendingReload&&v!=='scan'&&safe()){sessionStorage.setItem('goto',v);location.reload();return}
   view=v;
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   ({home,prices,scan,history,settings})[v]();
@@ -106,13 +118,13 @@ function go(v){
 $('#nav').onclick=e=>{const b=e.target.closest('button');if(b)go(b.dataset.v)};
 
 /* ---------- Home ---------- */
-async function home(){
-  app('<p class="mu">Cargando…</p>');
+async function home(silent){
+  if(!silent){if(lastH.home){app(lastH.home);curH=lastH.home}else app('<p class="mu">Cargando…</p>')}
   const n=new Date(),y=n.getFullYear(),m=n.getMonth();
   const ms=(yy,mm)=>new Date(yy,mm,1).toLocaleDateString('sv').slice(0,10);
   const m0=ms(y,m),m1=ms(y,m-1);
   const {data:rs=[],error}=await sb.from('receipts').select('*').gte('purchased_at',m1).order('purchased_at',{ascending:false});
-  if(error)return app(`<div class="card">No se pudo cargar: ${esc(error.message)}</div>`);
+  if(error)return silent?0:app(`<div class="card">No se pudo cargar: ${esc(error.message)}</div>`);
   const cur=rs.filter(r=>r.purchased_at>=m0),prev=rs.filter(r=>r.purchased_at<m0);
   const sum=a=>a.reduce((s,r)=>s+Number(r.total),0),c=sum(cur),p=sum(prev);
   const d=p?((c-p)/p*100):null;
@@ -123,11 +135,11 @@ async function home(){
     const l=Object.values(agg).sort((a,b)=>b.t-a.t).slice(0,5);
     top=`<h2>Lo que más gastás</h2><div class="card">${l.map(i=>`<div class="row"><span>${CAT[i.c]||'🛒'} ${esc(i.n)} <span class="mu">×${i.q}</span></span><span class="num">${money(i.t)}</span></div>`).join('')}</div>`;
   }
-  app(`<h1>Este mes</h1>
+  show('home',`<h1>Este mes</h1>
   <div class="card"><div class="mu">Gastaste en el súper</div><div class="big">${money(c)}</div>
   <div class="mu">${cur.length} compra${cur.length===1?'':'s'}${d===null?'':` · <span class="${d>0?'up':'down'}">${d>0?'+':''}${d.toFixed(1)}%</span> vs. el mes pasado`}</div></div>
   ${top}
-  ${rs.length?'':`<div class="empty">Todavía no cargaste compras.<br><br><button onclick="go('scan')">Escanear mi primer ticket</button></div>`}`);
+  ${rs.length?'':`<div class="empty">Todavía no cargaste compras.<br><br><button onclick="go('scan')">Escanear mi primer ticket</button></div>`}`,silent);
 }
 
 /* ---------- Scan ---------- */
@@ -190,7 +202,7 @@ const norm=d=>({lat:null,lng:null,address:String(d.store_address||'').trim(),des
 function form(){
   const t=draft.items.reduce((s,i)=>s+i.total_price,0);
   app(`<h1>${draft.id?'Editar compra':'Revisá el ticket'}</h1>
-  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value"><input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="draft.address=this.value;draft.lat=draft.lng=null"><button class="ghost" type="button" onclick="mapOpen()">📍 Elegir en Google Maps</button><div id="mapbox" hidden><input id="msearch" placeholder="Buscá el local y tocá Enter" hidden><div id="map"></div><p id="mmsg" class="mu"></p></div></div>
+  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value"><input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="draft.address=this.value;draft.lat=draft.lng=null"><button class="ghost" type="button" onclick="mapOpen()">📍 Elegir en Google Maps</button><div id="mapbox" hidden><button class="ghost" type="button" id="mfull" onclick="mapFull()" style="margin-bottom:8px">⛶ Pantalla completa</button><input id="msearch" placeholder="Buscá el local y tocá Enter" hidden><div id="map"></div><div id="mmsg" class="mu"></div></div></div>
   <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
   ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>`).join('')}
   <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros'});form()">+ Agregar producto</button></p>
@@ -200,6 +212,10 @@ function form(){
   if(mapShown)mapOpen();
 }
 async function save(){
+  if(window._saving)return;window._saving=true;
+  try{await _save()}finally{window._saving=false}
+}
+async function _save(){
   const items=draft.items.filter(i=>i.name.trim());
   if(!draft.store.trim())return toast('Poné el nombre del supermercado');
   if(!items.length)return toast('Agregá al menos un producto');
@@ -218,31 +234,48 @@ async function save(){
     if(pp.length){const {error:e3}=await sb.from('price_points').insert(pp);if(e3)note+=' (no se pudieron compartir los precios)'}
   }
   if(oldP.length)await sb.from('price_points').delete().in('id',oldP);
-  const wasEdit=!!draft.id;toast(note);go(wasEdit?'history':'home');
+  const wasEdit=!!draft.id;lastH.home=lastH.history=null;toast(note);go(wasEdit?'history':'home');
 }
 
 /* ---------- Asistente de Google Maps ---------- */
 function getPos(){return new Promise(ok=>{if(pos||!navigator.geolocation)return ok(pos);navigator.geolocation.getCurrentPosition(p=>{pos={lat:p.coords.latitude,lng:p.coords.longitude};ok(pos)},()=>ok(null),{timeout:10000,maximumAge:600000})})}
 async function mapOpen(){
-  mapShown=true;$('#mapbox').hidden=false;
+  mapShown=true;found=null;$('#mapbox').hidden=false;
   const c=await getPos(),key=localStorage.getItem('mk'),q=draft.store.trim();
   $('#msearch').hidden=!key;
   if(!c)$('#mmsg').textContent='No pude usar tu ubicación. Permitila en el navegador para que el mapa se abra donde estás.';
   if(key)return mapJs(key,c,q);
   const src=`https://maps.google.com/maps?output=embed&z=15&hl=es&q=${encodeURIComponent(q||'supermercado')}${c?`&ll=${c.lat},${c.lng}`:''}`;
   $('#map').innerHTML=`<iframe src="${src}" loading="lazy" title="Mapa"></iframe>`;
-  $('#mmsg').innerHTML=`Buscá tu local y copiá la dirección. <a href="https://www.google.com/maps/search/${encodeURIComponent(q||'supermercado')}${c?`/@${c.lat},${c.lng},15z`:''}" target="_blank" rel="noopener">Abrir en Google Maps</a>. Con una clave de Maps en Ajustes la dirección se completa sola.`;
+  $('#mmsg').innerHTML=`Buscá tu local y copiá la dirección. <a href="https://www.google.com/maps/search/${encodeURIComponent(q||'supermercado')}${c?`/@${c.lat},${c.lng},15z`:''}" target="_blank" rel="noopener">Abrir en Google Maps</a>. Con una clave de Maps en Ajustes aparece el botón para poner la dirección encontrada.`;
+}
+function mapFull(){
+  const on=$('#mapbox').classList.toggle('full');
+  $('#mfull').textContent=on?'✕ Cerrar pantalla completa':'⛶ Pantalla completa';
+  if(window._gm&&window.google)setTimeout(()=>{const c=window._gm.getCenter();google.maps.event.trigger(window._gm,'resize');window._gm.setCenter(c)},80);
+}
+function showFound(){
+  const m=$('#mmsg');if(!m||!found)return;
+  m.innerHTML=found.addr?`<div class="card" style="margin:8px 0 0"><div class="mu">Dirección encontrada por Google Maps</div><b>${esc(found.addr)}</b><p style="margin:10px 0 0"><button onclick="useFound()">Poner dirección encontrada por Google Maps</button></p></div>`:'Google Maps no encontró una dirección para ese punto.';
+}
+function useFound(){
+  if(!found||!found.addr)return;
+  draft.address=found.addr;draft.lat=found.loc?found.loc.lat():null;draft.lng=found.loc?found.loc.lng():null;
+  $('#addr').value=draft.address;
+  if(found.name&&!draft.store.trim()){draft.store=found.name;$('#store').value=found.name}
+  $('#mmsg').textContent='✅ Dirección cargada en el campo. Revisala y guardá.';
 }
 function loadMaps(key){return window.google&&google.maps&&google.maps.importLibrary?Promise.resolve():new Promise((ok,no)=>{window.__mi=ok;const s=document.createElement('script');s.src=`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&loading=async&language=es&callback=__mi`;s.onerror=()=>no(Error('No se pudo cargar Google Maps'));document.head.appendChild(s)})}
 async function mapJs(key,c,q){
   try{await loadMaps(key);const {Place}=await google.maps.importLibrary('places');
-    const center=c||{lat:-34.6037,lng:-58.3816},map=new google.maps.Map($('#map'),{center,zoom:c?16:11,mapTypeControl:false,streetViewControl:false,fullscreenControl:false}),mk=new google.maps.Marker({map});
+    const center=c||{lat:-34.6037,lng:-58.3816},map=new google.maps.Map($('#map'),{center,zoom:c?16:11,mapTypeControl:false,streetViewControl:false,fullscreenControl:false}),mk=new google.maps.Marker({map});window._gm=map;
     if(c)new google.maps.Marker({map,position:c,title:'Vos',icon:{path:google.maps.SymbolPath.CIRCLE,scale:7,fillColor:'#4285F4',fillOpacity:1,strokeColor:'#fff',strokeWeight:2}});
-    const fill=(name,addr,loc)=>{draft.address=addr||'';draft.lat=loc?loc.lat():null;draft.lng=loc?loc.lng():null;$('#addr').value=draft.address;if(name&&!draft.store.trim()){draft.store=name;$('#store').value=name}if(loc){mk.setPosition(loc);map.panTo(loc)}$('#mmsg').textContent='Dirección cargada: revisala y guardá.'};
+    const fill=(name,addr,loc)=>{found={name,addr:addr||'',loc};if(loc){mk.setPosition(loc);map.panTo(loc)}showFound()};
     map.addListener('click',async e=>{if(!e.placeId)return;e.stop();try{const p=new Place({id:e.placeId,requestedLanguage:'es'});await p.fetchFields({fields:['displayName','formattedAddress','location']});fill(p.displayName,p.formattedAddress,p.location)}catch(err){$('#mmsg').textContent='No pude leer ese lugar: '+err.message}});
     $('#msearch').onkeydown=async e=>{if(e.key!=='Enter')return;e.preventDefault();const t=e.target.value.trim();if(!t)return;try{const r=await Place.searchByText({textQuery:t,fields:['displayName','formattedAddress','location'],locationBias:c?{center:c,radius:5000}:undefined,maxResultCount:1,language:'es'});if(!r.places.length)return $('#mmsg').textContent='No encontré ese local cerca.';const p=r.places[0];map.setZoom(17);fill(p.displayName,p.formattedAddress,p.location)}catch(err){$('#mmsg').textContent='Error de búsqueda: '+err.message}};
     if(q&&!$('#msearch').value)$('#msearch').value=q;
     $('#mmsg').textContent='Tocá el local en el mapa, o buscalo arriba y tocá Enter.';
+    if(q){try{const r0=await Place.searchByText({textQuery:q,fields:['displayName','formattedAddress','location'],locationBias:c?{center:c,radius:5000}:undefined,maxResultCount:1,language:'es'});if(r0.places.length){const p0=r0.places[0];map.setZoom(16);fill(p0.displayName,p0.formattedAddress,p0.location)}}catch(e){}}
   }catch(err){$('#mmsg').textContent='Maps: '+err.message}
 }
 
@@ -305,11 +338,11 @@ function pRender(q,r,useR){
 }
 
 /* ---------- History ---------- */
-async function history(){
-  app('<p class="mu">Cargando…</p>');
+async function history(silent){
+  if(!silent){if(lastH.history){app(lastH.history);curH=lastH.history}else app('<p class="mu">Cargando…</p>')}
   const {data:rs=[],error}=await sb.from('receipts').select('*').order('purchased_at',{ascending:false}).limit(100);
-  if(error)return app(`<div class="card">${esc(error.message)}</div>`);
-  app(`<h1>Mis compras</h1>${rs.length?rs.map(r=>`<div class="card" id="r${r.id}"><div class="row" style="border:0;cursor:pointer" onclick="detail('${r.id}')"><span><b>${esc(r.store)}</b>${r.store_address?`<br><span class="mu">${esc(r.store_address)}</span>`:''}<br><span class="mu">${r.purchased_at}</span>${r.description?`<br><span class="mu">${esc(r.description)}</span>`:''}</span><b class="num">${money(r.total)}</b></div><div id="d${r.id}"></div></div>`).join(''):'<div class="empty">Acá van a aparecer tus compras.</div>'}`);
+  if(error)return silent?0:app(`<div class="card">${esc(error.message)}</div>`);
+  show('history',`<h1>Mis compras</h1>${rs.length?rs.map(r=>`<div class="card" id="r${r.id}"><div class="row" style="border:0;cursor:pointer" onclick="detail('${r.id}')"><span><b>${esc(r.store)}</b>${r.store_address?`<br><span class="mu">${esc(r.store_address)}</span>`:''}<br><span class="mu">${r.purchased_at}</span>${r.description?`<br><span class="mu">${esc(r.description)}</span>`:''}</span><span style="display:flex;align-items:center;gap:6px"><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.store_address?r.store+' '+r.store_address:r.store)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" aria-label="Ver ubicación en Google Maps" title="Ver en Google Maps" style="font-size:1.4rem;text-decoration:none;padding:4px">📍</a><b class="num">${money(r.total)}</b></span></div><div id="d${r.id}"></div></div>`).join(''):'<div class="empty">Acá van a aparecer tus compras.</div>'}`,silent);
 }
 async function detail(id){
   const box=$('#d'+id);
@@ -328,7 +361,7 @@ async function del(id){
   if(!confirm('¿Eliminar esta compra?'))return;
   const {error}=await sb.from('receipts').delete().eq('id',id);
   if(error)return toast(error.message);
-  history();
+  lastH.home=lastH.history=null;history();
 }
 
 /* ---------- Settings ---------- */
@@ -337,12 +370,34 @@ function settings(){
   <p class="mu">Clave de Gemini (se guarda solo en este dispositivo).</p>
   <input id="gk" type="password" placeholder="Clave de Gemini" value="${esc(localStorage.getItem('gk')||'')}"><p><button onclick="localStorage.setItem('gk',$('#gk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
   <div class="card"><h2 style="margin-top:0">Precios compartidos</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('share')!=='0'?'checked':''} onchange="localStorage.setItem('share',this.checked?'1':'0')"><span>Compartir mis precios de forma anónima con otros usuarios <span class="mu">(producto, precio, local y fecha; nunca tu nombre ni tu email). Se aplica a los tickets que cargues desde ahora.</span></span></label></div>
-  <div class="card"><h2 style="margin-top:0">Google Maps (opcional)</h2><p class="mu">Con una clave de Maps JavaScript API y Places API (New), el mapa se abre en tu ubicación y la dirección se completa al tocar el local. Sin clave se muestra un mapa simple.</p><input id="mk" type="password" placeholder="Clave de Google Maps" value="${esc(localStorage.getItem('mk')||'')}"><p><button onclick="localStorage.setItem('mk',$('#mk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
+  <div class="card"><h2 style="margin-top:0">Google Maps (opcional)</h2><p class="mu">Con una clave de Maps JavaScript API y Places API (New), el mapa se abre en tu ubicación y aparece un botón para poner en el ticket la dirección que encuentra Google Maps. Sin clave se muestra un mapa simple.</p><input id="mk" type="password" placeholder="Clave de Google Maps" value="${esc(localStorage.getItem('mk')||'')}"><p><button onclick="localStorage.setItem('mk',$('#mk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
   <div class="card"><div class="mu">${esc(user.email)}</div><p><button class="ghost" onclick="sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
 }
 
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
-boot();
+/* ---------- Refresco silencioso y auto-actualización ---------- */
+const APP_VER=document.querySelector('meta[name=app-version]').content;
+function refresh(){
+  if(document.hidden||!user||draft||!safe())return;
+  if(view==='home')home(true);else if(view==='history')history(true);
+}
+async function checkUpdate(){
+  try{
+    const t=await (await fetch(location.pathname,{cache:'no-store'})).text();
+    const m=/name="app-version" content="([^"]+)"/.exec(t);
+    if(m&&m[1]!==APP_VER)pendingReload=true;
+  }catch(e){}
+}
+document.addEventListener('visibilitychange',async()=>{
+  if(document.hidden)return;
+  await checkUpdate();
+  if(pendingReload&&!draft&&view!=='scan'&&safe()){sessionStorage.setItem('goto',view);location.reload();return}
+  refresh();
+});
+addEventListener('focus',refresh);
+setInterval(refresh,30000);
+setInterval(checkUpdate,300000);
+boot();checkUpdate();
 </script>
 </body>
 </html>
