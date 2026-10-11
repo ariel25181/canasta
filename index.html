@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Canasta</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -57,7 +60,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const money=n=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(n||0);
 const CAT={lacteos:'🥛',carnes:'🥩',panaderia:'🍞',verduras:'🥬',frutas:'🍎',bebidas:'🥤',limpieza:'🧴',almacen:'🥫',otros:'🛒'};
 const today=()=>new Date().toISOString().slice(0,10);
-let user=null,view='home',draft=null;
+let user=null,view='home',draft=null,pendB64='',pendData=null;
 
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
 function app(h){$('#app').innerHTML=h}
@@ -124,16 +127,47 @@ function scan(){
   <button class="ghost" onclick="manual()" style="margin-bottom:8px">Cargar a mano</button><p id="st" class="mu"></p></div>`);
   $('#f').onchange=$('#g').onchange=async e=>{
     const f=e.target.files[0];if(!f)return;
-    $('#st').textContent='Leyendo el ticket…';
-    try{draft=norm(await extract(await resize(f)));form()}catch(err){$('#st').textContent='';toast(err.message)}
+    $('#st').textContent='Revisando la foto…';
+    try{const r=await resize(f);pendB64=r.b64;const tips=localTips(r.q);if(tips.length)return retake(tips,'img');await run(r.b64)}catch(err){$('#st').textContent='';toast(err.message)}
   };
 }
 function manual(){draft={store:'',date:today(),description:'',items:[{name:'',qty:1,total_price:0,category:'otros'}]};form()}
-const resize=f=>new Promise((ok,no)=>{const i=new Image();i.onerror=()=>no(Error('No se pudo abrir la imagen'));i.onload=()=>{const k=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.8).split(',')[1])};i.src=URL.createObjectURL(f)});
+function quality(i){
+  const k=Math.min(1,1000/Math.max(i.width,i.height)),w=Math.round(i.width*k),h=Math.round(i.height*k),c=document.createElement('canvas');
+  c.width=w;c.height=h;const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(i,0,0,w,h);
+  const d=cx.getImageData(0,0,w,h).data,g=new Float32Array(w*h);let sum=0;
+  for(let p=0;p<w*h;p++){g[p]=.299*d[p*4]+.587*d[p*4+1]+.114*d[p*4+2];sum+=g[p]}
+  let m=0,m2=0,n=0;
+  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const p=y*w+x,l=4*g[p]-g[p-1]-g[p+1]-g[p-w]-g[p+w];m+=l;m2+=l*l;n++}
+  return{blur:m2/n-(m/n)**2,bright:sum/(w*h),min:Math.min(i.width,i.height)};
+}
+function localTips(q){
+  const t=[];
+  if(q.min<700)t.push('La foto es muy chica: acercate al ticket o usá la cámara trasera.');
+  if(q.bright<70)t.push('Hay poca luz: buscá un lugar más iluminado.');
+  if(q.bright>235)t.push('Hay reflejo o exceso de luz: evitá el flash y la luz directa sobre el papel.');
+  if(q.blur<25)t.push('Se ve borrosa: mantené quieto el celular y esperá a que enfoque antes de sacar.');
+  return t;
+}
+function retake(tips,mode){
+  const use=mode==='img'?'run(pendB64)':mode==='data'?'draft=norm(pendData);form()':'';
+  app(`<h1>Mejor sacá otra foto</h1><div class="card"><p><b>No se lee bien el ticket:</b></p><ul>${tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>
+  <p class="mu">Consejos: apoyá el ticket sobre una superficie plana y oscura, alisalo bien, encuadralo completo y de frente, con buena luz y sin flash. Si es muy largo, sacalo en partes y cargá lo que falte con "+ Agregar producto".</p></div>
+  <button onclick="scan()">📷 Sacar otra foto</button> ${use?`<button class="ghost" onclick="${use}">Usar igual</button>`:''} <button class="ghost" onclick="manual()">Cargar a mano</button>`);
+}
+async function run(b64){
+  app('<h1>Nuevo ticket</h1><p class="mu">Leyendo el ticket…</p>');
+  try{
+    const d=await extract(b64),n=(d.items||[]).length,bad=d.quality&&d.quality.legible===false;
+    if(bad||!n){pendData=d;const tips=((d.quality&&d.quality.issues)||[]).filter(Boolean);return retake(tips.length?tips:['No pude identificar productos en la foto.'],n?'data':'')}
+    draft=norm(d);form();
+  }catch(err){scan();toast(err.message)}
+}
+const resize=f=>new Promise((ok,no)=>{const i=new Image();i.onerror=()=>no(Error('No se pudo abrir la imagen'));i.onload=()=>{const k=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok({b64:c.toDataURL('image/jpeg',.8).split(',')[1],q:quality(i)})};i.src=URL.createObjectURL(f)});
 async function extract(b64){
   const key=localStorage.getItem('gk');
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
-  const prompt=`Extraé los datos de este ticket de supermercado argentino. Respondé solo JSON: {"store":string,"description":string,"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros"}]}. Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío.`;
+  const prompt=`Extraé los datos de este ticket de supermercado argentino. Respondé solo JSON: {"store":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros"}]}. Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla.`;
   const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:'image/jpeg',data:b64}}]}],generationConfig:{responseMimeType:'application/json'}})});
   const j=await r.json();
   if(!r.ok)throw Error(j.error?.message||'Error al leer el ticket');
@@ -191,6 +225,7 @@ function settings(){
   <div class="card"><div class="mu">${esc(user.email)}</div><p><button class="ghost" onclick="sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
 }
 
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 boot();
 </script>
 </body>
