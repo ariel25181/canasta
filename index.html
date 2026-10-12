@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="20261012025322">
+<meta name="app-version" content="20261012030548">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -110,7 +110,7 @@ async function boot(){
   const {data}=await sb.auth.getSession();
   user=data.session?.user||null;
   if(!user)return login();
-  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');go(g||'home');
+  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');go(g||'home');fixCoords();
 }
 
 /* ---------- Navigation ---------- */
@@ -226,6 +226,7 @@ async function _save(){
   if(!draft.store.trim())return toast('Poné el nombre del supermercado');
   if(!items.length)return toast('Agregá al menos un producto');
   const total=items.reduce((s,i)=>s+i.total_price,0);
+  if(draft.address.trim()&&draft.lat==null){const g=await geocodeAddr(draft.address);if(g){draft.lat=g.lat;draft.lng=g.lng}}
   const row={store:draft.store.trim(),purchased_at:draft.date,description:draft.description.trim()||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,total};
   const {data:r,error}=draft.id?await sb.from('receipts').update(row).eq('id',draft.id).select().single():await sb.from('receipts').insert(row).select().single();
   if(error)return toast(error.message);
@@ -371,6 +372,32 @@ async function pickMine(k){
     const g=(r.results||[])[0];
     if(g)setFound(x.store,x.addr,g.geometry.location);else{found={name:x.store,addr:x.addr,loc:null};showFound()}
   }catch(e){found={name:x.store,addr:x.addr,loc:null};showFound()}
+}
+const cleanAddr=a=>String(a||'').replace(/C\.?\s?P\.?\s*\(?\s*[A-Z]?\d{4}[A-Z]{0,3}\s*\)?/ig,' ').replace(/[()\/]/g,' ').replace(/\s+/g,' ').trim();
+async function geocodeAddr(a){
+  const q=cleanAddr(a);if(q.length<5)return null;
+  try{
+    const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=ar&accept-language=es&q='+encodeURIComponent(q),{signal:AbortSignal.timeout(6000)});
+    const x=(await r.json())[0];
+    return x?{lat:+x.lat,lng:+x.lon}:null;
+  }catch(e){return null}
+}
+let fixing=false;
+async function fixCoords(){
+  if(fixing||!user)return;fixing=true;
+  try{
+    let bad=[];try{bad=JSON.parse(localStorage.getItem('nogeo')||'[]')}catch(e){}
+    const {data=[]}=await sb.from('receipts').select('id,store_address').not('store_address','is',null).is('store_lat',null).limit(30);
+    for(const r of data.filter(x=>!bad.includes(x.id)).slice(0,8)){
+      const c=await geocodeAddr(r.store_address);
+      if(c){
+        await sb.from('receipts').update({store_lat:c.lat,store_lng:c.lng}).eq('id',r.id);
+        await sb.from('price_points').update({lat:c.lat,lng:c.lng}).eq('receipt_id',r.id);
+      }else{bad.push(r.id);localStorage.setItem('nogeo',JSON.stringify(bad.slice(-100)))}
+      await new Promise(x=>setTimeout(x,1200));
+    }
+  }catch(e){}
+  fixing=false;
 }
 let addrT=0,addrTok=0,mapReady=false;
 async function kl(v){
