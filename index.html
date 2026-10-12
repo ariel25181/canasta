@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="20261012030548">
+<meta name="app-version" content="20261012195843">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -57,6 +57,7 @@ a.btn.sm{padding:8px 14px;font-size:.9rem;text-decoration:none}
 #mpin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);font-size:2.2rem;line-height:1;pointer-events:none;filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))}
 #mgps{position:absolute;right:10px;bottom:10px;width:46px;height:46px;border-radius:50%;background:#fff;color:var(--tx);padding:0;box-shadow:0 2px 6px rgba(0,0,0,.25);font-size:1.3rem}
 .mhead{display:flex;align-items:center;gap:8px;margin-bottom:8px}.mhead b{flex:1}.mgrp{margin:8px 0 2px}
+.it2{display:grid;grid-template-columns:1fr 1.3fr;gap:6px;margin:-2px 0 12px}.it2 select,.it2 input{font-size:.85rem;padding:7px 10px}
 #toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%}
 @media(min-width:900px){nav{max-width:420px;left:50%;transform:translateX(-50%);border-radius:20px 20px 0 0}}
 </style>
@@ -80,7 +81,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const money=n=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(n||0);
 const CAT={lacteos:'🥛',carnes:'🥩',panaderia:'🍞',verduras:'🥬',frutas:'🍎',bebidas:'🥤',limpieza:'🧴',almacen:'🥫',otros:'🛒'};
 const today=()=>new Date().toISOString().slice(0,10);
-let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,found=null,lastH={},curH=null,prAI='off',prTerms=[],revTok=0,pendingReload=false,psort='price',pTok=0,prRows=[];
+let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,found=null,lastH={},curH=null,prAI='off',prTerms=[],prCat=false,revTok=0,pendingReload=false,psort='price',pTok=0,prRows=[];
 
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
 function app(h){curH=null;$('#app').innerHTML=h}
@@ -110,7 +111,7 @@ async function boot(){
   const {data}=await sb.auth.getSession();
   user=data.session?.user||null;
   if(!user)return login();
-  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');go(g||'home');fixCoords();
+  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');go(g||'home');fixCoords();fixSubcats();
 }
 
 /* ---------- Navigation ---------- */
@@ -161,7 +162,7 @@ function scan(){
     try{const r=await resize(f);pendB64=r.b64;const tips=localTips(r.q);if(tips.length)return retake(tips,'img');await run(r.b64)}catch(err){$('#st').textContent='';toast(err.message)}
   };
 }
-function manual(){mapShown=false;draft={store:'',date:today(),description:'',address:'',lat:null,lng:null,items:[{name:'',qty:1,total_price:0,category:'otros'}]};form()}
+function manual(){mapShown=false;draft={store:'',date:today(),description:'',address:'',lat:null,lng:null,items:[{name:'',qty:1,total_price:0,category:'otros',subcategory:''}]};form()}
 function quality(i){
   const k=Math.min(1,1000/Math.max(i.width,i.height)),w=Math.round(i.width*k),h=Math.round(i.height*k),c=document.createElement('canvas');
   c.width=w;c.height=h;const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(i,0,0,w,h);
@@ -197,21 +198,24 @@ const resize=f=>new Promise((ok,no)=>{const i=new Image();i.onerror=()=>no(Error
 async function extract(b64){
   const key=localStorage.getItem('gk');
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
-  const prompt=`Extraé los datos de este ticket de supermercado argentino. Respondé solo JSON: {"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros"}]}. Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío.`;
+  const prompt=`Extraé los datos de este ticket de supermercado argentino. Respondé solo JSON: {"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío.`;
   const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:'image/jpeg',data:b64}}]}],generationConfig:{responseMimeType:'application/json'}})});
   const j=await r.json();
   if(!r.ok)throw Error(j.error?.message||'Error al leer el ticket');
   return JSON.parse(j.candidates[0].content.parts[0].text);
 }
-const norm=d=>({lat:null,lng:null,address:String(d.store_address||'').trim(),description:String(d.description||'').trim(),store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros'}))});
+const norm=d=>({lat:null,lng:null,address:String(d.store_address||'').trim(),description:String(d.description||'').trim(),store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||'')}))});
 
+function subRow(i,k){
+  return `<div class="it2"><select onchange="draft.items[${k}].category=this.value" aria-label="Categoría">${Object.keys(CAT).map(c=>`<option value="${c}"${i.category===c?' selected':''}>${CAT[c]} ${c}</option>`).join('')}</select><input placeholder="Subcategoría (ej: cítrico)" value="${esc(i.subcategory||'')}" oninput="draft.items[${k}].subcategory=this.value" aria-label="Subcategoría"></div>`;
+}
 function form(){
   const t=draft.items.reduce((s,i)=>s+i.total_price,0);
   app(`<h1>${draft.id?'Editar compra':'Revisá el ticket'}</h1>
   <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value"><input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><button class="ghost" type="button" onclick="mapOpen()">📍 Elegir en Google Maps</button><div id="mapbox" hidden><div class="mhead"><b>Ubicación del local</b><button class="ghost" type="button" id="mfull" onclick="mapFull()" style="padding:6px 12px" aria-label="Pantalla completa">⛶</button><button class="x" type="button" onclick="mapClose()" aria-label="Cerrar">✕</button></div><input id="msearch" type="search" placeholder="Buscá el local o la dirección" autocomplete="off" hidden><div id="msug"></div><div id="mchips"></div><div id="mwrap"><div id="map"></div><div id="mpin">📍</div><button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button></div><div id="mmsg" class="mu"></div></div></div>
   <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
-  ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>`).join('')}
-  <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros'});form()">+ Agregar producto</button></p>
+  ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>${subRow(i,k)}`).join('')}
+  <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros',subcategory:''});form()">+ Agregar producto</button></p>
   <div class="card row"><b>Total</b><b class="num">${money(t)}</b></div>
   ${localStorage.getItem('share')!=='0'?`<p class="mu">🔒 Tus precios se comparten de forma anónima.${draft.lat!=null?'':' Elegí el local en el mapa para que aparezcan en búsquedas por zona.'} Podés cambiarlo en Ajustes.</p>`:''}
   <button onclick="save()">${draft.id?'Guardar cambios':'Guardar compra'}</button>${draft.id?` <button class="ghost" onclick="go('history')">Cancelar</button>`:''}`);
@@ -232,12 +236,12 @@ async function _save(){
   if(error)return toast(error.message);
   const oldI=draft.id?((await sb.from('receipt_items').select('id').eq('receipt_id',draft.id)).data||[]).map(x=>x.id):[];
   const oldP=draft.id?((await sb.from('price_points').select('id').eq('receipt_id',draft.id)).data||[]).map(x=>x.id):[];
-  const {error:e2}=await sb.from('receipt_items').insert(items.map(i=>({receipt_id:r.id,name:i.name.trim(),qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,category:i.category})));
+  const {error:e2}=await sb.from('receipt_items').insert(items.map(i=>({receipt_id:r.id,name:i.name.trim(),qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,category:i.category,subcategory:nk(i.subcategory)||null})));
   if(e2){if(!draft.id)await sb.from('receipts').delete().eq('id',r.id);return toast(e2.message)}
   if(oldI.length)await sb.from('receipt_items').delete().in('id',oldI);
   let note=draft.id?'Cambios guardados':'Compra guardada';
   if(localStorage.getItem('share')!=='0'){
-    const pp=items.filter(i=>i.total_price>0).map(i=>({receipt_id:r.id,store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:nk(i.name),qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,purchased_at:draft.date}));
+    const pp=items.filter(i=>i.total_price>0).map(i=>({receipt_id:r.id,store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:nk(i.name),category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,purchased_at:draft.date}));
     if(pp.length){const {error:e3}=await sb.from('price_points').insert(pp);if(e3)note+=' (no se pudieron compartir los precios)'}
   }
   if(oldP.length)await sb.from('price_points').delete().in('id',oldP);
@@ -382,6 +386,26 @@ async function geocodeAddr(a){
     return x?{lat:+x.lat,lng:+x.lon}:null;
   }catch(e){return null}
 }
+let fixingS=false;
+async function fixSubcats(){
+  const key=localStorage.getItem('gk');
+  if(fixingS||!user||!key||localStorage.getItem('ai')==='0')return;fixingS=true;
+  try{
+    const {data=[]}=await sb.from('receipt_items').select('id,receipt_id,name,category').is('subcategory',null).limit(30);
+    if(!data.length){fixingS=false;return}
+    const list=data.map((x,i)=>`${i+1}. ${x.name} (${x.category||'otros'})`).join('\n');
+    const prompt=`Para cada producto de supermercado argentino, devolvé una subcategoría corta, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Respondé solo JSON {"s":["..."]} con una entrada por producto, en el mismo orden.\n${list}`;
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(20000),body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:.1,thinkingConfig:{thinkingBudget:0}}})});
+    const j=await r.json();if(!r.ok)throw Error('gemini');
+    const subs=JSON.parse(j.candidates[0].content.parts[0].text).s||[];
+    for(let i=0;i<data.length;i++){
+      const sc=nk(subs[i]||''),x=data[i];
+      await sb.from('receipt_items').update({subcategory:sc}).eq('id',x.id);
+      if(sc)await sb.from('price_points').update({subcategory:sc}).eq('receipt_id',x.receipt_id).eq('product_name',x.name);
+    }
+  }catch(e){}
+  fixingS=false;
+}
 let fixing=false;
 async function fixCoords(){
   if(fixing||!user)return;fixing=true;
@@ -444,14 +468,18 @@ const recents=()=>{try{return JSON.parse(localStorage.getItem('rs')||'[]')}catch
 const fmtD=k=>k<1?`${Math.round(k*1000)} m`:`${k.toFixed(1).replace('.',',')} km`;
 const days=d=>Math.floor((new Date(today())-new Date(d))/864e5);
 function ago(d){const n=days(d),m=Math.floor(n/30),y=Math.floor(n/365);return n<=0?'hoy':n===1?'ayer':n<30?`hace ${n} días`:n<365?`hace ${m} ${m===1?'mes':'meses'}`:`hace ${y} ${y===1?'año':'años'}`}
+const CATQ={fruta:'frutas',frutas:'frutas',verdura:'verduras',verduras:'verduras',hortaliza:'verduras',hortalizas:'verduras',lacteo:'lacteos',lacteos:'lacteos',carne:'carnes',carnes:'carnes',panaderia:'panaderia',bebida:'bebidas',bebidas:'bebidas',gaseosa:'bebidas',gaseosas:'bebidas',limpieza:'limpieza',almacen:'almacen'};
+const catOf=q=>{const w=q.split(' ');return w.length<=2?(w.map(x=>CATQ[x]).find(Boolean)||null):null};
+const stemW=w=>w.length>=5?w.replace(/(es|s)$/,''):w;
+const stemQ=q=>q.split(' ').map(stemW).join(' ');
 const pk=x=>(x.store+'|'+(x.store_address||'')+'|'+x.product).toLowerCase();
 async function expand(q){
-  const key=localStorage.getItem('gk'),ck='exp:'+q;
+  const key=localStorage.getItem('gk'),ck='exp2:'+q;
   try{const c=localStorage.getItem(ck);if(c)return JSON.parse(c)}catch(e){}
-  const prompt=`Sos un asistente de compras de supermercados en Argentina. Un usuario busca el producto "${q}". Devolvé hasta 8 términos relacionados que puedan aparecer en el nombre de ese producto en un ticket de supermercado. Si "${q}" es una categoría o tipo (por ejemplo "malbec"), devolvé marcas y variedades argentinas conocidas de esa categoría (por ejemplo Nicasia, Trapiche, Rutini). Si es una marca, devolvé su categoría y sus variedades. Sumá sinónimos y abreviaturas comunes de tickets. No repitas "${q}". Respondé solo JSON: {"terms":["..."]} con términos cortos, en minúsculas y sin tildes.`;
+  const prompt=`Sos un asistente de compras de supermercados en Argentina. Un usuario busca el producto "${q}". Devolvé hasta 10 términos relacionados, todos en singular, que puedan aparecer en el nombre de ese producto en un ticket de supermercado. Si "${q}" es una categoría o tipo (por ejemplo "malbec"), devolvé marcas y variedades argentinas conocidas de esa categoría (por ejemplo Nicasia, Trapiche, Rutini). Si es una marca, devolvé su categoría y sus variedades. Sumá sinónimos y abreviaturas comunes de tickets. No repitas "${q}". Respondé solo JSON: {"terms":["..."]} con términos cortos, en minúsculas y sin tildes.`;
   const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(8000),body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:.2,thinkingConfig:{thinkingBudget:0}}})});
   const j=await r.json();if(!r.ok)throw Error(j.error?.message||'Error de Gemini');
-  const t=[...new Set((JSON.parse(j.candidates[0].content.parts[0].text).terms||[]).map(nk).filter(x=>x.length>=2&&x!==q))].slice(0,8);
+  const t=[...new Set((JSON.parse(j.candidates[0].content.parts[0].text).terms||[]).map(nk).filter(x=>x.length>=2&&x!==q))].slice(0,10);
   if(t.length)try{localStorage.setItem(ck,JSON.stringify(t))}catch(e){}
   return t;
 }
@@ -475,11 +503,12 @@ async function pGo(save){
   b.innerHTML='<p class="mu">Buscando…</p>';
   await getPos();pLoc();
   const r=rad(),useR=r>0&&!!pos;
-  const rpcQ=t=>sb.rpc('search_prices',{q:t,user_lat:pos?pos.lat:null,user_lng:pos?pos.lng:null,radius_km:useR?r:null});
-  const aiOn=!!localStorage.getItem('gk')&&localStorage.getItem('ai')!=='0';
-  prAI=aiOn?'loading':(localStorage.getItem('gk')?'off':'nokey');prTerms=[];
+  const rpcQ=(t,c)=>sb.rpc('search_prices',{q:t,user_lat:pos?pos.lat:null,user_lng:pos?pos.lng:null,radius_km:useR?r:null,cat:c||null});
+  const cat=catOf(q),was=prCat;prCat=!!cat;if(prCat!==was)psort=prCat?(pos?'near':'recent'):'price';
+  const aiOn=!cat&&!!localStorage.getItem('gk')&&localStorage.getItem('ai')!=='0';
+  prAI=aiOn?'loading':(cat||localStorage.getItem('gk')?'off':'nokey');prTerms=[];
   const exP=aiOn?expand(q).catch(()=>[]):null;
-  const {data,error}=await rpcQ(q);
+  const {data,error}=await rpcQ(stemQ(q),cat);
   if(tok!==pTok)return;
   if(error){b.innerHTML=`<div class="card">No se pudo buscar: ${esc(error.message)}</div>`;return}
   prRows=data||[];
@@ -489,20 +518,20 @@ async function pGo(save){
   const terms=await exP;
   if(tok!==pTok)return;
   if(!terms.length){prAI='done';pRender(q,r,useR);return}
-  const res=await Promise.all(terms.map(t=>rpcQ(t).then(x=>({t,rows:(x.data||[]).filter(y=>y.is_exact)}),()=>({t,rows:[]}))));
+  const res=await Promise.all(terms.map(t=>rpcQ(stemQ(t)).then(x=>({t,rows:(x.data||[]).filter(y=>y.is_exact)}),()=>({t,rows:[]}))));
   if(tok!==pTok)return;
   const seen=new Set(prRows.map(pk));
   res.forEach(({t,rows})=>{let hit=false;rows.forEach(x=>{const k=pk(x);if(seen.has(k))return;seen.add(k);hit=true;prRows.push({...x,is_exact:false,rel:t})});if(hit)prTerms.push(t)});
   prAI='done';pRender(q,r,useR);
 }
 const prCard=(min,anyExact)=>x=>{
-  const up=+x.unit_price,best=up===min&&(x.is_exact||!anyExact),diff=min>0?Math.round((up/min-1)*100):0,
+  const up=+x.unit_price,best=!prCat&&up===min&&(x.is_exact||!anyExact),diff=!prCat&&min>0?Math.round((up/min-1)*100):0,
     tr=x.prev_price?Math.round((up/+x.prev_price-1)*100):0,
     dest=x.lat!=null?`${x.lat},${x.lng}`:encodeURIComponent(x.store_address||x.store),
     dt=new Date(x.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'});
   return `<div class="card"><div class="row" style="border:0;align-items:flex-start;padding-top:0"><div><b>${esc(x.store)}</b><div class="mu">${esc(x.store_address||'Sin dirección')}</div></div><div class="pp"><div class="p2">${money(up)}</div><div class="mu">por unidad</div></div></div>
-  <div class="mu">${esc(x.product)}${x.rel?`<span class="sim" style="background:#e3f2e8">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim">similar</span>'}</div>
-  <div class="tags">${best?'<span class="tag best">Más barato</span>':diff>0?`<span class="tag">+${diff}% vs. el más barato</span>`:''}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">🕒 ${ago(x.purchased_at)} · ${dt}</span>${tr?`<span class="tag ${tr>0?'up':'dn'}">${tr>0?'▲':'▼'} ${Math.abs(tr)}% vs. antes</span>`:''}${days(x.purchased_at)>30?'<span class="tag">⚠️ puede haber cambiado</span>':''}${x.reports>1?`<span class="tag">${x.reports} registros</span>`:''}</div>
+  <div class="mu">${x.category&&CAT[x.category]?CAT[x.category]+' ':''}${esc(x.product)}${x.subcategory?` · ${esc(x.subcategory)}`:''}${x.rel?`<span class="sim" style="background:#e3f2e8">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim">similar</span>'}</div>
+  <div class="tags">${best?'<span class="tag best">Más barato</span>':diff>0?`<span class="tag">+${diff}% vs. el más barato</span>`:''}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">🕒 ${ago(x.purchased_at)} · ${dt}</span>${x.desc_match&&x.description?`<span class="tag">📝 ${esc(x.description)}</span>`:''}${tr?`<span class="tag ${tr>0?'up':'dn'}">${tr>0?'▲':'▼'} ${Math.abs(tr)}% vs. antes</span>`:''}${days(x.purchased_at)>30?'<span class="tag">⚠️ puede haber cambiado</span>':''}${x.reports>1?`<span class="tag">${x.reports} registros</span>`:''}</div>
   <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener">Cómo llegar</a></div>`;
 };
 function pRender(q,r,useR){
@@ -516,7 +545,7 @@ function pRender(q,r,useR){
   const rows=[...prRows],ex=rows.some(x=>x.is_exact),min=Math.min(...rows.filter(x=>!ex||x.is_exact).map(x=>+x.unit_price));
   rows.sort({price:(a,c)=>(c.is_exact-a.is_exact)||(a.unit_price-c.unit_price),near:(a,c)=>(a.distance_km??1e9)-(c.distance_km??1e9),recent:(a,c)=>c.purchased_at.localeCompare(a.purchased_at)}[psort]);
   const n=new Set(rows.map(x=>x.store.toLowerCase()+'|'+(x.store_address||''))).size;
-  b.innerHTML=`<div class="mu" style="margin:4px 0 8px">${n} local${n===1?'':'es'}${useR?` a menos de ${r} km`:''} · desde <b class="num">${money(min)}</b></div>${prNote()}
+  b.innerHTML=`<div class="mu" style="margin:4px 0 8px">${n} local${n===1?'':'es'}${useR?` a menos de ${r} km`:''} ${prCat?'':` · desde <b class="num">${money(min)}</b>`}</div>${prNote()}
   <div class="chips">${[['price','Más barato'],['near','Más cerca'],['recent','Más reciente']].map(([k,l])=>`<button class="chip ${psort===k?'on':''}" onclick="psort='${k}';pRender('${q}',${r},${useR})">${l}</button>`).join('')}</div>${rows.map(prCard(min,ex)).join('')}`;
 }
 
@@ -537,7 +566,7 @@ async function editR(id){
   const [{data:r},{data:its=[]},{data:pp=[]}]=await Promise.all([sb.from('receipts').select('*').eq('id',id).single(),sb.from('receipt_items').select('*').eq('receipt_id',id),sb.from('price_points').select('lat,lng').eq('receipt_id',id).limit(1)]);
   if(!r)return toast('No se pudo cargar la compra');
   mapShown=!!r.store_address;
-  draft={id,store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros'}))};
+  draft={id,store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros',subcategory:i.subcategory||''}))};
   form();
 }
 async function del(id){
