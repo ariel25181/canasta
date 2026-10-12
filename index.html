@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="20261011222730">
+<meta name="app-version" content="20261012025322">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -80,7 +80,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const money=n=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(n||0);
 const CAT={lacteos:'🥛',carnes:'🥩',panaderia:'🍞',verduras:'🥬',frutas:'🍎',bebidas:'🥤',limpieza:'🧴',almacen:'🥫',otros:'🛒'};
 const today=()=>new Date().toISOString().slice(0,10);
-let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,found=null,lastH={},curH=null,revTok=0,pendingReload=false,psort='price',pTok=0,prRows=[];
+let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,found=null,lastH={},curH=null,prAI='off',prTerms=[],revTok=0,pendingReload=false,psort='price',pTok=0,prRows=[];
 
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
 function app(h){curH=null;$('#app').innerHTML=h}
@@ -254,9 +254,11 @@ async function mapOpen(){
   const c=await getPos(),key=localStorage.getItem('mk'),q=draft.store.trim();
   if(key)return mapJs(key,c,q);
   $('#mpin').style.display='none';$('#mgps').style.display='none';$('#msearch').hidden=true;
-  const src=`https://maps.google.com/maps?output=embed&z=15&hl=es&q=${encodeURIComponent(q||'supermercado')}${c?`&ll=${c.lat},${c.lng}`:''}`;
+  const ad=draft.address.trim(),hasC=draft.lat!=null,qq=hasC?`${draft.lat},${draft.lng}`:(ad||q||'supermercado');
+  const src=`https://maps.google.com/maps?output=embed&z=${ad||hasC?17:15}&hl=es&q=${encodeURIComponent(qq)}${c&&!ad&&!hasC?`&ll=${c.lat},${c.lng}`:''}`;
   $('#map').innerHTML=`<iframe src="${src}" loading="lazy" title="Mapa"></iframe>`;
-  $('#mmsg').innerHTML=`Buscá tu local y copiá la dirección. <a href="https://www.google.com/maps/search/${encodeURIComponent(q||'supermercado')}${c?`/@${c.lat},${c.lng},15z`:''}" target="_blank" rel="noopener">Abrir en Google Maps</a>. Con una clave de Maps en Ajustes tenés sugerencias, locales cercanos y confirmación con un toque.`;
+  $('#mmsg').innerHTML=`Buscá tu local y copiá la dirección. <a href="https://www.google.com/maps/search/${encodeURIComponent(qq)}${c&&!ad&&!hasC?`/@${c.lat},${c.lng},15z`:''}" target="_blank" rel="noopener">Abrir en Google Maps</a>. Con una clave de Maps en Ajustes tenés sugerencias, locales cercanos y pin.`;
+  if(hasC&&ad){found={name:'',addr:ad,loc:{lat:draft.lat,lng:draft.lng}};showFound()}else if(ad)kl(ad);
 }
 function mapClose(){mapShown=false;const b=$('#mapbox');b.hidden=true;b.classList.remove('full')}
 function mapFull(){
@@ -371,11 +373,27 @@ async function pickMine(k){
   }catch(e){found={name:x.store,addr:x.addr,loc:null};showFound()}
 }
 let addrT=0,addrTok=0,mapReady=false;
+async function kl(v){
+  v=String(v||'').trim();const my=++addrTok,m=$('#mmsg'),f=$('#map iframe');
+  if(!f||v.length<4)return;
+  f.src=`https://maps.google.com/maps?output=embed&z=17&hl=es&q=${encodeURIComponent(v)}`;
+  try{
+    const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=ar&accept-language=es&q='+encodeURIComponent(v));
+    const j=await r.json();if(my!==addrTok)return;
+    const x=j[0];
+    if(!x){m.textContent='No pude ubicar esa dirección con precisión. Probá con calle, número y localidad.';return}
+    const a=x.address||{},road=a.road||a.pedestrian||'',loc=a.suburb||a.neighbourhood||a.city_district||a.city||a.town||a.village||'';
+    const addr=a.house_number&&road?[road+' '+a.house_number,loc].filter(Boolean).join(', '):v;
+    found={name:'',addr,loc:{lat:+x.lat,lng:+x.lon}};
+    f.src=`https://maps.google.com/maps?output=embed&z=17&hl=es&q=${x.lat},${x.lon}`;
+    showFound();
+  }catch(e){}
+}
 function addrTyped(v){draft.address=v;draft.lat=draft.lng=null;clearTimeout(addrT);addrT=setTimeout(()=>mapFromText(v),700)}
 async function mapFromText(v){
   v=String(v||'').trim();const my=++addrTok;
   if(v.length<6)return;
-  if(!localStorage.getItem('mk')){const f=$('#map iframe');if(f&&mapShown)f.src=`https://maps.google.com/maps?output=embed&z=16&hl=es&q=${encodeURIComponent(v)}`;return}
+  if(!localStorage.getItem('mk')){if(!mapShown)mapOpen();else kl(v);return}
   if(!mapShown)mapOpen();
   for(let i=0;i<30&&!(mapReady&&gm);i++)await new Promise(r=>setTimeout(r,300));
   if(my!==addrTok||!gm||!gcd)return;
@@ -399,6 +417,18 @@ const recents=()=>{try{return JSON.parse(localStorage.getItem('rs')||'[]')}catch
 const fmtD=k=>k<1?`${Math.round(k*1000)} m`:`${k.toFixed(1).replace('.',',')} km`;
 const days=d=>Math.floor((new Date(today())-new Date(d))/864e5);
 function ago(d){const n=days(d),m=Math.floor(n/30),y=Math.floor(n/365);return n<=0?'hoy':n===1?'ayer':n<30?`hace ${n} días`:n<365?`hace ${m} ${m===1?'mes':'meses'}`:`hace ${y} ${y===1?'año':'años'}`}
+const pk=x=>(x.store+'|'+(x.store_address||'')+'|'+x.product).toLowerCase();
+async function expand(q){
+  const key=localStorage.getItem('gk'),ck='exp:'+q;
+  try{const c=localStorage.getItem(ck);if(c)return JSON.parse(c)}catch(e){}
+  const prompt=`Sos un asistente de compras de supermercados en Argentina. Un usuario busca el producto "${q}". Devolvé hasta 8 términos relacionados que puedan aparecer en el nombre de ese producto en un ticket de supermercado. Si "${q}" es una categoría o tipo (por ejemplo "malbec"), devolvé marcas y variedades argentinas conocidas de esa categoría (por ejemplo Nicasia, Trapiche, Rutini). Si es una marca, devolvé su categoría y sus variedades. Sumá sinónimos y abreviaturas comunes de tickets. No repitas "${q}". Respondé solo JSON: {"terms":["..."]} con términos cortos, en minúsculas y sin tildes.`;
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(8000),body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:.2,thinkingConfig:{thinkingBudget:0}}})});
+  const j=await r.json();if(!r.ok)throw Error(j.error?.message||'Error de Gemini');
+  const t=[...new Set((JSON.parse(j.candidates[0].content.parts[0].text).terms||[]).map(nk).filter(x=>x.length>=2&&x!==q))].slice(0,8);
+  if(t.length)try{localStorage.setItem(ck,JSON.stringify(t))}catch(e){}
+  return t;
+}
+const prNote=()=>prAI==='loading'?'<div class="mu" style="margin:0 0 8px">✨ Buscando productos relacionados…</div>':prAI==='nokey'?'<div class="mu" style="margin:0 0 8px">✨ Cargá tu clave de Gemini en Ajustes para buscar también productos relacionados.</div>':prTerms.length?`<div class="mu" style="margin:0 0 4px">✨ También busqué:</div><div class="chips" style="flex-wrap:wrap">${prTerms.map(t=>`<button class="chip" onclick="pSet('${nk(t)}')">${esc(nk(t))}</button>`).join('')}</div>`:'';
 const prHome=rs=>`<div class="empty"><div style="font-size:2.4rem">🔎</div>Buscá un producto y mirá dónde está más barato cerca tuyo.<br><span class="mu">Los precios vienen de tickets de otras personas, de forma anónima.</span></div>${rs.length?`<h2>Búsquedas recientes</h2><div class="chips" style="flex-wrap:wrap">${rs.map(t=>`<button class="chip" onclick="pSet('${nk(t)}')">🕘 ${esc(nk(t))}</button>`).join('')}</div>`:''}`;
 function prices(){
   app(`<h1>Precios</h1>
@@ -418,12 +448,25 @@ async function pGo(save){
   b.innerHTML='<p class="mu">Buscando…</p>';
   await getPos();pLoc();
   const r=rad(),useR=r>0&&!!pos;
-  const {data,error}=await sb.rpc('search_prices',{q,user_lat:pos?pos.lat:null,user_lng:pos?pos.lng:null,radius_km:useR?r:null});
+  const rpcQ=t=>sb.rpc('search_prices',{q:t,user_lat:pos?pos.lat:null,user_lng:pos?pos.lng:null,radius_km:useR?r:null});
+  const aiOn=!!localStorage.getItem('gk')&&localStorage.getItem('ai')!=='0';
+  prAI=aiOn?'loading':(localStorage.getItem('gk')?'off':'nokey');prTerms=[];
+  const exP=aiOn?expand(q).catch(()=>[]):null;
+  const {data,error}=await rpcQ(q);
   if(tok!==pTok)return;
   if(error){b.innerHTML=`<div class="card">No se pudo buscar: ${esc(error.message)}</div>`;return}
   prRows=data||[];
   if(save&&prRows.length)localStorage.setItem('rs',JSON.stringify([q,...recents().filter(x=>x!==q)].slice(0,6)));
   pRender(q,r,useR);
+  if(!exP)return;
+  const terms=await exP;
+  if(tok!==pTok)return;
+  if(!terms.length){prAI='done';pRender(q,r,useR);return}
+  const res=await Promise.all(terms.map(t=>rpcQ(t).then(x=>({t,rows:(x.data||[]).filter(y=>y.is_exact)}),()=>({t,rows:[]}))));
+  if(tok!==pTok)return;
+  const seen=new Set(prRows.map(pk));
+  res.forEach(({t,rows})=>{let hit=false;rows.forEach(x=>{const k=pk(x);if(seen.has(k))return;seen.add(k);hit=true;prRows.push({...x,is_exact:false,rel:t})});if(hit)prTerms.push(t)});
+  prAI='done';pRender(q,r,useR);
 }
 const prCard=(min,anyExact)=>x=>{
   const up=+x.unit_price,best=up===min&&(x.is_exact||!anyExact),diff=min>0?Math.round((up/min-1)*100):0,
@@ -431,13 +474,14 @@ const prCard=(min,anyExact)=>x=>{
     dest=x.lat!=null?`${x.lat},${x.lng}`:encodeURIComponent(x.store_address||x.store),
     dt=new Date(x.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'});
   return `<div class="card"><div class="row" style="border:0;align-items:flex-start;padding-top:0"><div><b>${esc(x.store)}</b><div class="mu">${esc(x.store_address||'Sin dirección')}</div></div><div class="pp"><div class="p2">${money(up)}</div><div class="mu">por unidad</div></div></div>
-  <div class="mu">${esc(x.product)}${x.is_exact?'':'<span class="sim">similar</span>'}</div>
+  <div class="mu">${esc(x.product)}${x.rel?`<span class="sim" style="background:#e3f2e8">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim">similar</span>'}</div>
   <div class="tags">${best?'<span class="tag best">Más barato</span>':diff>0?`<span class="tag">+${diff}% vs. el más barato</span>`:''}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">🕒 ${ago(x.purchased_at)} · ${dt}</span>${tr?`<span class="tag ${tr>0?'up':'dn'}">${tr>0?'▲':'▼'} ${Math.abs(tr)}% vs. antes</span>`:''}${days(x.purchased_at)>30?'<span class="tag">⚠️ puede haber cambiado</span>':''}${x.reports>1?`<span class="tag">${x.reports} registros</span>`:''}</div>
   <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener">Cómo llegar</a></div>`;
 };
 function pRender(q,r,useR){
   const b=$('#pbody');
   if(!prRows.length){
+    if(prAI==='loading'){b.innerHTML='<p class="mu">✨ Buscando productos relacionados…</p>';return}
     const nx=r===0?null:RADS[RADS.indexOf(r)+1];
     b.innerHTML=`<div class="empty">Todavía no hay precios de "${esc(q)}" ${useR?`a menos de ${r} km`:'registrados'}.<br><br>${nx!=null?`<button onclick="setRad(${nx})">Ampliar a ${nx?nx+' km':'todos los locales'}</button>`:'Podés ser el primero: escaneá un ticket con ese producto.'}</div>`;
     return;
@@ -445,7 +489,7 @@ function pRender(q,r,useR){
   const rows=[...prRows],ex=rows.some(x=>x.is_exact),min=Math.min(...rows.filter(x=>!ex||x.is_exact).map(x=>+x.unit_price));
   rows.sort({price:(a,c)=>(c.is_exact-a.is_exact)||(a.unit_price-c.unit_price),near:(a,c)=>(a.distance_km??1e9)-(c.distance_km??1e9),recent:(a,c)=>c.purchased_at.localeCompare(a.purchased_at)}[psort]);
   const n=new Set(rows.map(x=>x.store.toLowerCase()+'|'+(x.store_address||''))).size;
-  b.innerHTML=`<div class="mu" style="margin:4px 0 8px">${n} local${n===1?'':'es'}${useR?` a menos de ${r} km`:''} · desde <b class="num">${money(min)}</b></div>
+  b.innerHTML=`<div class="mu" style="margin:4px 0 8px">${n} local${n===1?'':'es'}${useR?` a menos de ${r} km`:''} · desde <b class="num">${money(min)}</b></div>${prNote()}
   <div class="chips">${[['price','Más barato'],['near','Más cerca'],['recent','Más reciente']].map(([k,l])=>`<button class="chip ${psort===k?'on':''}" onclick="psort='${k}';pRender('${q}',${r},${useR})">${l}</button>`).join('')}</div>${rows.map(prCard(min,ex)).join('')}`;
 }
 
@@ -481,6 +525,7 @@ function settings(){
   app(`<h1>Ajustes</h1><div class="card"><h2 style="margin-top:0">Lectura de tickets</h2>
   <p class="mu">Clave de Gemini (se guarda solo en este dispositivo).</p>
   <input id="gk" type="password" placeholder="Clave de Gemini" value="${esc(localStorage.getItem('gk')||'')}"><p><button onclick="localStorage.setItem('gk',$('#gk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
+  <div class="card"><h2 style="margin-top:0">Búsqueda inteligente</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('ai')!=='0'?'checked':''} onchange="localStorage.setItem('ai',this.checked?'1':'0')"><span>Usar IA para encontrar productos relacionados (por ejemplo, buscar "malbec" también muestra Nicasia). <span class="mu">Usa tu clave de Gemini y envía solo el texto que buscás.</span></span></label></div>
   <div class="card"><h2 style="margin-top:0">Precios compartidos</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('share')!=='0'?'checked':''} onchange="localStorage.setItem('share',this.checked?'1':'0')"><span>Compartir mis precios de forma anónima con otros usuarios <span class="mu">(producto, precio, local y fecha; nunca tu nombre ni tu email). Se aplica a los tickets que cargues desde ahora.</span></span></label></div>
   <div class="card"><h2 style="margin-top:0">Google Maps (opcional)</h2><p class="mu">Con una clave con Maps JavaScript API, Places API (New) y Geocoding API activadas, podés buscar el local con sugerencias, ver los más cercanos y confirmar la ubicación con un pin. Sin clave se muestra un mapa simple.</p><input id="mk" type="password" placeholder="Clave de Google Maps" value="${esc(localStorage.getItem('mk')||'')}"><p><button onclick="localStorage.setItem('mk',$('#mk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
   <div class="card"><div class="mu">${esc(user.email)}</div><p><button class="ghost" onclick="sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
