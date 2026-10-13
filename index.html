@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="20261013011724">
+<meta name="app-version" content="20261013021628">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -82,6 +82,11 @@ a.btn.sm{padding:8px 14px;font-size:.9rem;text-decoration:none}
 .lg{display:flex;align-items:center;gap:8px;padding:6px 0}.lg .lgn{flex:1;text-transform:capitalize}
 .dot{width:12px;height:12px;border-radius:50%;flex:none}
 .dbadge{width:46px;height:50px;border-radius:14px;background:#e3f2e8;color:var(--gd);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.72rem;text-transform:uppercase;line-height:1.1;flex:none}.dbadge b{font-size:1.15rem}
+.thumbs{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.th{position:relative;width:84px;height:84px;border-radius:12px;overflow:hidden;background:#f3efe4}
+.th img{width:100%;height:100%;object-fit:cover}.th .pdf{display:flex;align-items:center;justify-content:center;height:100%;text-align:center;font-size:.8rem}
+.th .n{position:absolute;left:4px;top:4px;background:var(--g);color:#fff;border-radius:999px;font-size:.75rem;font-weight:800;width:20px;height:20px;display:flex;align-items:center;justify-content:center}
+.th .x{position:absolute;right:2px;top:2px;background:rgba(255,255,255,.92);border-radius:50%;width:24px;height:24px;padding:0;font-size:.8rem;line-height:1}
 #toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%}
 @media(min-width:900px){nav{max-width:420px;left:50%;transform:translateX(-50%);border-radius:20px 20px 0 0}}
 </style>
@@ -189,19 +194,48 @@ async function home(silent){
 }
 
 /* ---------- Scan ---------- */
-function scan(){
-  draft=null;mapShown=false;
-  app(`<h1>Nuevo ticket</h1><div class="card"><p>Sacale una foto al ticket y revisá los datos antes de guardar.</p>
-  <label class="btn" style="margin:0 6px 8px 0">📷 Sacar foto<input id="f" type="file" accept="image/*" capture="environment" hidden></label>
-  <label class="btn" style="margin:0 6px 8px 0">🖼️ Elegir de la galería<input id="g" type="file" accept="image/*" hidden></label>
-  <button class="ghost" onclick="manual()" style="margin-bottom:8px">Cargar a mano</button><p id="st" class="mu"></p></div>`);
-  $('#f').onchange=$('#g').onchange=async e=>{
-    const f=e.target.files[0];if(!f)return;
-    $('#st').textContent='Revisando la foto…';
-    try{const r=await resize(f);pendB64=r.b64;const tips=localTips(r.q);if(tips.length)return retake(tips,'img');await run(r.b64)}catch(err){$('#st').textContent='';toast(err.message)}
-  };
+const MAXP=5;let pages=[];
+const readB64=f=>new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=()=>no(Error('No se pudo leer el archivo'));r.readAsDataURL(f)});
+function scan(){pages=[];mapShown=false;scanUI()}
+function scanUI(msg){
+  draft=null;
+  const n=pages.length,tips=pages.map((x,i)=>x.tips&&x.tips.length?`<li><b>Foto ${i+1}:</b> ${esc(x.tips[0])}</li>`:'').join('');
+  app(`<h1>Nuevo comprobante</h1><div class="card"><p>Cargá un <b>ticket</b> o una <b>factura</b>: hasta <b>${MAXP} fotos</b> (o un PDF) del mismo comprobante. Si es largo, sacalo en partes con un poco de superposición.</p>
+  ${n?`<div class="thumbs">${pages.map((x,i)=>`<div class="th">${x.mime==='application/pdf'?'<div class="pdf">📄<br>PDF</div>':`<img alt="Foto ${i+1}" src="data:${x.mime};base64,${x.b64}">`}<span class="n">${i+1}</span><button class="x" onclick="rmPage(${i})" aria-label="Quitar">✕</button></div>`).join('')}</div>${tips?`<ul class="mu" style="margin:8px 0;padding-left:18px">${tips}</ul>`:''}`:''}
+  ${n<MAXP?`<label class="btn" style="margin:0 6px 8px 0">📷 ${n?'Agregar foto':'Sacar foto'}<input id="f" type="file" accept="image/*" capture="environment" hidden></label>
+  <label class="btn" style="margin:0 6px 8px 0">🖼️ Galería<input id="g" type="file" accept="image/*" multiple hidden></label>
+  <label class="btn" style="margin:0 6px 8px 0">📄 PDF<input id="p" type="file" accept="application/pdf,image/*" hidden></label>`:'<p class="mu">Llegaste al máximo de fotos.</p>'}
+  <p id="st" class="mu">${esc(msg||`${n} de ${MAXP} fotos`)}</p>
+  ${n?`<button onclick="readPages()" style="width:100%">Leer comprobante (${n} ${n===1?'archivo':'archivos'})</button>`:''}
+  <button class="ghost" onclick="manual()" style="margin-top:8px;width:100%">Cargar a mano</button></div>`);
+  if(n<MAXP)['f','g','p'].forEach(id=>{$('#'+id).onchange=addFiles});
 }
-function manual(){mapShown=false;draft={store:'',date:today(),description:'',address:'',lat:null,lng:null,items:[{name:'',qty:1,total_price:0,category:'otros',subcategory:''}]};form()}
+function rmPage(i){pages.splice(i,1);scanUI()}
+async function addFiles(e){
+  const files=[...e.target.files];e.target.value='';
+  if(!files.length)return;
+  const room=MAXP-pages.length,use=files.slice(0,room);
+  if(files.length>room)toast(`Máximo ${MAXP} fotos: se usan las primeras ${room}.`);
+  let i=0;
+  for(const f of use){
+    i++;const st=$('#st');if(st)st.textContent=`Procesando ${i} de ${use.length}…`;
+    try{
+      if(f.type==='application/pdf'){
+        if(f.size>10*1024*1024)throw Error('El PDF pesa más de 10 MB.');
+        pages.push({b64:await readB64(f),mime:'application/pdf',tips:[]});
+      }else if(/^image\//.test(f.type)){
+        const r=await resize(f);pages.push({b64:r.b64,mime:'image/jpeg',tips:localTips(r.q)});
+      }else throw Error('Elegí fotos o un PDF.');
+    }catch(err){toast(err.message)}
+  }
+  scanUI();
+}
+function readPages(){
+  if(!pages.length)return;
+  if(pages.reduce((t,x)=>t+x.b64.length,0)>18e6)return toast('Los archivos pesan demasiado juntos: sacá menos fotos o usá un PDF más liviano.');
+  run(pages);
+}
+function manual(){mapShown=false;draft={store:'',date:today(),docType:'ticket',docNumber:'',taxId:'',description:'',address:'',lat:null,lng:null,items:[{name:'',qty:1,total_price:0,category:'otros',subcategory:''}]};form()}
 function quality(i){
   const k=Math.min(1,1000/Math.max(i.width,i.height)),w=Math.round(i.width*k),h=Math.round(i.height*k),c=document.createElement('canvas');
   c.width=w;c.height=h;const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(i,0,0,w,h);
@@ -220,38 +254,39 @@ function localTips(q){
   return t;
 }
 function retake(tips,mode){
-  const use=mode==='img'?'run(pendB64)':mode==='data'?'draft=norm(pendData);form()':'';
+  const use=mode==='data'?'draft=norm(pendData);form()':'';
   app(`<h1>Mejor sacá otra foto</h1><div class="card"><p><b>No se lee bien el ticket:</b></p><ul>${tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>
   <p class="mu">Consejos: apoyá el ticket sobre una superficie plana y oscura, alisalo bien, encuadralo completo y de frente, con buena luz y sin flash. Si es muy largo, sacalo en partes y cargá lo que falte con "+ Agregar producto".</p></div>
-  <button onclick="scan()">📷 Sacar otra foto</button> ${use?`<button class="ghost" onclick="${use}">Usar igual</button>`:''} <button class="ghost" onclick="manual()">Cargar a mano</button>`);
+  <button onclick="scanUI()">📷 Revisar las fotos</button> ${use?`<button class="ghost" onclick="${use}">Usar igual</button>`:''} <button class="ghost" onclick="manual()">Cargar a mano</button>`);
 }
-async function run(b64){
-  app('<h1>Nuevo ticket</h1><p class="mu">Leyendo el ticket…</p>');
+async function run(parts){
+  app(`<h1>Nuevo comprobante</h1><p class="mu">Leyendo ${parts.length>1?parts.length+' fotos':'el comprobante'}…</p>`);
   try{
-    const d=await extract(b64),n=(d.items||[]).length,bad=d.quality&&d.quality.legible===false;
-    if(bad||!n){pendData=d;const tips=((d.quality&&d.quality.issues)||[]).filter(Boolean);return retake(tips.length?tips:['No pude identificar productos en la foto.'],n?'data':'')}
-    draft=norm(d);form();
-  }catch(err){scan();toast(err.message)}
+    const d=await extract(parts),n=(d.items||[]).length,bad=d.quality&&d.quality.legible===false;
+    if(bad||!n){pendData=d;const tips=((d.quality&&d.quality.issues)||[]).filter(Boolean);return retake(tips.length?tips:['No pude identificar productos en el archivo.'],n?'data':'')}
+    draft=norm(d);pages=[];form();
+  }catch(err){scanUI();toast(err.message)}
 }
 const resize=f=>new Promise((ok,no)=>{const i=new Image();i.onerror=()=>no(Error('No se pudo abrir la imagen'));i.onload=()=>{const k=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok({b64:c.toDataURL('image/jpeg',.8).split(',')[1],q:quality(i)})};i.src=URL.createObjectURL(f)});
-async function extract(b64){
+async function extract(parts){
   const key=localStorage.getItem('gk');
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
-  const prompt=`Extraé los datos de este ticket de supermercado argentino. Respondé solo JSON: {"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío.`;
-  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:'image/jpeg',data:b64}}]}],generationConfig:{responseMimeType:'application/json'}})});
+  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA.`;
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt},...parts.map(x=>({inline_data:{mime_type:x.mime||'image/jpeg',data:x.b64}}))]}],generationConfig:{responseMimeType:'application/json'}})});
   const j=await r.json();
   if(!r.ok)throw Error(j.error?.message||'Error al leer el ticket');
   return JSON.parse(j.candidates[0].content.parts[0].text);
 }
-const norm=d=>({lat:null,lng:null,address:String(d.store_address||'').trim(),description:String(d.description||'').trim(),store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||'')}))});
+const norm=d=>({docType:d.doc_type==='factura'?'factura':'ticket',docNumber:String(d.doc_number||'').trim(),taxId:String(d.store_tax_id||'').trim(),lat:null,lng:null,address:String(d.store_address||'').trim(),description:String(d.description||'').trim(),store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||'')}))});
 
 function subRow(i,k){
   return `<div class="it2"><select onchange="draft.items[${k}].category=this.value" aria-label="Categoría">${Object.keys(CAT).map(c=>`<option value="${c}"${i.category===c?' selected':''}>${CAT[c]} ${c}</option>`).join('')}</select><input placeholder="Subcategoría (ej: cítrico)" value="${esc(i.subcategory||'')}" oninput="draft.items[${k}].subcategory=this.value" aria-label="Subcategoría"></div>`;
 }
 function form(){
   const t=draft.items.reduce((s,i)=>s+i.total_price,0);
-  app(`<h1>${draft.id?'Editar compra':'Revisá el ticket'}</h1>
-  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value"><input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><button class="ghost" type="button" onclick="mapOpen()">📍 Elegir en Google Maps</button><div id="mapbox" hidden><div class="mhead"><b>Ubicación del local</b><button class="ghost" type="button" id="mfull" onclick="mapFull()" style="padding:6px 12px" aria-label="Pantalla completa">⛶</button><button class="x" type="button" onclick="mapClose()" aria-label="Cerrar">✕</button></div><input id="msearch" type="search" placeholder="Buscá el local o la dirección" autocomplete="off" hidden><div id="msug"></div><div id="mchips"></div><div id="mwrap"><div id="map"></div><div id="mpin">📍</div><button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button></div><div id="mmsg" class="mu"></div></div></div>
+  app(`<h1>${draft.id?'Editar compra':'Revisá el comprobante'}</h1>
+  <div class="chips"><button type="button" class="chip ${draft.docType!=='factura'?'on':''}" onclick="draft.docType='ticket';form()">🧾 Ticket</button><button type="button" class="chip ${draft.docType==='factura'?'on':''}" onclick="draft.docType='factura';form()">📄 Factura</button></div>
+  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value">${draft.docType==='factura'?`<input placeholder="Nº de comprobante (ej: 0005-00012345)" value="${esc(draft.docNumber)}" oninput="draft.docNumber=this.value"><input placeholder="CUIT del local (opcional)" inputmode="numeric" value="${esc(draft.taxId)}" oninput="draft.taxId=this.value">`:''}<input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><button class="ghost" type="button" onclick="mapOpen()">📍 Elegir en Google Maps</button><div id="mapbox" hidden><div class="mhead"><b>Ubicación del local</b><button class="ghost" type="button" id="mfull" onclick="mapFull()" style="padding:6px 12px" aria-label="Pantalla completa">⛶</button><button class="x" type="button" onclick="mapClose()" aria-label="Cerrar">✕</button></div><input id="msearch" type="search" placeholder="Buscá el local o la dirección" autocomplete="off" hidden><div id="msug"></div><div id="mchips"></div><div id="mwrap"><div id="map"></div><div id="mpin">📍</div><button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button></div><div id="mmsg" class="mu"></div></div></div>
   <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
   ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>${subRow(i,k)}`).join('')}
   <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros',subcategory:''});form()">+ Agregar producto</button></p>
@@ -285,7 +320,7 @@ function explain(e){
 }
 const errHtml=(t,m,o={})=>`<div class="ic bad">⚠️</div><h2>${esc(t)}</h2><p>${esc(m)}</p>${o.retry?'<p class="mu">Tus datos siguen en pantalla: no se perdió nada.</p>':''}<div class="mact">${o.retry?'<button onclick="closeModal();save()">Reintentar</button>':''}<button class="ghost" onclick="closeModal();${o.focus?`var f=document.querySelector('${o.focus}');if(f)f.focus()`:''}">${o.retry?'Volver al formulario':'Entendido'}</button></div>`;
 function okModal(r){
-  modal(`<div class="ic ok">✅</div><h2>${r.edit?'¡Cambios guardados!':'¡Compra guardada!'}</h2>
+  modal(`<div class="ic ok">✅</div><h2>${r.edit?'¡Cambios guardados!':r.fact?'¡Factura guardada!':'¡Ticket guardado!'}</h2>
   <p><b>${esc(r.store)}</b><br>${r.n} producto${r.n===1?'':'s'} · <b>${money(r.total)}</b></p>
   ${r.warn?`<p class="mu" style="background:#fff3cd;border-radius:10px;padding:8px 10px">${esc(r.warn)}</p>`:''}
   <div class="mact"><button onclick="closeModal();go('history')">${r.edit?'Volver a Mis compras':'Ver mis compras'}</button>${r.edit?'':`<button class="ghost" onclick="closeModal();go('scan')">Cargar otra compra</button>`}</div>`,{lock:true});
@@ -315,7 +350,7 @@ async function _save(){
   const total=items.reduce((s,i)=>s+i.total_price,0),edit=!!draft.id;
   if(draft.address.trim()&&draft.lat==null){const g=await geocodeAddr(draft.address);if(g){draft.lat=g.lat;draft.lng=g.lng}}
   const rid=draft.id||draft.rid||(draft.rid=crypto.randomUUID());
-  const row={id:rid,store:draft.store.trim(),purchased_at:draft.date,description:draft.description.trim()||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,total};
+  const row={id:rid,store:draft.store.trim(),purchased_at:draft.date,description:draft.description.trim()||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,doc_type:draft.docType==='factura'?'factura':'ticket',doc_number:(draft.docNumber||'').trim()||null,store_tax_id:String(draft.taxId||'').replace(/[^0-9-]/g,'')||null,total};
   const {error}=await sb.from('receipts').upsert(row);
   if(error)throw error;
   const oldI=((await sb.from('receipt_items').select('id').eq('receipt_id',rid)).data||[]).map(x=>x.id);
@@ -330,7 +365,7 @@ async function _save(){
   }
   if(oldP.length)await sb.from('price_points').delete().in('id',oldP);
   draft.id=rid;draft.saved=true;clearBk();lastH.home=lastH.history=null;
-  return{edit,store:draft.store.trim(),n:items.length,total,warn};
+  return{edit,fact:draft.docType==='factura',store:draft.store.trim(),n:items.length,total,warn};
 }
 
 /* ---------- Sesión vencida y borrador ---------- */
@@ -672,7 +707,7 @@ async function history(silent){
   if(!silent){if(lastH.history){app(lastH.history);curH=lastH.history}else app('<p class="mu">Cargando…</p>')}
   const {data:rs=[],error}=await sb.from('receipts').select('*').order('purchased_at',{ascending:false}).limit(100);
   if(error)return silent?0:app(`<div class="card">${esc(error.message)}</div>`);
-  show('history',`<h1>Mis compras</h1>${rs.length?rs.map(r=>`<div class="card" id="r${r.id}"><div class="row" style="border:0;cursor:pointer" onclick="detail('${r.id}')"><span><b>${esc(r.store)}</b>${r.store_address?`<br><span class="mu">${esc(r.store_address)}</span>`:''}<br><span class="mu">${r.purchased_at}</span>${r.description?`<br><span class="mu">${esc(r.description)}</span>`:''}</span><span style="display:flex;align-items:center;gap:6px"><a href="https://www.google.com/maps/search/?api=1&query=${(r.store_lat!=null?r.store_lat+','+r.store_lng:encodeURIComponent(r.store_address?r.store+' '+r.store_address:r.store))}" target="_blank" rel="noopener" onclick="event.stopPropagation()" aria-label="Ver ubicación en Google Maps" title="Ver en Google Maps" style="font-size:1.4rem;text-decoration:none;padding:4px">📍</a><b class="num">${money(r.total)}</b></span></div><div id="d${r.id}"></div></div>`).join(''):'<div class="empty">Acá van a aparecer tus compras.</div>'}`,silent);
+  show('history',`<h1>Mis compras</h1>${rs.length?rs.map(r=>`<div class="card" id="r${r.id}"><div class="row" style="border:0;cursor:pointer" onclick="detail('${r.id}')"><span><b>${esc(r.store)}</b>${r.doc_type==='factura'?` <span class="tag">📄 Factura${r.doc_number?' '+esc(r.doc_number):''}</span>`:''}${r.store_address?`<br><span class="mu">${esc(r.store_address)}</span>`:''}<br><span class="mu">${r.purchased_at}</span>${r.description?`<br><span class="mu">${esc(r.description)}</span>`:''}</span><span style="display:flex;align-items:center;gap:6px"><a href="https://www.google.com/maps/search/?api=1&query=${(r.store_lat!=null?r.store_lat+','+r.store_lng:encodeURIComponent(r.store_address?r.store+' '+r.store_address:r.store))}" target="_blank" rel="noopener" onclick="event.stopPropagation()" aria-label="Ver ubicación en Google Maps" title="Ver en Google Maps" style="font-size:1.4rem;text-decoration:none;padding:4px">📍</a><b class="num">${money(r.total)}</b></span></div><div id="d${r.id}"></div></div>`).join(''):'<div class="empty">Acá van a aparecer tus compras.</div>'}`,silent);
 }
 async function detail(id){
   const box=$('#d'+id);
@@ -684,7 +719,7 @@ async function editR(id){
   const [{data:r},{data:its=[]},{data:pp=[]}]=await Promise.all([sb.from('receipts').select('*').eq('id',id).single(),sb.from('receipt_items').select('*').eq('receipt_id',id),sb.from('price_points').select('lat,lng').eq('receipt_id',id).limit(1)]);
   if(!r)return toast('No se pudo cargar la compra');
   mapShown=!!r.store_address;
-  draft={id,store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros',subcategory:i.subcategory||''}))};
+  draft={id,docType:r.doc_type==='factura'?'factura':'ticket',docNumber:r.doc_number||'',taxId:r.store_tax_id||'',store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros',subcategory:i.subcategory||''}))};
   form();
 }
 async function del(id){
