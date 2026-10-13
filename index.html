@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="20261013021628">
+<meta name="app-version" content="20261013225412">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -108,7 +108,35 @@ const SB_URL='https://ddzklkweeftwqqbaozty.supabase.co', SB_KEY='eyJhbGciOiJIUzI
 const sb=supabase.createClient(SB_URL,SB_KEY);
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const money=n=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(n||0);
+const CUR={ARS:{flag:'🇦🇷',name:'Pesos'},USD:{flag:'🇺🇸',name:'Dólares'},BRL:{flag:'🇧🇷',name:'Reales'}};
+const money=(n,c)=>{c=CUR[c]?c:'ARS';const d=c==='ARS'?0:2;return new Intl.NumberFormat('es-AR',{style:'currency',currency:c,minimumFractionDigits:d,maximumFractionDigits:d}).format(n||0)};
+const fxr=()=>{try{return JSON.parse(localStorage.getItem('fx')||'null')}catch(e){return null}};
+const rate=c=>c==='ARS'?1:((fxr()||{})[c]||null);
+const conv=(n,from,to)=>{from=from||'ARS';if(from===to)return n;const a=rate(from),b=rate(to);return a&&b?n*a/b:null};
+const dispCur=()=>{const v=localStorage.getItem('disp');return CUR[v]?v:'ARS'};
+async function fetchFx(force){
+  const cur=fxr();if(cur&&cur.src==='manual'&&!force)return cur;
+  try{
+    const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(7000)});
+    const j=await r.json();
+    if(j.result==='success'&&j.rates&&+j.rates.ARS>0&&+j.rates.BRL>0){
+      const fx={USD:+j.rates.ARS,BRL:+j.rates.ARS/+j.rates.BRL,t:Date.now(),src:'auto'};
+      localStorage.setItem('fx',JSON.stringify(fx));lastH.home=null;return fx;
+    }
+  }catch(e){}
+  return null;
+}
+function autoFx(){const f=fxr();if(!f||(f.src!=='manual'&&Date.now()-f.t>43200000))fetchFx()}
+function saveFx(){
+  const u=+$('#fxu').value,b=+$('#fxb').value;
+  if(!(u>0)||!(b>0))return toast('Cargá los dos tipos de cambio (números mayores a 0).');
+  localStorage.setItem('fx',JSON.stringify({USD:u,BRL:b,t:Date.now(),src:'manual'}));lastH.home=null;toast('Tipos de cambio guardados');settings();
+}
+async function autoFxBtn(){
+  toast('Buscando cotización…');const f=await fetchFx(true);
+  if(!f)return toast('No pude obtener la cotización. Cargala a mano.');
+  settings();toast('Cotización actualizada');
+}
 const CAT={lacteos:'🥛',carnes:'🥩',panaderia:'🍞',verduras:'🥬',frutas:'🍎',bebidas:'🥤',limpieza:'🧴',almacen:'🥫',otros:'🛒'};
 const today=()=>new Date().toISOString().slice(0,10);
 let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,found=null,lastH={},curH=null,prAI='off',prTerms=[],prCat=false,revTok=0,pendingReload=false,psort='price',pTok=0,prRows=[];
@@ -141,7 +169,7 @@ async function boot(){
   const {data}=await sb.auth.getSession();
   user=data.session?.user||null;
   if(!user)return login();
-  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;go(g||'home');fixCoords();fixSubcats();offerRestore();
+  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;go(g||'home');fixCoords();fixSubcats();autoFx();offerRestore();
 }
 
 /* ---------- Navigation ---------- */
@@ -159,10 +187,10 @@ let hm=0;
 const COL={lacteos:'#4F9DDE',carnes:'#D9534F',panaderia:'#E5A93D',verduras:'#3E8E5A',frutas:'#F28C38',bebidas:'#8E6BBF',limpieza:'#2BB3B1',almacen:'#B5835A',otros:'#9AA5A0'};
 const cap=t=>t.charAt(0).toUpperCase()+t.slice(1);
 function hmGo(d){hm=Math.min(0,hm+d);lastH.home=null;home()}
-function donut(sl,total){
+function donut(sl,total,disp){
   const r=62,C=2*Math.PI*r;let off=0;
   const arcs=sl.map(x=>{const part=x.v/total*C,len=Math.max(0,part-(sl.length>1?2:0));const a=`<circle cx="80" cy="80" r="${r}" fill="none" stroke="${COL[x.k]||'#9AA5A0'}" stroke-width="26" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 80 80)"/>`;off+=part;return a}).join('');
-  return `<svg viewBox="0 0 160 160" width="176" height="176" role="img" aria-label="Gasto por categoría"><circle cx="80" cy="80" r="${r}" fill="none" stroke="#f1ede2" stroke-width="26"/>${arcs}<text x="80" y="76" text-anchor="middle" font-size="11" fill="#6b7a70">Total</text><text x="80" y="96" text-anchor="middle" font-size="16" font-weight="800" fill="#23312A">${money(total)}</text></svg>`;
+  return `<svg viewBox="0 0 160 160" width="176" height="176" role="img" aria-label="Gasto por categoría"><circle cx="80" cy="80" r="${r}" fill="none" stroke="#f1ede2" stroke-width="26"/>${arcs}<text x="80" y="76" text-anchor="middle" font-size="11" fill="#6b7a70">Total</text><text x="80" y="96" text-anchor="middle" font-size="${total>=1e7?13:16}" font-weight="800" fill="#23312A">${money(total,disp)}</text></svg>`;
 }
 async function home(silent){
   if(!silent){if(lastH.home){app(lastH.home);curH=lastH.home}else app('<p class="mu">Cargando…</p>')}
@@ -171,24 +199,35 @@ async function home(silent){
   const {data:rs=[],error}=await sb.from('receipts').select('*').gte('purchased_at',ymd(prv)).lt('purchased_at',ymd(nxt)).order('purchased_at',{ascending:false});
   if(error)return silent?0:app(`<div class="card">No se pudo cargar: ${esc(error.message)}</div>`);
   const cur=rs.filter(r=>r.purchased_at>=ymd(base)),prev=rs.filter(r=>r.purchased_at<ymd(base));
-  const sum=a=>a.reduce((s,r)=>s+Number(r.total),0),c=sum(cur),p=sum(prev),d=p?((c-p)/p*100):null;
+  const disp=dispCur(),cc=r=>r.currency||'ARS';
+  const sumC=(a,u)=>a.reduce((s,r)=>{const v=conv(Number(r.total),cc(r),disp);if(v===null){if(u)u[cc(r)]=(u[cc(r)]||0)+Number(r.total);return s}return s+v},0);
+  const unconv={},c=sumC(cur,unconv),p=sumC(prev),d=p?((c-p)/p*100):null;
+  const nConv=cur.filter(r=>conv(1,cc(r),disp)!==null).length,hasConv=cur.some(r=>cc(r)!==disp&&conv(1,cc(r),disp)!==null);
+  const curC={};cur.forEach(r=>{curC[r.id]=cc(r)});
   let its=[];
-  for(let i=0;i<cur.length;i+=60){const {data=[]}=await sb.from('receipt_items').select('name,total_price,category').in('receipt_id',cur.slice(i,i+60).map(r=>r.id));its=its.concat(data)}
-  const cats={};its.forEach(i=>{const k=CAT[i.category]?i.category:'otros';cats[k]=(cats[k]||0)+Number(i.total_price)});
+  for(let i=0;i<cur.length;i+=60){const {data=[]}=await sb.from('receipt_items').select('name,total_price,category,receipt_id').in('receipt_id',cur.slice(i,i+60).map(r=>r.id));its=its.concat(data)}
+  const cats={},agg={};
+  its.forEach(i=>{
+    const v=conv(Number(i.total_price),curC[i.receipt_id]||'ARS',disp);if(v===null)return;
+    const k=CAT[i.category]?i.category:'otros';cats[k]=(cats[k]||0)+v;
+    const nm=i.name.toLowerCase();agg[nm]=agg[nm]||{n:i.name,c:i.category,t:0,q:0};agg[nm].t+=v;agg[nm].q++;
+  });
   const sl=Object.entries(cats).map(([k,v])=>({k,v})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v),ct=sl.reduce((s,x)=>s+x.v,0);
-  const agg={};its.forEach(i=>{const k=i.name.toLowerCase();agg[k]=agg[k]||{n:i.name,c:i.category,t:0,q:0};agg[k].t+=Number(i.total_price);agg[k].q++});
   const top=Object.values(agg).sort((a,b)=>b.t-a.t).slice(0,5);
   const st={};cur.forEach(r=>{st[r.store]=(st[r.store]||0)+1});
   const fav=Object.entries(st).sort((a,b)=>b[1]-a[1])[0];
   const hoy=cap(n.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'})),mLabel=cap(base.toLocaleDateString('es-AR',{month:'long',year:'numeric'}));
-  const rec=cur.slice(0,4).map(r=>{const dt=new Date(r.purchased_at+'T00:00');return `<div class="row" onclick="go('history')" style="cursor:pointer;border:0;padding:6px 0"><span style="display:flex;gap:12px;align-items:center;min-width:0"><span class="dbadge"><b>${dt.getDate()}</b>${dt.toLocaleDateString('es-AR',{month:'short'}).replace('.','')}</span><span style="min-width:0"><b>${esc(r.store)}</b><br><span class="mu">${ago(r.purchased_at)}</span></span></span><b class="num">${money(r.total)}</b></div>`}).join('');
+  const rec=cur.slice(0,4).map(r=>{const dt=new Date(r.purchased_at+'T00:00');return `<div class="row" onclick="go('history')" style="cursor:pointer;border:0;padding:6px 0"><span style="display:flex;gap:12px;align-items:center;min-width:0"><span class="dbadge"><b>${dt.getDate()}</b>${dt.toLocaleDateString('es-AR',{month:'short'}).replace('.','')}</span><span style="min-width:0"><b>${esc(r.store)}</b><br><span class="mu">${ago(r.purchased_at)}</span></span></span><b class="num">${money(r.total,cc(r))}</b></div>`}).join('');
+  const un=Object.entries(unconv);
   const h=`<div class="mu">${hoy}</div><h1 style="margin-top:2px">Tu resumen</h1>
   <div class="mnav"><button onclick="hmGo(-1)" aria-label="Mes anterior">‹</button><b>${mLabel}</b><button onclick="hmGo(1)" aria-label="Mes siguiente" ${hm===0?'disabled':''}>›</button></div>
-  <div class="hero"><div class="l">Gastaste en el súper</div><div class="v">${money(c)}</div><div class="hr">${d===null?'':`<span class="pill">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1).replace('.',',')}% vs. mes anterior</span>`}<span>${cur.length} compra${cur.length===1?'':'s'}</span></div></div>
-  ${cur.length?`<div class="mini"><div><b>${cur.length}</b><span>Compras</span></div><div><b>${money(c/cur.length)}</b><span>Ticket promedio</span></div><div><b>${fav?esc(fav[0]):'-'}</b><span>Más visitado</span></div></div>
-  <div class="card"><h2 style="margin-top:0">¿En qué gastás?</h2>${sl.length?`<div class="donut">${donut(sl,ct)}<div class="leg">${sl.map(x=>`<div class="lg"><span class="dot" style="background:${COL[x.k]||'#9AA5A0'}"></span><span class="lgn">${CAT[x.k]} ${x.k}</span><span class="mu num">${money(x.v)}</span><b class="num" style="min-width:42px;text-align:right">${Math.round(x.v/ct*100)}%</b></div>`).join('')}</div></div>`:'<div class="mu">Todavía no hay productos con precio este mes.</div>'}</div>
+  <div class="hero"><div class="l">Gastaste en el súper</div><div class="v">${money(c,disp)}</div><div class="hr">${d===null?'':`<span class="pill">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1).replace('.',',')}% vs. mes anterior</span>`}<span>${cur.length} compra${cur.length===1?'':'s'}</span></div>
+  ${hasConv?'<div style="margin-top:8px;font-size:.82rem;opacity:.9">Incluye compras en otras monedas, convertidas al tipo de cambio de Ajustes.</div>':''}
+  ${un.length?`<div style="margin-top:8px;font-size:.85rem">+ ${un.map(([k,v])=>money(v,k)).join(' · ')} sin convertir: cargá los tipos de cambio en Ajustes.</div>`:''}</div>
+  ${cur.length?`<div class="mini"><div><b>${cur.length}</b><span>Compras</span></div><div><b>${nConv?money(c/nConv,disp):'-'}</b><span>Ticket promedio</span></div><div><b>${fav?esc(fav[0]):'-'}</b><span>Más visitado</span></div></div>
+  <div class="card"><h2 style="margin-top:0">¿En qué gastás?</h2>${sl.length?`<div class="donut">${donut(sl,ct,disp)}<div class="leg">${sl.map(x=>`<div class="lg"><span class="dot" style="background:${COL[x.k]||'#9AA5A0'}"></span><span class="lgn">${CAT[x.k]} ${x.k}</span><span class="mu num">${money(x.v,disp)}</span><b class="num" style="min-width:42px;text-align:right">${Math.round(x.v/ct*100)}%</b></div>`).join('')}</div></div>`:'<div class="mu">Todavía no hay productos con precio este mes.</div>'}</div>
   <div class="card"><h2 style="margin-top:0">Últimas compras</h2>${rec}</div>
-  ${top.length?`<div class="card"><h2 style="margin-top:0">Lo que más gastás</h2>${top.map(i=>`<div class="row"><span>${CAT[i.c]||'🛒'} ${esc(i.n)} <span class="mu">×${i.q}</span></span><span class="num">${money(i.t)}</span></div>`).join('')}</div>`:''}`
+  ${top.length?`<div class="card"><h2 style="margin-top:0">Lo que más gastás</h2>${top.map(i=>`<div class="row"><span>${CAT[i.c]||'🛒'} ${esc(i.n)} <span class="mu">×${i.q}</span></span><span class="num">${money(i.t,disp)}</span></div>`).join('')}</div>`:''}`
   :`<div class="empty">Sin compras en ${esc(mLabel)}.${hm===0?`<br><br><button onclick="go('scan')">Escanear un ticket</button>`:''}</div>`}`;
   show('home',h,silent);
 }
@@ -235,7 +274,7 @@ function readPages(){
   if(pages.reduce((t,x)=>t+x.b64.length,0)>18e6)return toast('Los archivos pesan demasiado juntos: sacá menos fotos o usá un PDF más liviano.');
   run(pages);
 }
-function manual(){mapShown=false;draft={store:'',date:today(),docType:'ticket',docNumber:'',taxId:'',description:'',address:'',lat:null,lng:null,items:[{name:'',qty:1,total_price:0,category:'otros',subcategory:''}]};form()}
+function manual(){mapShown=false;draft={store:'',date:today(),currency:'ARS',docType:'ticket',docNumber:'',taxId:'',description:'',address:'',lat:null,lng:null,items:[{name:'',qty:1,total_price:0,category:'otros',subcategory:''}]};form()}
 function quality(i){
   const k=Math.min(1,1000/Math.max(i.width,i.height)),w=Math.round(i.width*k),h=Math.round(i.height*k),c=document.createElement('canvas');
   c.width=w;c.height=h;const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(i,0,0,w,h);
@@ -271,13 +310,13 @@ const resize=f=>new Promise((ok,no)=>{const i=new Image();i.onerror=()=>no(Error
 async function extract(parts){
   const key=localStorage.getItem('gk');
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
-  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA.`;
+  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
   const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt},...parts.map(x=>({inline_data:{mime_type:x.mime||'image/jpeg',data:x.b64}}))]}],generationConfig:{responseMimeType:'application/json'}})});
   const j=await r.json();
   if(!r.ok)throw Error(j.error?.message||'Error al leer el ticket');
   return JSON.parse(j.candidates[0].content.parts[0].text);
 }
-const norm=d=>({docType:d.doc_type==='factura'?'factura':'ticket',docNumber:String(d.doc_number||'').trim(),taxId:String(d.store_tax_id||'').trim(),lat:null,lng:null,address:String(d.store_address||'').trim(),description:String(d.description||'').trim(),store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||'')}))});
+const norm=d=>({currency:CUR[d.currency]?d.currency:'ARS',docType:d.doc_type==='factura'?'factura':'ticket',docNumber:String(d.doc_number||'').trim(),taxId:String(d.store_tax_id||'').trim(),lat:null,lng:null,address:String(d.store_address||'').trim(),description:String(d.description||'').trim(),store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||'')}))});
 
 function subRow(i,k){
   return `<div class="it2"><select onchange="draft.items[${k}].category=this.value" aria-label="Categoría">${Object.keys(CAT).map(c=>`<option value="${c}"${i.category===c?' selected':''}>${CAT[c]} ${c}</option>`).join('')}</select><input placeholder="Subcategoría (ej: cítrico)" value="${esc(i.subcategory||'')}" oninput="draft.items[${k}].subcategory=this.value" aria-label="Subcategoría"></div>`;
@@ -286,11 +325,12 @@ function form(){
   const t=draft.items.reduce((s,i)=>s+i.total_price,0);
   app(`<h1>${draft.id?'Editar compra':'Revisá el comprobante'}</h1>
   <div class="chips"><button type="button" class="chip ${draft.docType!=='factura'?'on':''}" onclick="draft.docType='ticket';form()">🧾 Ticket</button><button type="button" class="chip ${draft.docType==='factura'?'on':''}" onclick="draft.docType='factura';form()">📄 Factura</button></div>
+  <div class="chips">${Object.keys(CUR).map(c=>`<button type="button" class="chip ${(draft.currency||'ARS')===c?'on':''}" onclick="draft.currency='${c}';form()">${CUR[c].flag} ${CUR[c].name}</button>`).join('')}</div>
   <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value">${draft.docType==='factura'?`<input placeholder="Nº de comprobante (ej: 0005-00012345)" value="${esc(draft.docNumber)}" oninput="draft.docNumber=this.value"><input placeholder="CUIT del local (opcional)" inputmode="numeric" value="${esc(draft.taxId)}" oninput="draft.taxId=this.value">`:''}<input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><button class="ghost" type="button" onclick="mapOpen()">📍 Elegir en Google Maps</button><div id="mapbox" hidden><div class="mhead"><b>Ubicación del local</b><button class="ghost" type="button" id="mfull" onclick="mapFull()" style="padding:6px 12px" aria-label="Pantalla completa">⛶</button><button class="x" type="button" onclick="mapClose()" aria-label="Cerrar">✕</button></div><input id="msearch" type="search" placeholder="Buscá el local o la dirección" autocomplete="off" hidden><div id="msug"></div><div id="mchips"></div><div id="mwrap"><div id="map"></div><div id="mpin">📍</div><button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button></div><div id="mmsg" class="mu"></div></div></div>
   <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
   ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>${subRow(i,k)}`).join('')}
   <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros',subcategory:''});form()">+ Agregar producto</button></p>
-  <div class="card row"><b>Total</b><b class="num">${money(t)}</b></div>
+  <div class="card row"><b>Total</b><b class="num">${money(t,draft.currency)}</b></div>
   ${localStorage.getItem('share')!=='0'?`<p class="mu">🔒 Tus precios se comparten de forma anónima.${draft.lat!=null?'':' Elegí el local en el mapa para que aparezcan en búsquedas por zona.'} Podés cambiarlo en Ajustes.</p>`:''}
   <button onclick="save()">${draft.id?'Guardar cambios':'Guardar compra'}</button>${draft.id?` <button class="ghost" onclick="clearBk();go('history')">Cancelar</button>`:''}`);
   if(mapShown)mapOpen();
@@ -321,7 +361,7 @@ function explain(e){
 const errHtml=(t,m,o={})=>`<div class="ic bad">⚠️</div><h2>${esc(t)}</h2><p>${esc(m)}</p>${o.retry?'<p class="mu">Tus datos siguen en pantalla: no se perdió nada.</p>':''}<div class="mact">${o.retry?'<button onclick="closeModal();save()">Reintentar</button>':''}<button class="ghost" onclick="closeModal();${o.focus?`var f=document.querySelector('${o.focus}');if(f)f.focus()`:''}">${o.retry?'Volver al formulario':'Entendido'}</button></div>`;
 function okModal(r){
   modal(`<div class="ic ok">✅</div><h2>${r.edit?'¡Cambios guardados!':r.fact?'¡Factura guardada!':'¡Ticket guardado!'}</h2>
-  <p><b>${esc(r.store)}</b><br>${r.n} producto${r.n===1?'':'s'} · <b>${money(r.total)}</b></p>
+  <p><b>${esc(r.store)}</b><br>${r.n} producto${r.n===1?'':'s'} · <b>${money(r.total,r.cur)}</b></p>
   ${r.warn?`<p class="mu" style="background:#fff3cd;border-radius:10px;padding:8px 10px">${esc(r.warn)}</p>`:''}
   <div class="mact"><button onclick="closeModal();go('history')">${r.edit?'Volver a Mis compras':'Ver mis compras'}</button>${r.edit?'':`<button class="ghost" onclick="closeModal();go('scan')">Cargar otra compra</button>`}</div>`,{lock:true});
 }
@@ -350,7 +390,7 @@ async function _save(){
   const total=items.reduce((s,i)=>s+i.total_price,0),edit=!!draft.id;
   if(draft.address.trim()&&draft.lat==null){const g=await geocodeAddr(draft.address);if(g){draft.lat=g.lat;draft.lng=g.lng}}
   const rid=draft.id||draft.rid||(draft.rid=crypto.randomUUID());
-  const row={id:rid,store:draft.store.trim(),purchased_at:draft.date,description:draft.description.trim()||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,doc_type:draft.docType==='factura'?'factura':'ticket',doc_number:(draft.docNumber||'').trim()||null,store_tax_id:String(draft.taxId||'').replace(/[^0-9-]/g,'')||null,total};
+  const row={id:rid,store:draft.store.trim(),purchased_at:draft.date,description:draft.description.trim()||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,currency:draft.currency||'ARS',doc_type:draft.docType==='factura'?'factura':'ticket',doc_number:(draft.docNumber||'').trim()||null,store_tax_id:String(draft.taxId||'').replace(/[^0-9-]/g,'')||null,total};
   const {error}=await sb.from('receipts').upsert(row);
   if(error)throw error;
   const oldI=((await sb.from('receipt_items').select('id').eq('receipt_id',rid)).data||[]).map(x=>x.id);
@@ -360,12 +400,12 @@ async function _save(){
   if(oldI.length)await sb.from('receipt_items').delete().in('id',oldI);
   let warn=null;
   if(localStorage.getItem('share')!=='0'){
-    const pp=items.filter(i=>i.total_price>0).map(i=>({receipt_id:rid,store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:nk(i.name),category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,purchased_at:draft.date}));
+    const pp=items.filter(i=>i.total_price>0).map(i=>({receipt_id:rid,currency:draft.currency||'ARS',store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:nk(i.name),category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,purchased_at:draft.date}));
     if(pp.length){const {error:e3}=await sb.from('price_points').insert(pp);if(e3)warn='La compra se guardó, pero no se pudieron compartir los precios.';else if(draft.lat==null)warn='Tus precios se compartieron sin la ubicación del local: no van a aparecer en búsquedas por zona hasta que lo ubiques en el mapa.'}
   }
   if(oldP.length)await sb.from('price_points').delete().in('id',oldP);
   draft.id=rid;draft.saved=true;clearBk();lastH.home=lastH.history=null;
-  return{edit,fact:draft.docType==='factura',store:draft.store.trim(),n:items.length,total,warn};
+  return{edit,cur:draft.currency||'ARS',fact:draft.docType==='factura',store:draft.store.trim(),n:items.length,total,warn};
 }
 
 /* ---------- Sesión vencida y borrador ---------- */
@@ -678,11 +718,11 @@ async function pGo(save){
   prAI='done';pRender(q,r,useR);
 }
 const prCard=(min,anyExact)=>x=>{
-  const up=+x.unit_price,best=!prCat&&up===min&&(x.is_exact||!anyExact),diff=!prCat&&min>0?Math.round((up/min-1)*100):0,
-    tr=x.prev_price?Math.round((up/+x.prev_price-1)*100):0,
+  const disp=dispCur(),cu=x.currency||'ARS',pv=x._p,best=!prCat&&pv!=null&&pv===min&&(x.is_exact||!anyExact),diff=!prCat&&pv!=null&&min>0?Math.round((pv/min-1)*100):0,
+    tr=x.prev_price?Math.round((+x.unit_price/+x.prev_price-1)*100):0,
     dest=x.lat!=null?`${x.lat},${x.lng}`:encodeURIComponent(x.store_address||x.store),
     dt=new Date(x.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'});
-  return `<div class="card"><div class="row" style="border:0;align-items:flex-start;padding-top:0"><div><b>${esc(x.store)}</b><div class="mu">${esc(x.store_address||'Sin dirección')}</div></div><div class="pp"><div class="p2">${money(up)}</div><div class="mu">por unidad</div></div></div>
+  return `<div class="card"><div class="row" style="border:0;align-items:flex-start;padding-top:0"><div><b>${esc(x.store)}</b><div class="mu">${esc(x.store_address||'Sin dirección')}</div></div><div class="pp"><div class="p2">${money(+x.unit_price,cu)}</div><div class="mu">${cu!==disp?(pv!=null?`≈ ${money(pv,disp)}`:'sin tipo de cambio'):'por unidad'}</div></div></div>
   <div class="mu">${x.category&&CAT[x.category]?CAT[x.category]+' ':''}${esc(x.product)}${x.subcategory?` · ${esc(x.subcategory)}`:''}${x.rel?`<span class="sim" style="background:#e3f2e8">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim">similar</span>'}</div>
   <div class="tags">${best?'<span class="tag best">Más barato</span>':diff>0?`<span class="tag">+${diff}% vs. el más barato</span>`:''}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">🕒 ${ago(x.purchased_at)} · ${dt}</span>${x.desc_match&&x.description?`<span class="tag">📝 ${esc(x.description)}</span>`:''}${tr?`<span class="tag ${tr>0?'up':'dn'}">${tr>0?'▲':'▼'} ${Math.abs(tr)}% vs. antes</span>`:''}${days(x.purchased_at)>30?'<span class="tag">⚠️ puede haber cambiado</span>':''}${x.reports>1?`<span class="tag">${x.reports} registros</span>`:''}</div>
   <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener">Cómo llegar</a></div>`;
@@ -695,10 +735,11 @@ function pRender(q,r,useR){
     b.innerHTML=`<div class="empty">Todavía no hay precios de "${esc(q)}" ${useR?`a menos de ${r} km`:'registrados'}.<br><br>${nx!=null?`<button onclick="setRad(${nx})">Ampliar a ${nx?nx+' km':'todos los locales'}</button>`:'Podés ser el primero: escaneá un ticket con ese producto.'}</div>`;
     return;
   }
-  const rows=[...prRows],ex=rows.some(x=>x.is_exact),min=Math.min(...rows.filter(x=>!ex||x.is_exact).map(x=>+x.unit_price));
-  rows.sort({price:(a,c)=>(c.is_exact-a.is_exact)||(a.unit_price-c.unit_price),near:(a,c)=>(a.distance_km??1e9)-(c.distance_km??1e9),recent:(a,c)=>c.purchased_at.localeCompare(a.purchased_at)}[psort]);
+  const disp=dispCur(),rows=[...prRows];rows.forEach(x=>{x._p=conv(+x.unit_price,x.currency||'ARS',disp)});
+  const ex=rows.some(x=>x.is_exact),cand=rows.filter(x=>(!ex||x.is_exact)&&x._p!=null).map(x=>x._p),min=cand.length?Math.min(...cand):0;
+  rows.sort({price:(a,c)=>(c.is_exact-a.is_exact)||((a._p??1e18)-(c._p??1e18)),near:(a,c)=>(a.distance_km??1e9)-(c.distance_km??1e9),recent:(a,c)=>c.purchased_at.localeCompare(a.purchased_at)}[psort]);
   const n=new Set(rows.map(x=>x.store.toLowerCase()+'|'+(x.store_address||''))).size;
-  b.innerHTML=`<div class="mu" style="margin:4px 0 8px">${n} local${n===1?'':'es'}${useR?` a menos de ${r} km`:''} ${prCat?'':` · desde <b class="num">${money(min)}</b>`}</div>${prNote()}
+  b.innerHTML=`<div class="mu" style="margin:4px 0 8px">${n} local${n===1?'':'es'}${useR?` a menos de ${r} km`:''} ${prCat||!min?'':` · desde <b class="num">${money(min,disp)}</b>`}</div>${prNote()}
   <div class="chips">${[['price','Más barato'],['near','Más cerca'],['recent','Más reciente']].map(([k,l])=>`<button class="chip ${psort===k?'on':''}" onclick="psort='${k}';pRender('${q}',${r},${useR})">${l}</button>`).join('')}</div>${rows.map(prCard(min,ex)).join('')}`;
 }
 
@@ -707,19 +748,19 @@ async function history(silent){
   if(!silent){if(lastH.history){app(lastH.history);curH=lastH.history}else app('<p class="mu">Cargando…</p>')}
   const {data:rs=[],error}=await sb.from('receipts').select('*').order('purchased_at',{ascending:false}).limit(100);
   if(error)return silent?0:app(`<div class="card">${esc(error.message)}</div>`);
-  show('history',`<h1>Mis compras</h1>${rs.length?rs.map(r=>`<div class="card" id="r${r.id}"><div class="row" style="border:0;cursor:pointer" onclick="detail('${r.id}')"><span><b>${esc(r.store)}</b>${r.doc_type==='factura'?` <span class="tag">📄 Factura${r.doc_number?' '+esc(r.doc_number):''}</span>`:''}${r.store_address?`<br><span class="mu">${esc(r.store_address)}</span>`:''}<br><span class="mu">${r.purchased_at}</span>${r.description?`<br><span class="mu">${esc(r.description)}</span>`:''}</span><span style="display:flex;align-items:center;gap:6px"><a href="https://www.google.com/maps/search/?api=1&query=${(r.store_lat!=null?r.store_lat+','+r.store_lng:encodeURIComponent(r.store_address?r.store+' '+r.store_address:r.store))}" target="_blank" rel="noopener" onclick="event.stopPropagation()" aria-label="Ver ubicación en Google Maps" title="Ver en Google Maps" style="font-size:1.4rem;text-decoration:none;padding:4px">📍</a><b class="num">${money(r.total)}</b></span></div><div id="d${r.id}"></div></div>`).join(''):'<div class="empty">Acá van a aparecer tus compras.</div>'}`,silent);
+  show('history',`<h1>Mis compras</h1>${rs.length?rs.map(r=>`<div class="card" id="r${r.id}"><div class="row" style="border:0;cursor:pointer" onclick="detail('${r.id}','${r.currency||'ARS'}')"><span><b>${esc(r.store)}</b>${r.doc_type==='factura'?` <span class="tag">📄 Factura${r.doc_number?' '+esc(r.doc_number):''}</span>`:''}${r.store_address?`<br><span class="mu">${esc(r.store_address)}</span>`:''}<br><span class="mu">${r.purchased_at}</span>${r.description?`<br><span class="mu">${esc(r.description)}</span>`:''}</span><span style="display:flex;align-items:center;gap:6px"><a href="https://www.google.com/maps/search/?api=1&query=${(r.store_lat!=null?r.store_lat+','+r.store_lng:encodeURIComponent(r.store_address?r.store+' '+r.store_address:r.store))}" target="_blank" rel="noopener" onclick="event.stopPropagation()" aria-label="Ver ubicación en Google Maps" title="Ver en Google Maps" style="font-size:1.4rem;text-decoration:none;padding:4px">📍</a><b class="num">${money(r.total,r.currency)}</b></span></div><div id="d${r.id}"></div></div>`).join(''):'<div class="empty">Acá van a aparecer tus compras.</div>'}`,silent);
 }
-async function detail(id){
+async function detail(id,cur){
   const box=$('#d'+id);
   if(box.innerHTML){box.innerHTML='';return}
   const {data:its=[]}=await sb.from('receipt_items').select('*').eq('receipt_id',id);
-  box.innerHTML=its.map(i=>`<div class="row"><span>${CAT[i.category]||'🛒'} ${esc(i.name)} <span class="mu">×${i.qty}</span></span><span class="num">${money(i.total_price)}</span></div>`).join('')+`<p><button class="ghost" onclick="editR('${id}')">✏️ Editar compra</button> <button class="x" onclick="del('${id}')">Eliminar compra</button></p>`;
+  box.innerHTML=its.map(i=>`<div class="row"><span>${CAT[i.category]||'🛒'} ${esc(i.name)} <span class="mu">×${i.qty}</span></span><span class="num">${money(i.total_price,cur)}</span></div>`).join('')+`<p><button class="ghost" onclick="editR('${id}')">✏️ Editar compra</button> <button class="x" onclick="del('${id}')">Eliminar compra</button></p>`;
 }
 async function editR(id){
   const [{data:r},{data:its=[]},{data:pp=[]}]=await Promise.all([sb.from('receipts').select('*').eq('id',id).single(),sb.from('receipt_items').select('*').eq('receipt_id',id),sb.from('price_points').select('lat,lng').eq('receipt_id',id).limit(1)]);
   if(!r)return toast('No se pudo cargar la compra');
   mapShown=!!r.store_address;
-  draft={id,docType:r.doc_type==='factura'?'factura':'ticket',docNumber:r.doc_number||'',taxId:r.store_tax_id||'',store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros',subcategory:i.subcategory||''}))};
+  draft={id,currency:r.currency||'ARS',docType:r.doc_type==='factura'?'factura':'ticket',docNumber:r.doc_number||'',taxId:r.store_tax_id||'',store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros',subcategory:i.subcategory||''}))};
   form();
 }
 async function del(id){
@@ -734,6 +775,11 @@ function settings(){
   app(`<h1>Ajustes</h1><div class="card"><h2 style="margin-top:0">Lectura de tickets</h2>
   <p class="mu">Clave de Gemini (se guarda solo en este dispositivo).</p>
   <input id="gk" type="password" placeholder="Clave de Gemini" value="${esc(localStorage.getItem('gk')||'')}"><p><button onclick="localStorage.setItem('gk',$('#gk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
+  <div class="card"><h2 style="margin-top:0">Monedas</h2><p class="mu" style="margin-top:0">Mostrar los totales en:</p><div class="chips">${Object.keys(CUR).map(c=>`<button class="chip ${dispCur()===c?'on':''}" onclick="localStorage.setItem('disp','${c}');lastH.home=null;settings()">${CUR[c].flag} ${CUR[c].name}</button>`).join('')}</div>
+  <p class="mu">Tipos de cambio (cuántos pesos vale cada moneda). Sirven para sumar compras hechas en distintas monedas.</p>
+  <div class="fields"><input id="fxu" type="number" step="any" inputmode="decimal" placeholder="1 US$ = ? pesos" value="${(fxr()||{}).USD||''}"><input id="fxb" type="number" step="any" inputmode="decimal" placeholder="1 R$ = ? pesos" value="${(fxr()||{}).BRL||''}"></div>
+  <p><button onclick="saveFx()">Guardar</button> <button class="ghost" onclick="autoFxBtn()">Buscar cotización oficial</button></p>
+  <p class="mu">${fxr()?`Última actualización: ${new Date(fxr().t).toLocaleString('es-AR')} (${fxr().src==='manual'?'manual':'automática, tipo de cambio oficial'}).`:'Sin tipos de cambio cargados.'} Si usás otro dólar (blue, MEP), cargalo a mano.</p></div>
   <div class="card"><h2 style="margin-top:0">Búsqueda inteligente</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('ai')!=='0'?'checked':''} onchange="localStorage.setItem('ai',this.checked?'1':'0')"><span>Usar IA para encontrar productos relacionados (por ejemplo, buscar "malbec" también muestra Nicasia). <span class="mu">Usa tu clave de Gemini y envía solo el texto que buscás.</span></span></label></div>
   <div class="card"><h2 style="margin-top:0">Precios compartidos</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('share')!=='0'?'checked':''} onchange="localStorage.setItem('share',this.checked?'1':'0')"><span>Compartir mis precios de forma anónima con otros usuarios <span class="mu">(producto, precio, local y fecha; nunca tu nombre ni tu email). Se aplica a los tickets que cargues desde ahora.</span></span></label></div>
   <div class="card"><h2 style="margin-top:0">Google Maps (opcional)</h2><p class="mu">Con una clave con Maps JavaScript API, Places API (New) y Geocoding API activadas, podés buscar el local con sugerencias, ver los más cercanos y confirmar la ubicación con un pin. Sin clave se muestra un mapa simple.</p><input id="mk" type="password" placeholder="Clave de Google Maps" value="${esc(localStorage.getItem('mk')||'')}"><p><button onclick="localStorage.setItem('mk',$('#mk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
