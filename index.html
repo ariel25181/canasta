@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="20261012195843">
+<meta name="app-version" content="20261013011724">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -58,12 +58,37 @@ a.btn.sm{padding:8px 14px;font-size:.9rem;text-decoration:none}
 #mgps{position:absolute;right:10px;bottom:10px;width:46px;height:46px;border-radius:50%;background:#fff;color:var(--tx);padding:0;box-shadow:0 2px 6px rgba(0,0,0,.25);font-size:1.3rem}
 .mhead{display:flex;align-items:center;gap:8px;margin-bottom:8px}.mhead b{flex:1}.mgrp{margin:8px 0 2px}
 .it2{display:grid;grid-template-columns:1fr 1.3fr;gap:6px;margin:-2px 0 12px}.it2 select,.it2 input{font-size:.85rem;padding:7px 10px}
+#ov{position:fixed;inset:0;background:rgba(35,49,42,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}#ov[hidden]{display:none}
+.mdl{background:#fff;border-radius:22px;padding:24px 20px;max-width:380px;width:100%;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.25);max-height:90vh;overflow:auto}
+.mdl h2{margin:0 0 8px}.mdl p{margin:6px 0}
+.mact{display:flex;flex-direction:column;gap:8px;margin-top:16px}.mact button{width:100%}
+.spin{width:48px;height:48px;border:5px solid #dfeee4;border-top-color:var(--g);border-radius:50%;margin:4px auto 16px;animation:sp .9s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.ic{width:72px;height:72px;border-radius:50%;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:2.2rem}
+.ic.ok{background:#e3f2e8;animation:pop .35s}.ic.bad{background:#fbe6e5}.ic.warn{background:#fff3cd}
+@keyframes pop{0%{transform:scale(.4)}70%{transform:scale(1.1)}100%{transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){.ic{animation:none}}
+.mnav{display:flex;align-items:center;justify-content:space-between;margin:4px 0 12px}
+.mnav button{background:#fff;color:var(--tx);border:1.5px solid var(--ln);width:40px;height:40px;border-radius:50%;padding:0;font-size:1.1rem}
+.mnav button:disabled{opacity:.35;cursor:default}.mnav b{font-size:1.05rem}
+.hero{background:linear-gradient(135deg,#46a06a,#2f7048);color:#fff;border-radius:24px;padding:20px;margin-bottom:12px;box-shadow:0 8px 22px rgba(62,142,90,.28)}
+.hero .l{opacity:.88;font-size:.95rem}.hero .v{font-size:2.4rem;font-weight:800;font-variant-numeric:tabular-nums;margin:2px 0 10px}
+.hero .hr{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:.9rem}
+.pill{background:rgba(255,255,255,.2);border-radius:999px;padding:4px 12px;font-weight:700}
+.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.mini div{background:#fff;border-radius:16px;padding:10px 8px;text-align:center;box-shadow:0 1px 3px rgba(35,49,42,.08);min-width:0}
+.mini b{display:block;font-size:1rem;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mini span{font-size:.78rem;color:var(--mu)}
+.donut{display:flex;flex-direction:column;align-items:center;gap:10px}.leg{width:100%}
+.lg{display:flex;align-items:center;gap:8px;padding:6px 0}.lg .lgn{flex:1;text-transform:capitalize}
+.dot{width:12px;height:12px;border-radius:50%;flex:none}
+.dbadge{width:46px;height:50px;border-radius:14px;background:#e3f2e8;color:var(--gd);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.72rem;text-transform:uppercase;line-height:1.1;flex:none}.dbadge b{font-size:1.15rem}
 #toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%}
 @media(min-width:900px){nav{max-width:420px;left:50%;transform:translateX(-50%);border-radius:20px 20px 0 0}}
 </style>
 </head>
 <body>
 <div id="toast"></div>
+<div id="ov" hidden role="dialog" aria-modal="true"><div class="mdl" id="mdl"></div></div>
 <main id="app"></main>
 <nav id="nav" hidden>
   <button data-v="home">🏠<span>Inicio</span></button>
@@ -111,7 +136,7 @@ async function boot(){
   const {data}=await sb.auth.getSession();
   user=data.session?.user||null;
   if(!user)return login();
-  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');go(g||'home');fixCoords();fixSubcats();
+  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;go(g||'home');fixCoords();fixSubcats();offerRestore();
 }
 
 /* ---------- Navigation ---------- */
@@ -122,31 +147,45 @@ function go(v){
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   ({home,prices,scan,history,settings})[v]();
 }
-$('#nav').onclick=e=>{const b=e.target.closest('button');if(b)go(b.dataset.v)};
+$('#nav').onclick=e=>{const b=e.target.closest('button');if(b){clearBk();go(b.dataset.v)}};
 
 /* ---------- Home ---------- */
+let hm=0;
+const COL={lacteos:'#4F9DDE',carnes:'#D9534F',panaderia:'#E5A93D',verduras:'#3E8E5A',frutas:'#F28C38',bebidas:'#8E6BBF',limpieza:'#2BB3B1',almacen:'#B5835A',otros:'#9AA5A0'};
+const cap=t=>t.charAt(0).toUpperCase()+t.slice(1);
+function hmGo(d){hm=Math.min(0,hm+d);lastH.home=null;home()}
+function donut(sl,total){
+  const r=62,C=2*Math.PI*r;let off=0;
+  const arcs=sl.map(x=>{const part=x.v/total*C,len=Math.max(0,part-(sl.length>1?2:0));const a=`<circle cx="80" cy="80" r="${r}" fill="none" stroke="${COL[x.k]||'#9AA5A0'}" stroke-width="26" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 80 80)"/>`;off+=part;return a}).join('');
+  return `<svg viewBox="0 0 160 160" width="176" height="176" role="img" aria-label="Gasto por categoría"><circle cx="80" cy="80" r="${r}" fill="none" stroke="#f1ede2" stroke-width="26"/>${arcs}<text x="80" y="76" text-anchor="middle" font-size="11" fill="#6b7a70">Total</text><text x="80" y="96" text-anchor="middle" font-size="16" font-weight="800" fill="#23312A">${money(total)}</text></svg>`;
+}
 async function home(silent){
   if(!silent){if(lastH.home){app(lastH.home);curH=lastH.home}else app('<p class="mu">Cargando…</p>')}
-  const n=new Date(),y=n.getFullYear(),m=n.getMonth();
-  const ms=(yy,mm)=>new Date(yy,mm,1).toLocaleDateString('sv').slice(0,10);
-  const m0=ms(y,m),m1=ms(y,m-1);
-  const {data:rs=[],error}=await sb.from('receipts').select('*').gte('purchased_at',m1).order('purchased_at',{ascending:false});
+  const n=new Date(),base=new Date(n.getFullYear(),n.getMonth()+hm,1),nxt=new Date(n.getFullYear(),n.getMonth()+hm+1,1),prv=new Date(n.getFullYear(),n.getMonth()+hm-1,1);
+  const ymd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+  const {data:rs=[],error}=await sb.from('receipts').select('*').gte('purchased_at',ymd(prv)).lt('purchased_at',ymd(nxt)).order('purchased_at',{ascending:false});
   if(error)return silent?0:app(`<div class="card">No se pudo cargar: ${esc(error.message)}</div>`);
-  const cur=rs.filter(r=>r.purchased_at>=m0),prev=rs.filter(r=>r.purchased_at<m0);
-  const sum=a=>a.reduce((s,r)=>s+Number(r.total),0),c=sum(cur),p=sum(prev);
-  const d=p?((c-p)/p*100):null;
-  let top='';
-  if(cur.length){
-    const {data:its=[]}=await sb.from('receipt_items').select('name,total_price,category').in('receipt_id',cur.map(r=>r.id));
-    const agg={};its.forEach(i=>{const k=i.name.toLowerCase();agg[k]=agg[k]||{n:i.name,c:i.category,t:0,q:0};agg[k].t+=Number(i.total_price);agg[k].q++});
-    const l=Object.values(agg).sort((a,b)=>b.t-a.t).slice(0,5);
-    top=`<h2>Lo que más gastás</h2><div class="card">${l.map(i=>`<div class="row"><span>${CAT[i.c]||'🛒'} ${esc(i.n)} <span class="mu">×${i.q}</span></span><span class="num">${money(i.t)}</span></div>`).join('')}</div>`;
-  }
-  show('home',`<h1>Este mes</h1>
-  <div class="card"><div class="mu">Gastaste en el súper</div><div class="big">${money(c)}</div>
-  <div class="mu">${cur.length} compra${cur.length===1?'':'s'}${d===null?'':` · <span class="${d>0?'up':'down'}">${d>0?'+':''}${d.toFixed(1)}%</span> vs. el mes pasado`}</div></div>
-  ${top}
-  ${rs.length?'':`<div class="empty">Todavía no cargaste compras.<br><br><button onclick="go('scan')">Escanear mi primer ticket</button></div>`}`,silent);
+  const cur=rs.filter(r=>r.purchased_at>=ymd(base)),prev=rs.filter(r=>r.purchased_at<ymd(base));
+  const sum=a=>a.reduce((s,r)=>s+Number(r.total),0),c=sum(cur),p=sum(prev),d=p?((c-p)/p*100):null;
+  let its=[];
+  for(let i=0;i<cur.length;i+=60){const {data=[]}=await sb.from('receipt_items').select('name,total_price,category').in('receipt_id',cur.slice(i,i+60).map(r=>r.id));its=its.concat(data)}
+  const cats={};its.forEach(i=>{const k=CAT[i.category]?i.category:'otros';cats[k]=(cats[k]||0)+Number(i.total_price)});
+  const sl=Object.entries(cats).map(([k,v])=>({k,v})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v),ct=sl.reduce((s,x)=>s+x.v,0);
+  const agg={};its.forEach(i=>{const k=i.name.toLowerCase();agg[k]=agg[k]||{n:i.name,c:i.category,t:0,q:0};agg[k].t+=Number(i.total_price);agg[k].q++});
+  const top=Object.values(agg).sort((a,b)=>b.t-a.t).slice(0,5);
+  const st={};cur.forEach(r=>{st[r.store]=(st[r.store]||0)+1});
+  const fav=Object.entries(st).sort((a,b)=>b[1]-a[1])[0];
+  const hoy=cap(n.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'})),mLabel=cap(base.toLocaleDateString('es-AR',{month:'long',year:'numeric'}));
+  const rec=cur.slice(0,4).map(r=>{const dt=new Date(r.purchased_at+'T00:00');return `<div class="row" onclick="go('history')" style="cursor:pointer;border:0;padding:6px 0"><span style="display:flex;gap:12px;align-items:center;min-width:0"><span class="dbadge"><b>${dt.getDate()}</b>${dt.toLocaleDateString('es-AR',{month:'short'}).replace('.','')}</span><span style="min-width:0"><b>${esc(r.store)}</b><br><span class="mu">${ago(r.purchased_at)}</span></span></span><b class="num">${money(r.total)}</b></div>`}).join('');
+  const h=`<div class="mu">${hoy}</div><h1 style="margin-top:2px">Tu resumen</h1>
+  <div class="mnav"><button onclick="hmGo(-1)" aria-label="Mes anterior">‹</button><b>${mLabel}</b><button onclick="hmGo(1)" aria-label="Mes siguiente" ${hm===0?'disabled':''}>›</button></div>
+  <div class="hero"><div class="l">Gastaste en el súper</div><div class="v">${money(c)}</div><div class="hr">${d===null?'':`<span class="pill">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1).replace('.',',')}% vs. mes anterior</span>`}<span>${cur.length} compra${cur.length===1?'':'s'}</span></div></div>
+  ${cur.length?`<div class="mini"><div><b>${cur.length}</b><span>Compras</span></div><div><b>${money(c/cur.length)}</b><span>Ticket promedio</span></div><div><b>${fav?esc(fav[0]):'-'}</b><span>Más visitado</span></div></div>
+  <div class="card"><h2 style="margin-top:0">¿En qué gastás?</h2>${sl.length?`<div class="donut">${donut(sl,ct)}<div class="leg">${sl.map(x=>`<div class="lg"><span class="dot" style="background:${COL[x.k]||'#9AA5A0'}"></span><span class="lgn">${CAT[x.k]} ${x.k}</span><span class="mu num">${money(x.v)}</span><b class="num" style="min-width:42px;text-align:right">${Math.round(x.v/ct*100)}%</b></div>`).join('')}</div></div>`:'<div class="mu">Todavía no hay productos con precio este mes.</div>'}</div>
+  <div class="card"><h2 style="margin-top:0">Últimas compras</h2>${rec}</div>
+  ${top.length?`<div class="card"><h2 style="margin-top:0">Lo que más gastás</h2>${top.map(i=>`<div class="row"><span>${CAT[i.c]||'🛒'} ${esc(i.n)} <span class="mu">×${i.q}</span></span><span class="num">${money(i.t)}</span></div>`).join('')}</div>`:''}`
+  :`<div class="empty">Sin compras en ${esc(mLabel)}.${hm===0?`<br><br><button onclick="go('scan')">Escanear un ticket</button>`:''}</div>`}`;
+  show('home',h,silent);
 }
 
 /* ---------- Scan ---------- */
@@ -218,35 +257,114 @@ function form(){
   <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros',subcategory:''});form()">+ Agregar producto</button></p>
   <div class="card row"><b>Total</b><b class="num">${money(t)}</b></div>
   ${localStorage.getItem('share')!=='0'?`<p class="mu">🔒 Tus precios se comparten de forma anónima.${draft.lat!=null?'':' Elegí el local en el mapa para que aparezcan en búsquedas por zona.'} Podés cambiarlo en Ajustes.</p>`:''}
-  <button onclick="save()">${draft.id?'Guardar cambios':'Guardar compra'}</button>${draft.id?` <button class="ghost" onclick="go('history')">Cancelar</button>`:''}`);
+  <button onclick="save()">${draft.id?'Guardar cambios':'Guardar compra'}</button>${draft.id?` <button class="ghost" onclick="clearBk();go('history')">Cancelar</button>`:''}`);
   if(mapShown)mapOpen();
 }
+/* ---------- Ventanas (modales) ---------- */
+let ovLock=false;
+function modal(h,o={}){ovLock=!!o.lock;$('#mdl').innerHTML=h;$('#ov').hidden=false;const b=$('#mdl button');if(b)b.focus()}
+function closeModal(){$('#ov').hidden=true;$('#mdl').innerHTML='';ovLock=false}
+$('#ov').onclick=e=>{if(e.target.id==='ov'&&!ovLock)closeModal()};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!ovLock&&!$('#ov').hidden)closeModal()});
+const T=(p,ms)=>Promise.race([p,new Promise((_,no)=>setTimeout(()=>no(Error('timeout')),ms))]);
+
+/* ---------- Guardar ---------- */
+function validate(){
+  if(!draft.store.trim())return{title:'Falta el supermercado',msg:'Escribí el nombre del supermercado para poder guardar la compra.',focus:'#store'};
+  if(!draft.date)return{title:'Falta la fecha',msg:'Elegí la fecha de la compra.',focus:null};
+  if(!draft.items.some(i=>i.name.trim()))return{title:'Faltan productos',msg:'Agregá al menos un producto con nombre.',focus:null};
+  return null;
+}
+function explain(e){
+  const m=String((e&&e.message)||e||''),c=String((e&&e.code)||'');
+  if(m==='timeout')return{title:'Tardó demasiado',msg:'El servidor no respondió a tiempo. Es posible que la compra ya se haya guardado: podés reintentar sin riesgo de duplicarla, o revisar en Mis compras.'};
+  if(!navigator.onLine||/Failed to fetch|NetworkError|Load failed/i.test(m))return{title:'Sin conexión',msg:'No pudimos comunicarnos con el servidor. Revisá tu conexión a internet y volvé a intentar.'};
+  if(/JWT|token.*(expired|invalid)|PGRST30/i.test(m+c)||(e&&e.status===401))return{kind:'auth',title:'Sesión vencida',msg:''};
+  if(c==='42501'||/row-level security|permission denied/i.test(m))return{title:'Sin permiso',msg:'Tu cuenta no tiene permiso para guardar esta compra. Cerrá sesión y volvé a entrar.'};
+  return{title:'No se pudo guardar',msg:'Ocurrió un error inesperado: '+m};
+}
+const errHtml=(t,m,o={})=>`<div class="ic bad">⚠️</div><h2>${esc(t)}</h2><p>${esc(m)}</p>${o.retry?'<p class="mu">Tus datos siguen en pantalla: no se perdió nada.</p>':''}<div class="mact">${o.retry?'<button onclick="closeModal();save()">Reintentar</button>':''}<button class="ghost" onclick="closeModal();${o.focus?`var f=document.querySelector('${o.focus}');if(f)f.focus()`:''}">${o.retry?'Volver al formulario':'Entendido'}</button></div>`;
+function okModal(r){
+  modal(`<div class="ic ok">✅</div><h2>${r.edit?'¡Cambios guardados!':'¡Compra guardada!'}</h2>
+  <p><b>${esc(r.store)}</b><br>${r.n} producto${r.n===1?'':'s'} · <b>${money(r.total)}</b></p>
+  ${r.warn?`<p class="mu" style="background:#fff3cd;border-radius:10px;padding:8px 10px">${esc(r.warn)}</p>`:''}
+  <div class="mact"><button onclick="closeModal();go('history')">${r.edit?'Volver a Mis compras':'Ver mis compras'}</button>${r.edit?'':`<button class="ghost" onclick="closeModal();go('scan')">Cargar otra compra</button>`}</div>`,{lock:true});
+}
 async function save(){
-  if(window._saving)return;window._saving=true;
-  try{await _save()}finally{window._saving=false}
+  if(window._saving)return;
+  const v=validate();
+  if(v)return modal(errHtml(v.title,v.msg,{focus:v.focus}));
+  window._saving=true;
+  const edit=!!draft.id;
+  modal(`<div class="spin"></div><h2>${edit?'Guardando cambios…':'Guardando tu compra…'}</h2><p class="mu">Un momento, no cierres la app.</p>`,{lock:true});
+  const t0=Date.now();let res,err=null;
+  try{
+    if(window._inflight)await window._inflight;
+    const p=_save();window._inflight=p.catch(()=>{});
+    res=await T(p,30000);
+  }catch(e){err=e}
+  const w=500-(Date.now()-t0);if(w>0)await new Promise(r=>setTimeout(r,w));
+  window._saving=false;
+  if(!err)return okModal(res);
+  const x=explain(err);
+  if(x.kind==='auth'){backupNow();return expired()}
+  modal(errHtml(x.title,x.msg,{retry:true}));
 }
 async function _save(){
   const items=draft.items.filter(i=>i.name.trim());
-  if(!draft.store.trim())return toast('Poné el nombre del supermercado');
-  if(!items.length)return toast('Agregá al menos un producto');
-  const total=items.reduce((s,i)=>s+i.total_price,0);
+  const total=items.reduce((s,i)=>s+i.total_price,0),edit=!!draft.id;
   if(draft.address.trim()&&draft.lat==null){const g=await geocodeAddr(draft.address);if(g){draft.lat=g.lat;draft.lng=g.lng}}
-  const row={store:draft.store.trim(),purchased_at:draft.date,description:draft.description.trim()||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,total};
-  const {data:r,error}=draft.id?await sb.from('receipts').update(row).eq('id',draft.id).select().single():await sb.from('receipts').insert(row).select().single();
-  if(error)return toast(error.message);
-  const oldI=draft.id?((await sb.from('receipt_items').select('id').eq('receipt_id',draft.id)).data||[]).map(x=>x.id):[];
-  const oldP=draft.id?((await sb.from('price_points').select('id').eq('receipt_id',draft.id)).data||[]).map(x=>x.id):[];
-  const {error:e2}=await sb.from('receipt_items').insert(items.map(i=>({receipt_id:r.id,name:i.name.trim(),qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,category:i.category,subcategory:nk(i.subcategory)||null})));
-  if(e2){if(!draft.id)await sb.from('receipts').delete().eq('id',r.id);return toast(e2.message)}
+  const rid=draft.id||draft.rid||(draft.rid=crypto.randomUUID());
+  const row={id:rid,store:draft.store.trim(),purchased_at:draft.date,description:draft.description.trim()||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,total};
+  const {error}=await sb.from('receipts').upsert(row);
+  if(error)throw error;
+  const oldI=((await sb.from('receipt_items').select('id').eq('receipt_id',rid)).data||[]).map(x=>x.id);
+  const oldP=((await sb.from('price_points').select('id').eq('receipt_id',rid)).data||[]).map(x=>x.id);
+  const {error:e2}=await sb.from('receipt_items').insert(items.map(i=>({receipt_id:rid,name:i.name.trim(),qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,category:i.category,subcategory:nk(i.subcategory)||null})));
+  if(e2){if(!edit&&!oldI.length)await sb.from('receipts').delete().eq('id',rid);throw e2}
   if(oldI.length)await sb.from('receipt_items').delete().in('id',oldI);
-  let note=draft.id?'Cambios guardados':'Compra guardada';
+  let warn=null;
   if(localStorage.getItem('share')!=='0'){
-    const pp=items.filter(i=>i.total_price>0).map(i=>({receipt_id:r.id,store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:nk(i.name),category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,purchased_at:draft.date}));
-    if(pp.length){const {error:e3}=await sb.from('price_points').insert(pp);if(e3)note+=' (no se pudieron compartir los precios)'}
+    const pp=items.filter(i=>i.total_price>0).map(i=>({receipt_id:rid,store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:nk(i.name),category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,purchased_at:draft.date}));
+    if(pp.length){const {error:e3}=await sb.from('price_points').insert(pp);if(e3)warn='La compra se guardó, pero no se pudieron compartir los precios.';else if(draft.lat==null)warn='Tus precios se compartieron sin la ubicación del local: no van a aparecer en búsquedas por zona hasta que lo ubiques en el mapa.'}
   }
   if(oldP.length)await sb.from('price_points').delete().in('id',oldP);
-  const wasEdit=!!draft.id;lastH.home=lastH.history=null;toast(note);go(wasEdit?'history':'home');
+  draft.id=rid;draft.saved=true;clearBk();lastH.home=lastH.history=null;
+  return{edit,store:draft.store.trim(),n:items.length,total,warn};
 }
+
+/* ---------- Sesión vencida y borrador ---------- */
+const bkOk=d=>d&&!d.saved&&(d.store||(d.items||[]).some(i=>i.name));
+function backupNow(){try{if(user&&draft&&bkOk(draft))localStorage.setItem('draftBk',JSON.stringify({uid:user.id,t:Date.now(),draft}))}catch(e){}}
+const readBk=()=>{try{const b=JSON.parse(localStorage.getItem('draftBk')||'null');if(b&&Date.now()-b.t<864e5)return b}catch(e){}return null};
+const clearBk=()=>{try{localStorage.removeItem('draftBk')}catch(e){}};
+setInterval(backupNow,4000);
+addEventListener('pagehide',backupNow);
+function expired(){
+  if(window._exp)return;window._exp=true;
+  backupNow();user=null;
+  const has=!!readBk();
+  modal(`<div class="ic warn">⏱️</div><h2>Tu sesión expiró</h2><p>Por seguridad cerramos tu sesión.${has?' <b>El ticket que estabas cargando quedó guardado en este dispositivo</b>: al volver a entrar vas a poder recuperarlo.':''}</p><div class="mact"><button onclick="relogin()">Iniciar sesión</button></div>`,{lock:true});
+}
+function relogin(){closeModal();window._exp=false;draft=null;login()}
+async function checkSession(){
+  if(!user||window._exp)return;
+  try{
+    const {data,error}=await sb.auth.getSession();
+    if(!data.session){
+      if(error&&(!navigator.onLine||/fetch|network/i.test(error.message||'')))return;
+      expired();
+    }
+  }catch(e){}
+}
+sb.auth.onAuthStateChange(ev=>{if(ev==='SIGNED_OUT'&&user&&!window._manualOut)expired()});
+setInterval(()=>{if(draft)checkSession()},30000);
+function offerRestore(){
+  const b=readBk();if(!b||!user||b.uid!==user.id)return;
+  const n=(b.draft.items||[]).filter(i=>i.name).length;
+  modal(`<div class="ic warn">📝</div><h2>Tenés un ticket sin guardar</h2><p>${b.draft.store?'<b>'+esc(b.draft.store)+'</b><br>':''}${n} producto${n===1?'':'s'} · guardado ${ago(new Date(b.t).toISOString().slice(0,10))}</p><div class="mact"><button onclick="restoreBk()">Recuperar ticket</button><button class="ghost" onclick="clearBk();closeModal()">Descartar</button></div>`,{lock:true});
+}
+function restoreBk(){const b=readBk();closeModal();if(!b)return;go('scan');draft=b.draft;mapShown=false;form()}
 
 /* ---------- Asistente de Google Maps ---------- */
 let gm=null,gcd=null,Pl=null,AS=null,stok=null,sugs=[],sugT=0,lockUntil=0,mineL=[],nearL=[];
@@ -584,7 +702,7 @@ function settings(){
   <div class="card"><h2 style="margin-top:0">Búsqueda inteligente</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('ai')!=='0'?'checked':''} onchange="localStorage.setItem('ai',this.checked?'1':'0')"><span>Usar IA para encontrar productos relacionados (por ejemplo, buscar "malbec" también muestra Nicasia). <span class="mu">Usa tu clave de Gemini y envía solo el texto que buscás.</span></span></label></div>
   <div class="card"><h2 style="margin-top:0">Precios compartidos</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('share')!=='0'?'checked':''} onchange="localStorage.setItem('share',this.checked?'1':'0')"><span>Compartir mis precios de forma anónima con otros usuarios <span class="mu">(producto, precio, local y fecha; nunca tu nombre ni tu email). Se aplica a los tickets que cargues desde ahora.</span></span></label></div>
   <div class="card"><h2 style="margin-top:0">Google Maps (opcional)</h2><p class="mu">Con una clave con Maps JavaScript API, Places API (New) y Geocoding API activadas, podés buscar el local con sugerencias, ver los más cercanos y confirmar la ubicación con un pin. Sin clave se muestra un mapa simple.</p><input id="mk" type="password" placeholder="Clave de Google Maps" value="${esc(localStorage.getItem('mk')||'')}"><p><button onclick="localStorage.setItem('mk',$('#mk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
-  <div class="card"><div class="mu">${esc(user.email)}</div><p><button class="ghost" onclick="sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
+  <div class="card"><div class="mu">${esc(user.email)}</div><p><button class="ghost" onclick="window._manualOut=true;clearBk();sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
 }
 
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
@@ -603,6 +721,7 @@ async function checkUpdate(){
 }
 document.addEventListener('visibilitychange',async()=>{
   if(document.hidden)return;
+  checkSession();
   await checkUpdate();
   if(pendingReload&&!draft&&view!=='scan'&&safe()){sessionStorage.setItem('goto',view);location.reload();return}
   refresh();
