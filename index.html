@@ -4,10 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="20261013225412">
+<meta name="app-version" content="20261014105708">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
-<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Canasta">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>Canasta</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -87,6 +91,29 @@ a.btn.sm{padding:8px 14px;font-size:.9rem;text-decoration:none}
 .th img{width:100%;height:100%;object-fit:cover}.th .pdf{display:flex;align-items:center;justify-content:center;height:100%;text-align:center;font-size:.8rem}
 .th .n{position:absolute;left:4px;top:4px;background:var(--g);color:#fff;border-radius:999px;font-size:.75rem;font-weight:800;width:20px;height:20px;display:flex;align-items:center;justify-content:center}
 .th .x{position:absolute;right:2px;top:2px;background:rgba(255,255,255,.92);border-radius:50%;width:24px;height:24px;padding:0;font-size:.8rem;line-height:1}
+.stars{display:flex;gap:4px;justify-content:center;margin:8px 0}
+.stars button{background:transparent;border:0;font-size:1.9rem;padding:0 2px;line-height:1;filter:grayscale(1);opacity:.4}
+.stars button.on{filter:none;opacity:1}.stars button:hover{background:transparent}
+.tk{font-size:1.7rem;font-weight:800;letter-spacing:.04em;background:#e3f2e8;color:var(--gd);border-radius:14px;padding:10px;margin:10px 0}
+#tour{position:fixed;inset:0;z-index:60}
+#tour .back{position:absolute;inset:0;background:rgba(35,49,42,.62)}
+#tour:not(.center) .back{display:none}
+#tspot{position:absolute;border-radius:20px;box-shadow:0 0 0 9999px rgba(35,49,42,.62),0 0 0 3px rgba(255,255,255,.9) inset;transition:all .25s ease;pointer-events:none}
+#tour.center #tspot{display:none}
+#tcard{position:absolute;left:50%;transform:translateX(-50%);width:min(92vw,360px);background:#fff;border-radius:24px;padding:22px 20px 16px;box-shadow:0 14px 44px rgba(0,0,0,.32);text-align:center;max-height:80vh;overflow:auto}
+#tour.center #tcard{top:50%;transform:translate(-50%,-50%)}
+#tcard h2{margin:0 0 8px}#tcard p{margin:6px 0}
+.dots{display:flex;gap:6px;justify-content:center;margin:14px 0 10px}.dots i{width:8px;height:8px;border-radius:99px;background:#dfe6e1;transition:all .2s}.dots i.on{background:var(--g);width:22px}
+.tnav{display:flex;gap:8px;margin-top:12px}.tnav button{flex:1}
+.tskip{background:none;color:var(--mu);padding:8px;font-weight:600;font-size:.9rem}.tskip:hover{background:none;color:var(--tx)}
+.tchk{display:flex;gap:8px;align-items:center;justify-content:center;font-size:.85rem;color:var(--mu);margin-top:10px}
+.tchk input{width:auto}
+details.hq{background:#fff;border-radius:16px;padding:14px 16px;margin-bottom:8px;box-shadow:0 1px 3px rgba(35,49,42,.08)}
+details.hq summary{font-weight:700;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px}
+details.hq summary::-webkit-details-marker{display:none}
+details.hq summary::after{content:'›';font-size:1.4rem;color:var(--g);transform:rotate(90deg);transition:transform .2s}
+details.hq[open] summary::after{transform:rotate(-90deg)}
+details.hq p,details.hq ul,details.hq ol{margin:8px 0 0;color:#3b4a41}details.hq ul,details.hq ol{padding-left:20px}details.hq li{margin:4px 0}
 #toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%}
 @media(min-width:900px){nav{max-width:420px;left:50%;transform:translateX(-50%);border-radius:20px 20px 0 0}}
 </style>
@@ -169,7 +196,7 @@ async function boot(){
   const {data}=await sb.auth.getSession();
   user=data.session?.user||null;
   if(!user)return login();
-  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;go(g||'home');fixCoords();fixSubcats();autoFx();offerRestore();
+  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;go(g||'home');fixCoords();fixSubcats();autoFx();offerRestore();setTimeout(tourAuto,900);
 }
 
 /* ---------- Navigation ---------- */
@@ -178,7 +205,7 @@ function go(v){
   if(pendingReload&&v!=='scan'&&safe()){sessionStorage.setItem('goto',v);location.reload();return}
   view=v;
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
-  ({home,prices,scan,history,settings})[v]();
+  ({home,prices,scan,history,settings,help})[v]();
 }
 $('#nav').onclick=e=>{const b=e.target.closest('button');if(b){clearBk();go(b.dataset.v)}};
 
@@ -219,7 +246,7 @@ async function home(silent){
   const hoy=cap(n.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'})),mLabel=cap(base.toLocaleDateString('es-AR',{month:'long',year:'numeric'}));
   const rec=cur.slice(0,4).map(r=>{const dt=new Date(r.purchased_at+'T00:00');return `<div class="row" onclick="go('history')" style="cursor:pointer;border:0;padding:6px 0"><span style="display:flex;gap:12px;align-items:center;min-width:0"><span class="dbadge"><b>${dt.getDate()}</b>${dt.toLocaleDateString('es-AR',{month:'short'}).replace('.','')}</span><span style="min-width:0"><b>${esc(r.store)}</b><br><span class="mu">${ago(r.purchased_at)}</span></span></span><b class="num">${money(r.total,cc(r))}</b></div>`}).join('');
   const un=Object.entries(unconv);
-  const h=`<div class="mu">${hoy}</div><h1 style="margin-top:2px">Tu resumen</h1>
+  const h=`<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div><div class="mu">${hoy}</div><h1 style="margin-top:2px">Tu resumen</h1></div><button class="chip" onclick="go('help')" aria-label="Ayuda" style="width:40px;height:40px;padding:0;border-radius:50%;font-size:1.1rem">?</button></div>
   <div class="mnav"><button onclick="hmGo(-1)" aria-label="Mes anterior">‹</button><b>${mLabel}</b><button onclick="hmGo(1)" aria-label="Mes siguiente" ${hm===0?'disabled':''}>›</button></div>
   <div class="hero"><div class="l">Gastaste en el súper</div><div class="v">${money(c,disp)}</div><div class="hr">${d===null?'':`<span class="pill">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1).replace('.',',')}% vs. mes anterior</span>`}<span>${cur.length} compra${cur.length===1?'':'s'}</span></div>
   ${hasConv?'<div style="margin-top:8px;font-size:.82rem;opacity:.9">Incluye compras en otras monedas, convertidas al tipo de cambio de Ajustes.</div>':''}
@@ -358,7 +385,7 @@ function explain(e){
   if(c==='42501'||/row-level security|permission denied/i.test(m))return{title:'Sin permiso',msg:'Tu cuenta no tiene permiso para guardar esta compra. Cerrá sesión y volvé a entrar.'};
   return{title:'No se pudo guardar',msg:'Ocurrió un error inesperado: '+m};
 }
-const errHtml=(t,m,o={})=>`<div class="ic bad">⚠️</div><h2>${esc(t)}</h2><p>${esc(m)}</p>${o.retry?'<p class="mu">Tus datos siguen en pantalla: no se perdió nada.</p>':''}<div class="mact">${o.retry?'<button onclick="closeModal();save()">Reintentar</button>':''}<button class="ghost" onclick="closeModal();${o.focus?`var f=document.querySelector('${o.focus}');if(f)f.focus()`:''}">${o.retry?'Volver al formulario':'Entendido'}</button></div>`;
+const errHtml=(t,m,o={})=>`<div class="ic bad">⚠️</div><h2>${esc(t)}</h2><p>${esc(m)}</p>${o.retry?'<p class="mu">Tus datos siguen en pantalla: no se perdió nada.</p>':''}<div class="mact">${o.retry?'<button onclick="closeModal();save()">Reintentar</button>':''}${o.retry?'<button class="ghost" onclick="openFeedback(\'bug\',window._fbPre)">🐞 Reportar este problema</button>':''}<button class="ghost" onclick="closeModal();${o.focus?`var f=document.querySelector('${o.focus}');if(f)f.focus()`:''}">${o.retry?'Volver al formulario':'Entendido'}</button></div>`;
 function okModal(r){
   modal(`<div class="ic ok">✅</div><h2>${r.edit?'¡Cambios guardados!':r.fact?'¡Factura guardada!':'¡Ticket guardado!'}</h2>
   <p><b>${esc(r.store)}</b><br>${r.n} producto${r.n===1?'':'s'} · <b>${money(r.total,r.cur)}</b></p>
@@ -383,7 +410,7 @@ async function save(){
   if(!err)return okModal(res);
   const x=explain(err);
   if(x.kind==='auth'){backupNow();return expired()}
-  modal(errHtml(x.title,x.msg,{retry:true}));
+  window._fbPre='Error al guardar: '+x.title+' — '+x.msg;modal(errHtml(x.title,x.msg,{retry:true}));
 }
 async function _save(){
   const items=draft.items.filter(i=>i.name.trim());
@@ -440,6 +467,156 @@ function offerRestore(){
   modal(`<div class="ic warn">📝</div><h2>Tenés un ticket sin guardar</h2><p>${b.draft.store?'<b>'+esc(b.draft.store)+'</b><br>':''}${n} producto${n===1?'':'s'} · guardado ${ago(new Date(b.t).toISOString().slice(0,10))}</p><div class="mact"><button onclick="restoreBk()">Recuperar ticket</button><button class="ghost" onclick="clearBk();closeModal()">Descartar</button></div>`,{lock:true});
 }
 function restoreBk(){const b=readBk();closeModal();if(!b)return;go('scan');draft=b.draft;mapShown=false;form()}
+
+/* ---------- Recorrido guiado ---------- */
+const TOUR=[
+  {icon:'🧺',t:'¡Bienvenido a Canasta!',d:'Registrá tus compras del súper sacándole una foto al ticket, mirá en qué gastás y descubrí dónde conviene comprar. Te mostramos cómo en menos de un minuto.'},
+  {v:'home',t:'Inicio: tu resumen',d:'Acá ves cuánto gastaste en el mes, un gráfico por categoría y tus últimas compras. Con las flechas ‹ › cambiás de mes.'},
+  {v:'prices',t:'Precios: dónde conviene',d:'Buscá un producto o una categoría (por ejemplo "verdura") y mirá los precios de los locales cercanos. Elegís hasta qué distancia buscar.'},
+  {v:'scan',t:'Cargá un ticket o factura',d:'Tocá el botón de la cámara: sacá hasta 5 fotos (o subí un PDF), revisá los datos y guardá. Sirve para tickets y facturas, en pesos, dólares o reales.'},
+  {v:'history',t:'Compras: tu historial',d:'Tocá una compra para ver el detalle, editarla o eliminarla. El 📍 abre el local en Google Maps.'},
+  {v:'settings',t:'Ajustes',d:'Acá cargás tus claves (Gemini para leer tickets y Google Maps para ubicar locales), elegís la moneda, compartís la app, mandás comentarios y encontrás la ayuda.'},
+  {icon:'🚀',t:'¡Listo para empezar!',d:'Primer paso: cargá tu clave de Gemini en Ajustes. Después sacale una foto a tu primer ticket. Podés repetir este recorrido o abrir la guía desde Ajustes → Ayuda.',last:true}
+];
+let tourI=0,tourOpen=false,tourNo=false,tourTouched=false;
+function tourStart(manual){
+  if(tourOpen)return;
+  closeModal();tourOpen=true;tourI=0;tourTouched=false;tourNo=localStorage.getItem('tourOff')==='1'&&!manual;
+  const r=document.createElement('div');r.id='tour';r.setAttribute('role','dialog');r.setAttribute('aria-modal','true');r.setAttribute('aria-label','Recorrido guiado');
+  r.innerHTML='<div class="back"></div><div id="tspot"></div><div id="tcard"></div>';
+  document.body.appendChild(r);tourShow();
+}
+function tourShow(){
+  const st=TOUR[tourI],first=tourI===0,last=!!st.last;
+  if(st.v&&view!==st.v)go(st.v);
+  const tgt=st.v?document.querySelector(`#nav button[data-v="${st.v}"]`):null,root=$('#tour');
+  if(!root)return;
+  root.classList.toggle('center',!tgt);
+  if(last&&!tourTouched)tourNo=true;
+  const card=$('#tcard');
+  card.innerHTML=`${st.icon?`<div style="font-size:2.4rem;line-height:1">${st.icon}</div>`:''}<h2>${esc(st.t)}</h2><p>${esc(st.d)}</p>
+  <div class="dots" aria-hidden="true">${TOUR.map((_,i)=>`<i class="${i===tourI?'on':''}"></i>`).join('')}</div>
+  <div class="mu" style="font-size:.8rem">${tourI+1} de ${TOUR.length}</div>
+  <div class="tnav">${first?'':'<button class="ghost" onclick="tourGo(-1)">Atrás</button>'}<button id="tnext" onclick="tourGo(1)">${first?'Comenzar':last?'¡Empezar!':'Siguiente'}</button></div>
+  ${last?'<div class="tnav"><button class="ghost" onclick="tourEnd(\'settings\')">Ir a Ajustes</button><button class="ghost" onclick="tourEnd(\'help\')">Ver la guía</button></div>':''}
+  <label class="tchk"><input type="checkbox" id="tnoshow" ${tourNo?'checked':''} onchange="tourNo=this.checked;tourTouched=true"> No volver a mostrar al iniciar la app</label>
+  ${last?'':'<button class="tskip" onclick="tourEnd()">Omitir recorrido</button>'}`;
+  if(tgt){
+    const b=tgt.getBoundingClientRect(),sp=$('#tspot'),pad=6,round=tgt.classList.contains('scan');
+    sp.style.left=(b.left-pad)+'px';sp.style.top=(b.top-pad)+'px';sp.style.width=(b.width+pad*2)+'px';sp.style.height=(b.height+pad*2)+'px';sp.style.borderRadius=round?'50%':'20px';
+    card.style.top='auto';card.style.bottom=(innerHeight-b.top+pad+14)+'px';
+  }else{card.style.top='';card.style.bottom=''}
+  const n=$('#tnext');if(n)n.focus();
+}
+function tourGo(d){tourI=Math.max(0,Math.min(TOUR.length-1,tourI+d));if(d>0&&tourI===TOUR.length-1&&!tourTouched)tourNo=true;tourShow()}
+function tourEnd(dest){
+  const finished=tourI===TOUR.length-1;
+  const r=$('#tour');if(r)r.remove();tourOpen=false;
+  if(tourTouched||finished)localStorage.setItem('tourOff',tourNo?'1':'0');
+  go(dest||'home');
+}
+function tourAuto(){
+  if(localStorage.getItem('tourOff')==='1'||!user||draft||window._exp||tourOpen)return;
+  const ov=$('#ov');if(ov&&!ov.hidden)return;
+  tourStart();
+}
+addEventListener('resize',()=>{if(tourOpen)tourShow()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
+
+/* ---------- Ayuda ---------- */
+function helpFilter(q){q=nk(q);document.querySelectorAll('#hlp details').forEach(d=>{const m=!q||nk(d.textContent).includes(q);d.style.display=m?'':'none';if(q&&m)d.open=true})}
+function help(){
+  const Q=(t,b)=>`<details class="hq"><summary>${t}</summary>${b}</details>`;
+  app(`<div id="hlp"><button class="ghost" onclick="go('home')" style="padding:6px 14px;margin-bottom:8px">‹ Inicio</button><h1>Ayuda</h1>
+  <div class="mact" style="margin:0 0 12px"><button onclick="tourStart(true)">▶ Ver el recorrido guiado</button></div>
+  <div class="sb"><input type="search" placeholder="Buscá en la ayuda…" oninput="helpFilter(this.value)" autocomplete="off"></div>
+  ${Q('🚀 Primeros pasos',`<ol><li>Entrá a <b>Ajustes</b> y pegá tu <b>clave de Gemini</b> (se crea gratis en aistudio.google.com/apikey). La usa la app para leer tus tickets.</li><li>Opcional: cargá una <b>clave de Google Maps</b> para ubicar los locales con sugerencias y un pin.</li><li>Tocá el botón de la cámara y cargá tu primer ticket.</li></ol>`)}
+  ${Q('📷 Cargar un ticket o factura',`<ul><li>Tocá el botón de la cámara. Podés <b>sacar fotos</b>, elegirlas de la <b>galería</b> o subir un <b>PDF</b>.</li><li>Hasta <b>5 fotos</b> por comprobante: si el ticket es largo, sacalo en partes con un poco de superposición.</li><li>Tocá <b>Leer comprobante</b>. La app detecta el local, la fecha, los productos, la moneda y si es ticket o factura.</li><li><b>Revisá los datos</b>: podés corregir nombres, cantidades, totales, categorías y subcategorías, quitar o agregar productos.</li><li>Tocá <b>Guardar</b>. Vas a ver una ventana de confirmación con tu compra.</li><li>Si no querés usar la cámara, elegí <b>Cargar a mano</b>.</li></ul>`)}
+  ${Q('🧾 Mis compras: editar y eliminar',`<ul><li>En <b>Compras</b> tocá una compra para ver el detalle.</li><li><b>✏️ Editar compra</b> abre el mismo formulario para corregir cualquier dato.</li><li>El <b>📍</b> abre el local en Google Maps.</li><li><b>Eliminar compra</b> la borra de forma definitiva.</li></ul>`)}
+  ${Q('🔎 Precios y búsqueda',`<ul><li>Escribí un producto ("leche") o una categoría ("verdura", "fruta"). También encuentra por subcategoría y por la descripción de tus propios tickets.</li><li>Elegí la <b>distancia máxima</b> (1 a 25 km o Todo). Para filtrar por distancia, la app necesita tu ubicación.</li><li>Ordená por <b>más barato</b>, <b>más cerca</b> o <b>más reciente</b>.</li><li>Con la <b>búsqueda inteligente</b> también aparecen productos relacionados (por ejemplo, buscar "malbec" muestra Nicasia). Se apaga en Ajustes.</li><li>Los precios vienen de tickets de otras personas, de forma anónima. Sin nombres.</li></ul>`)}
+  ${Q('📍 Ubicación del local',`<ul><li>En el formulario escribí la dirección o tocá <b>Elegir en Google Maps</b>.</li><li>Con la clave de Maps: buscás el local con sugerencias, tocás uno de <b>Tus locales</b> o <b>Cerca tuyo</b>, o movés el mapa para ubicar el pin.</li><li>Tocá <b>📌 Fijar dirección</b> para escribirla en el campo y guardar las coordenadas.</li><li>Sin coordenadas, tus precios no aparecen en las búsquedas por distancia.</li></ul>`)}
+  ${Q('💱 Monedas y tipos de cambio',`<ul><li>Cada compra puede estar en <b>pesos, dólares o reales</b>. La app la detecta y la podés corregir en el formulario.</li><li>En <b>Ajustes → Monedas</b> elegís en qué moneda ver los totales y cargás los tipos de cambio (a mano o con la cotización oficial).</li><li>Sin tipo de cambio, las compras en otra moneda se muestran aparte y no se suman.</li></ul>`)}
+  ${Q('🔒 Privacidad y datos compartidos',`<ul><li>Tus compras son privadas: solo vos las ves.</li><li>Los <b>precios</b> (producto, precio, local y fecha) se comparten de forma <b>anónima</b>, sin tu nombre ni tu email. Podés apagarlo en <b>Ajustes → Precios compartidos</b>.</li><li>Tu descripción del ticket nunca se comparte.</li><li>Las claves de Gemini y Maps se guardan solo en tu dispositivo.</li></ul>`)}
+  ${Q('📲 Instalar la app',`<ul><li><b>Android:</b> en Chrome, menú ⋮ → <b>Instalar app</b>.</li><li><b>iPhone:</b> en Safari, <b>Compartir</b> → <b>Agregar a pantalla de inicio</b>. La app instalada guarda sus datos aparte: iniciá sesión y cargá las claves de nuevo.</li><li>Para invitar a alguien, usá <b>Ajustes → Compartir e instalar</b>.</li></ul>`)}
+  ${Q('🛠️ Problemas frecuentes',`<ul><li><b>No lee bien el ticket:</b> apoyalo plano, con buena luz y sin flash; encuadralo completo. Si es largo, sacalo en partes.</li><li><b>Dice que falta la clave de Gemini:</b> cargala en Ajustes.</li><li><b>Tu sesión expiró:</b> iniciá sesión de nuevo; el ticket que estabas cargando se puede recuperar.</li><li><b>No aparece un precio en Precios:</b> probá con "Todo" en la distancia o con otro nombre; puede que el local no tenga ubicación.</li><li><b>El mapa es simple y no completa la dirección:</b> falta la clave de Google Maps en Ajustes.</li></ul>`)}
+  ${Q('💬 Contacto y comentarios',`<p>¿Encontraste un error o tenés una idea? Contanos y te damos un número de ticket.</p><div class="mact"><button onclick="openFeedback()">💬 Enviar comentarios</button></div>`)}
+  <p class="mu" style="text-align:center;margin-top:16px">Canasta · versión ${esc(APP_VER)}</p></div>`);
+}
+
+/* ---------- Compartir e instalar ---------- */
+let deferredInstall=null;
+addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e});
+const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const isStandalone=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const appUrl=()=>location.origin+location.pathname;
+const inviteText=w=>`Te invito a probar Canasta 🧺: registrás tus compras del súper sacándole una foto al ticket, ves en qué gastás y dónde conviene comprar.${w?`\n\nAbrila acá: ${appUrl()}`:''}\n\nCómo instalarla:\n• iPhone: abrí el link en Safari → botón Compartir → "Agregar a pantalla de inicio".\n• Android: abrí el link en Chrome → menú ⋮ → "Instalar app".`;
+async function shareApp(){
+  try{if(navigator.share){await navigator.share({title:'Canasta',text:inviteText(false),url:appUrl()});return}}
+  catch(e){if(e&&e.name==='AbortError')return}
+  copyInvite();
+}
+function copyInvite(){
+  if(navigator.clipboard)navigator.clipboard.writeText(inviteText(true)).then(()=>toast('Invitación copiada: pegala en WhatsApp o donde quieras'),()=>toast('No pude copiar la invitación'));
+  else toast('Tu navegador no permite copiar. Compartí este link: '+appUrl());
+}
+async function installApp(){
+  if(!deferredInstall)return;
+  deferredInstall.prompt();
+  try{await deferredInstall.userChoice}catch(e){}
+  deferredInstall=null;settings();
+}
+const installCard=()=>`<div class="card"><h2 style="margin-top:0">Compartir e instalar</h2>
+  <div class="mact" style="margin-top:8px"><button onclick="shareApp()">📤 Compartir Canasta</button><button class="ghost" onclick="copyInvite()">📋 Copiar invitación</button></div>
+  <h2 style="font-size:1rem;margin-top:16px">Instalar en tu celular</h2>
+  ${isStandalone()?'<p class="mu">✅ Ya estás usando la app instalada.</p>':isIOS()?'<ol class="mu" style="padding-left:20px;margin:6px 0"><li>Abrí Canasta en <b>Safari</b>.</li><li>Tocá <b>Compartir</b> (el cuadrado con la flecha ⬆️).</li><li>Elegí <b>Agregar a pantalla de inicio</b> y confirmá.</li></ol><p class="mu">En iPhone la app instalada guarda sus datos aparte de Safari: iniciá sesión y cargá las claves (Gemini y Maps) otra vez dentro de la app instalada.</p>':deferredInstall?'<button onclick="installApp()" style="width:100%">⬇️ Instalar app</button>':'<ol class="mu" style="padding-left:20px;margin:6px 0"><li>En Chrome, tocá el menú <b>⋮</b>.</li><li>Elegí <b>Instalar app</b> o <b>Agregar a pantalla de inicio</b>.</li></ol>'}</div>`;
+
+/* ---------- Comentarios y tickets ---------- */
+let fbS={type:'comentario',rating:0,msg:'',diag:true,sending:false},lastErr='';
+addEventListener('error',e=>{lastErr=String(e.message||'').slice(0,300)});
+addEventListener('unhandledrejection',e=>{lastErr=String((e.reason&&e.reason.message)||e.reason||'').slice(0,300)});
+const FBT={comentario:'💬 Comentario',mejora:'💡 Mejora',bug:'🐞 Bug'};
+const fbSync=()=>{const t=$('#fbm');if(t)fbS.msg=t.value};
+function openFeedback(type,pre){fbS={type:type||'comentario',rating:0,msg:pre||'',diag:true,sending:false};fbRender()}
+function fbRender(note){
+  const x=fbS;
+  modal(`<h2>Enviar comentarios</h2><p class="mu">Contanos qué pasó o qué mejorarías. Te damos un número de ticket para seguirlo.</p>
+  <div class="chips" style="justify-content:center;flex-wrap:wrap">${Object.keys(FBT).map(k=>`<button type="button" class="chip ${x.type===k?'on':''}" onclick="fbSync();fbS.type='${k}';fbRender()">${FBT[k]}</button>`).join('')}</div>
+  <div class="stars" role="group" aria-label="Calificación">${[1,2,3,4,5].map(n=>`<button type="button" class="${x.rating>=n?'on':''}" onclick="fbSync();fbS.rating=${n===x.rating?0:n};fbRender()" aria-label="${n} estrellas">⭐</button>`).join('')}</div>
+  <textarea id="fbm" rows="5" maxlength="2000" placeholder="${x.type==='bug'?'¿Qué estabas haciendo y qué salió mal?':x.type==='mejora'?'¿Qué te gustaría que haga la app?':'¿Qué te parece la app?'}" style="text-align:left" oninput="fbS.msg=this.value">${esc(x.msg)}</textarea>
+  <label style="display:flex;gap:8px;align-items:flex-start;text-align:left;margin-top:8px;font-size:.85rem"><input type="checkbox" style="width:auto;margin-top:3px" ${x.diag?'checked':''} onchange="fbS.diag=this.checked"><span>Incluir datos técnicos (pantalla, versión de la app y dispositivo) para ayudar a resolverlo.</span></label>
+  ${note?`<p style="color:var(--r)">${esc(note)}</p>`:''}
+  <div class="mact"><button onclick="fbSend()">Enviar</button><button class="ghost" onclick="closeModal()">Cancelar</button></div>`);
+}
+async function fbSend(){
+  fbSync();const x=fbS;
+  if(x.sending)return;
+  const m=x.msg.trim();
+  if(m.length<5)return fbRender('Escribí al menos unas palabras (mínimo 5 caracteres).');
+  x.sending=true;
+  modal('<div class="spin"></div><h2>Enviando…</h2><p class="mu">Un momento.</p>',{lock:true});
+  const diag=x.diag?{view,ver:APP_VER,ua:navigator.userAgent,vp:innerWidth+'x'+innerHeight,online:navigator.onLine,err:lastErr||null,disp:dispCur()}:null;
+  try{
+    const {data,error}=await T(sb.from('feedback').insert({type:x.type,rating:x.rating||null,message:m,screen:view,app_version:APP_VER,diagnostics:diag}).select('ticket').single(),20000);
+    if(error)throw error;
+    x.sending=false;fbDone(data.ticket,x.type);
+  }catch(e){
+    x.sending=false;
+    const w=explain(e),raw=String(e&&e.message||'')+String(e&&e.code||'');
+    const msg=w.kind==='auth'?'Tu sesión venció. Iniciá sesión de nuevo y volvé a intentar.':/row-level security|42501/i.test(raw)?'Enviaste muchos comentarios en poco tiempo. Probá de nuevo en un rato.':(w.msg||'Ocurrió un error inesperado.');
+    modal(`<div class="ic bad">⚠️</div><h2>No se pudo enviar</h2><p>${esc(msg)}</p><p class="mu">Tu mensaje no se perdió.</p><div class="mact"><button onclick="fbRender()">Volver a intentar</button><button class="ghost" onclick="closeModal()">Cerrar</button></div>`);
+  }
+}
+function fbDone(t,type){
+  modal(`<div class="ic ok">🎫</div><h2>¡Gracias por tu ${type==='bug'?'reporte':'comentario'}!</h2><p>Tu número de ticket es:</p><div class="tk">${esc(t)}</div><p class="mu">Guardalo: con ese número podés consultar el estado en Ajustes → Comentarios.</p><div class="mact"><button onclick="copyTk('${esc(t)}')">Copiar número</button><button class="ghost" onclick="closeModal()">Listo</button></div>`);
+  if(view==='settings')fbList();
+}
+function copyTk(t){if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>toast('Número copiado'),()=>toast('No pude copiar: '+t));else toast('Tu ticket: '+t)}
+async function fbList(){
+  if(!$('#fbl'))return;
+  const {data=[]}=await sb.from('feedback').select('ticket,type,status,message,created_at').order('created_at',{ascending:false}).limit(8);
+  const box=$('#fbl');if(!box||!data.length)return;
+  box.innerHTML=`<h2 style="font-size:1rem;margin-top:16px">Mis comentarios</h2>${data.map(f=>`<div class="row"><span><b>${esc(f.ticket)}</b> ${(FBT[f.type]||'').split(' ')[0]}<br><span class="mu">${esc(f.message.slice(0,48))}${f.message.length>48?'…':''}</span></span><span class="tag">${f.status==='en revision'?'en revisión':esc(f.status)}</span></div>`).join('')}`;
+}
 
 /* ---------- Asistente de Google Maps ---------- */
 let gm=null,gcd=null,Pl=null,AS=null,stok=null,sugs=[],sugT=0,lockUntil=0,mineL=[],nearL=[];
@@ -783,7 +960,11 @@ function settings(){
   <div class="card"><h2 style="margin-top:0">Búsqueda inteligente</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('ai')!=='0'?'checked':''} onchange="localStorage.setItem('ai',this.checked?'1':'0')"><span>Usar IA para encontrar productos relacionados (por ejemplo, buscar "malbec" también muestra Nicasia). <span class="mu">Usa tu clave de Gemini y envía solo el texto que buscás.</span></span></label></div>
   <div class="card"><h2 style="margin-top:0">Precios compartidos</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('share')!=='0'?'checked':''} onchange="localStorage.setItem('share',this.checked?'1':'0')"><span>Compartir mis precios de forma anónima con otros usuarios <span class="mu">(producto, precio, local y fecha; nunca tu nombre ni tu email). Se aplica a los tickets que cargues desde ahora.</span></span></label></div>
   <div class="card"><h2 style="margin-top:0">Google Maps (opcional)</h2><p class="mu">Con una clave con Maps JavaScript API, Places API (New) y Geocoding API activadas, podés buscar el local con sugerencias, ver los más cercanos y confirmar la ubicación con un pin. Sin clave se muestra un mapa simple.</p><input id="mk" type="password" placeholder="Clave de Google Maps" value="${esc(localStorage.getItem('mk')||'')}"><p><button onclick="localStorage.setItem('mk',$('#mk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
+  <div class="card"><h2 style="margin-top:0">Ayuda</h2><p class="mu" style="margin-top:0">Guía de uso y recorrido guiado de la app.</p><div class="mact" style="margin-top:8px"><button onclick="go('help')">❓ Guía de uso</button><button class="ghost" onclick="tourStart(true)">▶ Ver el recorrido guiado</button></div></div>
+  ${installCard()}
+  <div class="card"><h2 style="margin-top:0">Comentarios</h2><p class="mu" style="margin-top:0">¿Encontraste un error o tenés una idea? Contanos y te damos un número de ticket.</p><div class="mact" style="margin-top:8px"><button onclick="openFeedback()">💬 Enviar comentarios</button></div><div id="fbl"></div></div>
   <div class="card"><div class="mu">${esc(user.email)}</div><p><button class="ghost" onclick="window._manualOut=true;clearBk();sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
+  fbList();
 }
 
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
