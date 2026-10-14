@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="20261014105708">
+<meta name="app-version" content="20261014232438">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -114,6 +114,19 @@ details.hq summary::-webkit-details-marker{display:none}
 details.hq summary::after{content:'›';font-size:1.4rem;color:var(--g);transform:rotate(90deg);transition:transform .2s}
 details.hq[open] summary::after{transform:rotate(-90deg)}
 details.hq p,details.hq ul,details.hq ol{margin:8px 0 0;color:#3b4a41}details.hq ul,details.hq ol{padding-left:20px}details.hq li{margin:4px 0}
+#ed{position:fixed;inset:0;z-index:55;background:#14201a;color:#fff;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom)}
+.edh{display:flex;flex-direction:column;gap:2px;padding:12px 4px}.edh .mu{color:#b9c8bf}
+.edv{flex:1;display:flex;align-items:center;justify-content:center;min-height:0}
+#edw{position:relative;touch-action:none}#edc{display:block;border-radius:6px}
+#edb{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.58);touch-action:none;cursor:move}
+#edb i{position:absolute;width:30px;height:30px;border:4px solid var(--g);background:transparent}
+#edb i[data-h=tl]{left:-6px;top:-6px;border-right:0;border-bottom:0}#edb i[data-h=tr]{right:-6px;top:-6px;border-left:0;border-bottom:0}
+#edb i[data-h=bl]{left:-6px;bottom:-6px;border-right:0;border-top:0}#edb i[data-h=br]{right:-6px;bottom:-6px;border-left:0;border-top:0}
+.edt,.eda{display:flex;gap:8px;padding:10px 0;flex-wrap:wrap}.edt button,.eda button{flex:1;min-width:0;padding:12px 8px}
+.edt .ghost{color:#fff;border-color:rgba(255,255,255,.7)}.edt .ghost:hover{background:rgba(255,255,255,.12);color:#fff}.edt .ghost.on{background:var(--g);border-color:var(--g)}
+.eda .ghost{color:#fff;border-color:rgba(255,255,255,.7)}.eda .ghost:hover{background:rgba(255,255,255,.12);color:#fff}
+.th .ed{position:absolute;right:2px;bottom:2px;background:rgba(255,255,255,.92);border-radius:50%;width:26px;height:26px;padding:0;font-size:.8rem;line-height:1}
+.th img{cursor:pointer}
 #toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%}
 @media(min-width:900px){nav{max-width:420px;left:50%;transform:translateX(-50%);border-radius:20px 20px 0 0}}
 </style>
@@ -267,7 +280,7 @@ function scanUI(msg){
   draft=null;
   const n=pages.length,tips=pages.map((x,i)=>x.tips&&x.tips.length?`<li><b>Foto ${i+1}:</b> ${esc(x.tips[0])}</li>`:'').join('');
   app(`<h1>Nuevo comprobante</h1><div class="card"><p>Cargá un <b>ticket</b> o una <b>factura</b>: hasta <b>${MAXP} fotos</b> (o un PDF) del mismo comprobante. Si es largo, sacalo en partes con un poco de superposición.</p>
-  ${n?`<div class="thumbs">${pages.map((x,i)=>`<div class="th">${x.mime==='application/pdf'?'<div class="pdf">📄<br>PDF</div>':`<img alt="Foto ${i+1}" src="data:${x.mime};base64,${x.b64}">`}<span class="n">${i+1}</span><button class="x" onclick="rmPage(${i})" aria-label="Quitar">✕</button></div>`).join('')}</div>${tips?`<ul class="mu" style="margin:8px 0;padding-left:18px">${tips}</ul>`:''}`:''}
+  ${n?`<div class="thumbs">${pages.map((x,i)=>`<div class="th">${x.mime==='application/pdf'?'<div class="pdf">📄<br>PDF</div>':`<img alt="Foto ${i+1}" src="data:${x.mime};base64,${x.b64}" onclick="editPage(${i})">`}<span class="n">${i+1}</span><button class="x" onclick="rmPage(${i})" aria-label="Quitar">✕</button>${x.mime==='application/pdf'?'':`<button class="ed" onclick="editPage(${i})" aria-label="Editar foto">✏️</button>`}</div>`).join('')}</div><p class="mu" style="margin:6px 0">Tocá una foto para editarla: girar, recortar o mejorar.</p>${tips?`<ul class="mu" style="margin:8px 0;padding-left:18px">${tips}</ul>`:''}`:''}
   ${n<MAXP?`<label class="btn" style="margin:0 6px 8px 0">📷 ${n?'Agregar foto':'Sacar foto'}<input id="f" type="file" accept="image/*" capture="environment" hidden></label>
   <label class="btn" style="margin:0 6px 8px 0">🖼️ Galería<input id="g" type="file" accept="image/*" multiple hidden></label>
   <label class="btn" style="margin:0 6px 8px 0">📄 PDF<input id="p" type="file" accept="application/pdf,image/*" hidden></label>`:'<p class="mu">Llegaste al máximo de fotos.</p>'}
@@ -278,7 +291,7 @@ function scanUI(msg){
 }
 function rmPage(i){pages.splice(i,1);scanUI()}
 async function addFiles(e){
-  const files=[...e.target.files];e.target.value='';
+  const cam=e.target.id==='f',files=[...e.target.files];e.target.value='';
   if(!files.length)return;
   const room=MAXP-pages.length,use=files.slice(0,room);
   if(files.length>room)toast(`Máximo ${MAXP} fotos: se usan las primeras ${room}.`);
@@ -295,6 +308,7 @@ async function addFiles(e){
     }catch(err){toast(err.message)}
   }
   scanUI();
+  if(cam&&use.length===1&&pages.length&&pages[pages.length-1].mime!=='application/pdf')editPage(pages.length-1,true);
 }
 function readPages(){
   if(!pages.length)return;
@@ -319,29 +333,43 @@ function localTips(q){
   if(q.blur<25)t.push('Se ve borrosa: mantené quieto el celular y esperá a que enfoque antes de sacar.');
   return t;
 }
+let pendParts=[];
 function retake(tips,mode){
-  const use=mode==='data'?'draft=norm(pendData);form()':'';
-  app(`<h1>Mejor sacá otra foto</h1><div class="card"><p><b>No se lee bien el ticket:</b></p><ul>${tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>
-  <p class="mu">Consejos: apoyá el ticket sobre una superficie plana y oscura, alisalo bien, encuadralo completo y de frente, con buena luz y sin flash. Si es muy largo, sacalo en partes y cargá lo que falte con "+ Agregar producto".</p></div>
-  <button onclick="scanUI()">📷 Revisar las fotos</button> ${use?`<button class="ghost" onclick="${use}">Usar igual</button>`:''} <button class="ghost" onclick="manual()">Cargar a mano</button>`);
+  const use=mode==='data'?'pages=[];draft=norm(pendData);form()':'';
+  app(`<h1>Gemini no pudo leer bien las fotos</h1><div class="card"><div class="ic warn" style="margin-top:0">🔍</div><p><b>Qué encontró:</b></p><ul style="text-align:left">${tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>
+  <p class="mu">Probá de nuevo: a veces la lectura falla de casualidad. Si sigue igual, editá las fotos (recortar, girar o mejorar el contraste) o sacalas otra vez: ticket plano, bien encuadrado, con buena luz y sin flash. Si es muy largo, sacalo en partes.</p></div>
+  <div class="mact"><button onclick="run(pendParts)">🔁 Reintentar lectura</button><button class="ghost" onclick="scanUI()">✏️ Revisar o editar las fotos</button>${use?`<button class="ghost" onclick="${use}">Usar igual</button>`:''}<button class="ghost" onclick="manual()">Cargar a mano</button></div>`);
 }
 async function run(parts){
-  app(`<h1>Nuevo comprobante</h1><p class="mu">Leyendo ${parts.length>1?parts.length+' fotos':'el comprobante'}…</p>`);
+  pendParts=parts;
+  app(`<h1>Nuevo comprobante</h1><div class="card" style="text-align:center"><div class="spin"></div><p>Leyendo ${parts.length>1?parts.length+' fotos':'el comprobante'}…</p><p class="mu">Puede tardar unos segundos.</p></div>`);
   try{
     const d=await extract(parts),n=(d.items||[]).length,bad=d.quality&&d.quality.legible===false;
     if(bad||!n){pendData=d;const tips=((d.quality&&d.quality.issues)||[]).filter(Boolean);return retake(tips.length?tips:['No pude identificar productos en el archivo.'],n?'data':'')}
     draft=norm(d);pages=[];form();
-  }catch(err){scanUI();toast(err.message)}
+  }catch(err){readFailModal(err)}
+}
+function readFailModal(e){
+  const m=String(e&&e.message||''),st=e&&e.status;
+  let t='No pudimos leer el comprobante',msg='Gemini no pudo leer las fotos. Probá de nuevo; si sigue fallando, mejorá las fotos o cargá los datos a mano.',key=false;
+  if(/Falta la clave/i.test(m)){msg='Falta la clave de Gemini. Cargala en Ajustes para poder leer tickets.';key=true}
+  else if(st===403||(st===400&&/API key/i.test(m))){msg='La clave de Gemini no es válida o no tiene permiso. Revisala en Ajustes.';key=true}
+  else if(st===429)msg='Se alcanzó el límite de uso de Gemini. Esperá un minuto y reintentá.';
+  else if(st>=500)msg='Gemini está saturado en este momento. Reintentá en unos segundos.';
+  else if(!navigator.onLine||/aborted|timeout|Failed to fetch|NetworkError|Load failed/i.test(m)){t='Sin conexión o demasiado lento';msg='No pudimos comunicarnos con Gemini. Revisá tu conexión y reintentá.'}
+  modal(`<div class="ic bad">⚠️</div><h2>${esc(t)}</h2><p>${esc(msg)}</p><p class="mu">Tus fotos siguen acá: no hace falta volver a sacarlas.</p><div class="mact">${key?`<button onclick="closeModal();go('settings')">Ir a Ajustes</button>`:`<button onclick="closeModal();run(pendParts)">🔁 Reintentar</button>`}<button class="ghost" onclick="closeModal();scanUI()">Revisar o editar las fotos</button><button class="ghost" onclick="closeModal();manual()">Cargar a mano</button></div>`);
 }
 const resize=f=>new Promise((ok,no)=>{const i=new Image();i.onerror=()=>no(Error('No se pudo abrir la imagen'));i.onload=()=>{const k=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok({b64:c.toDataURL('image/jpeg',.8).split(',')[1],q:quality(i)})};i.src=URL.createObjectURL(f)});
 async function extract(parts){
   const key=localStorage.getItem('gk');
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
   const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
-  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt},...parts.map(x=>({inline_data:{mime_type:x.mime||'image/jpeg',data:x.b64}}))]}],generationConfig:{responseMimeType:'application/json'}})});
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({contents:[{parts:[{text:prompt},...parts.map(x=>({inline_data:{mime_type:x.mime||'image/jpeg',data:x.b64}}))]}],generationConfig:{responseMimeType:'application/json'}})});
   const j=await r.json();
-  if(!r.ok)throw Error(j.error?.message||'Error al leer el ticket');
-  return JSON.parse(j.candidates[0].content.parts[0].text);
+  if(!r.ok){const e=Error(j.error?.message||'Error al leer el comprobante');e.status=r.status;throw e}
+  const c0=j.candidates&&j.candidates[0],tx=c0&&c0.content&&c0.content.parts&&c0.content.parts[0]&&c0.content.parts[0].text;
+  if(!tx)throw Error('Respuesta vacía de Gemini');
+  return JSON.parse(tx);
 }
 const norm=d=>({currency:CUR[d.currency]?d.currency:'ARS',docType:d.doc_type==='factura'?'factura':'ticket',docNumber:String(d.doc_number||'').trim(),taxId:String(d.store_tax_id||'').trim(),lat:null,lng:null,address:String(d.store_address||'').trim(),description:String(d.description||'').trim(),store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||'')}))});
 
@@ -497,7 +525,7 @@ function tourShow(){
   card.innerHTML=`${st.icon?`<div style="font-size:2.4rem;line-height:1">${st.icon}</div>`:''}<h2>${esc(st.t)}</h2><p>${esc(st.d)}</p>
   <div class="dots" aria-hidden="true">${TOUR.map((_,i)=>`<i class="${i===tourI?'on':''}"></i>`).join('')}</div>
   <div class="mu" style="font-size:.8rem">${tourI+1} de ${TOUR.length}</div>
-  <div class="tnav">${first?'':'<button class="ghost" onclick="tourGo(-1)">Atrás</button>'}<button id="tnext" onclick="tourGo(1)">${first?'Comenzar':last?'¡Empezar!':'Siguiente'}</button></div>
+  <div class="tnav">${first?'':'<button class="ghost" onclick="tourGo(-1)">Atrás</button>'}<button id="tnext" onclick="${last?'tourEnd()':'tourGo(1)'}">${first?'Comenzar':last?'¡Empezar!':'Siguiente'}</button></div>
   ${last?'<div class="tnav"><button class="ghost" onclick="tourEnd(\'settings\')">Ir a Ajustes</button><button class="ghost" onclick="tourEnd(\'help\')">Ver la guía</button></div>':''}
   <label class="tchk"><input type="checkbox" id="tnoshow" ${tourNo?'checked':''} onchange="tourNo=this.checked;tourTouched=true"> No volver a mostrar al iniciar la app</label>
   ${last?'':'<button class="tskip" onclick="tourEnd()">Omitir recorrido</button>'}`;
@@ -569,6 +597,79 @@ const installCard=()=>`<div class="card"><h2 style="margin-top:0">Compartir e in
   <div class="mact" style="margin-top:8px"><button onclick="shareApp()">📤 Compartir Canasta</button><button class="ghost" onclick="copyInvite()">📋 Copiar invitación</button></div>
   <h2 style="font-size:1rem;margin-top:16px">Instalar en tu celular</h2>
   ${isStandalone()?'<p class="mu">✅ Ya estás usando la app instalada.</p>':isIOS()?'<ol class="mu" style="padding-left:20px;margin:6px 0"><li>Abrí Canasta en <b>Safari</b>.</li><li>Tocá <b>Compartir</b> (el cuadrado con la flecha ⬆️).</li><li>Elegí <b>Agregar a pantalla de inicio</b> y confirmá.</li></ol><p class="mu">En iPhone la app instalada guarda sus datos aparte de Safari: iniciá sesión y cargá las claves (Gemini y Maps) otra vez dentro de la app instalada.</p>':deferredInstall?'<button onclick="installApp()" style="width:100%">⬇️ Instalar app</button>':'<ol class="mu" style="padding-left:20px;margin:6px 0"><li>En Chrome, tocá el menú <b>⋮</b>.</li><li>Elegí <b>Instalar app</b> o <b>Agregar a pantalla de inicio</b>.</li></ol>'}</div>`;
+
+/* ---------- Editor de fotos ---------- */
+let E=null;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function edOpen(b64,o){
+  const img=new Image();
+  img.onload=()=>{
+    E={img,rot:0,enh:false,crop:{x:0,y:0,w:1,h:1},o,dw:0,dh:0};
+    const r=document.createElement('div');r.id='ed';r.setAttribute('role','dialog');r.setAttribute('aria-modal','true');r.setAttribute('aria-label','Editar foto');
+    r.innerHTML=`<div class="edh"><b>Editar foto</b><span class="mu">Arrastrá las esquinas para recortar</span></div>
+    <div class="edv"><div id="edw"><canvas id="edc"></canvas><div id="edb"><i data-h="tl"></i><i data-h="tr"></i><i data-h="bl"></i><i data-h="br"></i></div></div></div>
+    <div class="edt"><button class="ghost" onclick="edRot(-90)">↺ Izq.</button><button class="ghost" onclick="edRot(90)">↻ Der.</button><button class="ghost" id="edenh" onclick="edEnh()">🌓 Mejorar</button><button class="ghost" onclick="edReset()">⟲ Reiniciar</button></div>
+    <div class="eda"><button class="ghost" onclick="edClose(false)">${o.fresh?'Descartar':'Cancelar'}</button><button onclick="edClose(true)">✓ Usar foto</button></div>`;
+    document.body.appendChild(r);
+    const box=$('#edb');let drag=null;
+    box.onpointerdown=e=>{drag={h:e.target.dataset.h||'move',sx:e.clientX,sy:e.clientY,c:{...E.crop}};try{box.setPointerCapture(e.pointerId)}catch(x){}e.preventDefault()};
+    box.onpointermove=e=>{
+      if(!drag||!E)return;
+      const dx=(e.clientX-drag.sx)/E.dw,dy=(e.clientY-drag.sy)/E.dh,m=.1;let {x,y,w,h}=drag.c;
+      if(drag.h==='move'){x=clamp(x+dx,0,1-w);y=clamp(y+dy,0,1-h)}
+      else{
+        if(drag.h.includes('l')){const nx=clamp(x+dx,0,x+w-m);w+=x-nx;x=nx}
+        if(drag.h.includes('r'))w=clamp(w+dx,m,1-x);
+        if(drag.h.includes('t')){const ny=clamp(y+dy,0,y+h-m);h+=y-ny;y=ny}
+        if(drag.h.includes('b'))h=clamp(h+dy,m,1-y);
+      }
+      E.crop={x,y,w,h};edBox();
+    };
+    box.onpointerup=box.onpointercancel=()=>{drag=null};
+    edDraw();
+  };
+  img.onerror=()=>{toast('No pude abrir la foto para editarla');if(o.cancel)o.cancel()};
+  img.src='data:image/jpeg;base64,'+b64;
+}
+function edDraw(){
+  if(!E)return;
+  const img=E.img,r=((E.rot%360)+360)%360,rw=r%180?img.height:img.width,rh=r%180?img.width:img.height;
+  const sc=Math.min(Math.min(innerWidth-24,560)/rw,Math.max(200,innerHeight-250)/rh),cw=Math.max(1,Math.round(rw*sc)),ch=Math.max(1,Math.round(rh*sc));
+  E.dw=cw;E.dh=ch;
+  const c=$('#edc');c.width=cw;c.height=ch;const x=c.getContext('2d');
+  x.save();x.translate(cw/2,ch/2);x.rotate(r*Math.PI/180);x.drawImage(img,-img.width*sc/2,-img.height*sc/2,img.width*sc,img.height*sc);x.restore();
+  c.style.filter=E.enh?'grayscale(1) contrast(1.5) brightness(1.08)':'none';
+  const w=$('#edw');w.style.width=cw+'px';w.style.height=ch+'px';
+  edBox();$('#edenh').classList.toggle('on',E.enh);
+}
+function edBox(){const b=$('#edb'),c=E.crop;b.style.left=c.x*E.dw+'px';b.style.top=c.y*E.dh+'px';b.style.width=c.w*E.dw+'px';b.style.height=c.h*E.dh+'px'}
+function edRot(d){E.rot+=d;E.crop={x:0,y:0,w:1,h:1};edDraw()}
+function edEnh(){E.enh=!E.enh;edDraw()}
+function edReset(){E.rot=0;E.enh=false;E.crop={x:0,y:0,w:1,h:1};edDraw()}
+function edExport(){
+  const img=E.img,r=((E.rot%360)+360)%360,rw=r%180?img.height:img.width,rh=r%180?img.width:img.height;
+  const full=document.createElement('canvas');full.width=rw;full.height=rh;
+  const fc=full.getContext('2d');fc.translate(rw/2,rh/2);fc.rotate(r*Math.PI/180);fc.drawImage(img,-img.width/2,-img.height/2);
+  const f=E.crop,sx=f.x*rw,sy=f.y*rh,sw=f.w*rw,sh=f.h*rh;
+  const out=document.createElement('canvas');out.width=Math.max(1,Math.round(sw));out.height=Math.max(1,Math.round(sh));
+  const oc=out.getContext('2d');oc.drawImage(full,sx,sy,sw,sh,0,0,out.width,out.height);
+  if(E.enh){const id=oc.getImageData(0,0,out.width,out.height),d=id.data;for(let i=0;i<d.length;i+=4){let g=.299*d[i]+.587*d[i+1]+.114*d[i+2];g=(g-128)*1.5+138;d[i]=d[i+1]=d[i+2]=g<0?0:g>255?255:g}oc.putImageData(id,0,0)}
+  return out.toDataURL('image/jpeg',.85).split(',')[1];
+}
+function edClose(ok){
+  if(!E)return;
+  const o=E.o;let out=null;
+  if(ok){try{out=edExport()}catch(err){toast('No pude procesar la imagen');return}}
+  const r=$('#ed');if(r)r.remove();E=null;
+  if(ok)o.done(out);else if(o.cancel)o.cancel();
+}
+function editPage(i,fresh){
+  const x=pages[i];if(!x||x.mime==='application/pdf')return;
+  edOpen(x.b64,{fresh,
+    done:b=>{const im=new Image();im.onload=()=>{pages[i].b64=b;pages[i].tips=localTips(quality(im));scanUI()};im.onerror=()=>{pages[i].b64=b;scanUI()};im.src='data:image/jpeg;base64,'+b},
+    cancel:()=>{if(fresh)pages.splice(i,1);scanUI()}});
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&E)edClose(false)});
 
 /* ---------- Comentarios y tickets ---------- */
 let fbS={type:'comentario',rating:0,msg:'',diag:true,sending:false},lastErr='';
