@@ -442,7 +442,7 @@ async function save(){
 }
 async function _save(){
   const items=draft.items.filter(i=>i.name.trim());
-  const total=items.reduce((s,i)=>s+i.total_price,0),edit=!!draft.id;
+  const total=r2(items.reduce((s,i)=>s+(Number(i.total_price)||0),0)),edit=!!draft.id;
   if(draft.address.trim()&&draft.lat==null){const g=await geocodeAddr(draft.address);if(g){draft.lat=g.lat;draft.lng=g.lng}}
   const rid=draft.id||draft.rid||(draft.rid=crypto.randomUUID());
   const row={id:rid,store:draft.store.trim(),purchased_at:draft.date,description:draft.description.trim()||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,currency:draft.currency||'ARS',doc_type:draft.docType==='factura'?'factura':'ticket',doc_number:(draft.docNumber||'').trim()||null,store_tax_id:String(draft.taxId||'').replace(/[^0-9-]/g,'')||null,total};
@@ -450,12 +450,12 @@ async function _save(){
   if(error)throw error;
   const oldI=((await sb.from('receipt_items').select('id').eq('receipt_id',rid)).data||[]).map(x=>x.id);
   const oldP=((await sb.from('price_points').select('id').eq('receipt_id',rid)).data||[]).map(x=>x.id);
-  const {error:e2}=await sb.from('receipt_items').insert(items.map(i=>({receipt_id:rid,name:i.name.trim(),qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,category:i.category,subcategory:nk(i.subcategory)||null})));
+  const {error:e2}=await sb.from('receipt_items').insert(items.map(i=>({receipt_id:rid,name:i.name.trim(),qty:i.qty||1,unit_price:r2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:r2(i.total_price),category:i.category,subcategory:nk(i.subcategory)||null})));
   if(e2){if(!edit&&!oldI.length)await sb.from('receipts').delete().eq('id',rid);throw e2}
   if(oldI.length)await sb.from('receipt_items').delete().in('id',oldI);
   let warn=null;
   if(localStorage.getItem('share')!=='0'){
-    const pp=items.filter(i=>i.total_price>0).map(i=>({receipt_id:rid,currency:draft.currency||'ARS',store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:nk(i.name),category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:i.qty||1,unit_price:i.total_price/(i.qty||1),total_price:i.total_price,purchased_at:draft.date}));
+    const seenK=new Set(),pp=[];for(const i of items){const pk=nk(i.name);if(i.total_price>0&&pk&&!seenK.has(pk)){seenK.add(pk);pp.push({receipt_id:rid,currency:draft.currency||ARS,store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:pk,category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:Math.max(0.001,Number(i.qty)||1),unit_price:r2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:r2(i.total_price),purchased_at:draft.date})}}
     if(pp.length){const {error:e3}=await sb.from('price_points').insert(pp);if(e3)warn='La compra se guardó, pero no se pudieron compartir los precios.';else if(draft.lat==null)warn='Tus precios se compartieron sin la ubicación del local: no van a aparecer en búsquedas por zona hasta que lo ubiques en el mapa.'}
   }
   if(oldP.length)await sb.from('price_points').delete().in('id',oldP);
@@ -932,7 +932,7 @@ async function mapFromText(v){
 function pickNear(k){const x=nearL[k];setFound(x.name,x.addr,x.loc)}
 
 /* ---------- Precios ---------- */
-const nk=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+const nk=s=>{const m=String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();return m||String(s||'').trim().toLowerCase().slice(0,50)};
 const RADS=[1,3,5,10,25,0];
 const rad=()=>{const v=localStorage.getItem('rad');return v===null?5:+v};
 const recents=()=>{try{return JSON.parse(localStorage.getItem('rs')||'[]')}catch(e){return []}};
