@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="20261015110217">
+<meta name="app-version" content="20261016033141">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -391,7 +391,7 @@ async function run(parts){
   try{
     const d=await extract(parts),n=(d.items||[]).length,bad=d.quality&&d.quality.legible===false;
     if(bad||!n){pendData=d;const tips=((d.quality&&d.quality.issues)||[]).filter(Boolean);return retake(tips.length?tips:['No pude identificar productos en el archivo.'],n?'data':'')}
-    draft=norm(d);pages=[];form();
+    draft=norm(d);pages=[];form();setTimeout(autoValidate,60);
   }catch(err){readFailModal(err)}
 }
 function readFailModal(e){
@@ -416,7 +416,7 @@ async function extract(parts){
   if(!tx)throw Error('Respuesta vacía de Gemini');
   return JSON.parse(tx);
 }
-const norm=d=>({currency:CUR[d.currency]?d.currency:'ARS',docType:d.doc_type==='factura'?'factura':'ticket',docNumber:String(d.doc_number||'').trim(),taxId:String(d.store_tax_id||'').trim(),lat:null,lng:null,address:String(d.store_address||'').trim(),description:String(d.description||'').trim(),store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||'')}))});
+const norm=d=>({addrOk:false,currency:CUR[d.currency]?d.currency:'ARS',docType:d.doc_type==='factura'?'factura':'ticket',docNumber:String(d.doc_number||'').trim(),taxId:String(d.store_tax_id||'').trim(),lat:null,lng:null,address:String(d.store_address||'').trim(),description:String(d.description||'').trim(),store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||'')}))});
 
 function subRow(i,k){
   return `<div class="it2"><select onchange="draft.items[${k}].category=this.value" aria-label="Categoría">${Object.keys(CAT).map(c=>`<option value="${c}"${i.category===c?' selected':''}>${CAT[c]} ${c}</option>`).join('')}</select><input placeholder="Subcategoría (ej: cítrico)" value="${esc(i.subcategory||'')}" oninput="draft.items[${k}].subcategory=this.value" aria-label="Subcategoría"></div>`;
@@ -426,13 +426,14 @@ function form(){
   app(`<h1>${draft.id?'Editar compra':'Revisá el comprobante'}</h1>
   <div class="chips"><button type="button" class="chip ${draft.docType!=='factura'?'on':''}" onclick="draft.docType='ticket';form()">🧾 Ticket</button><button type="button" class="chip ${draft.docType==='factura'?'on':''}" onclick="draft.docType='factura';form()">📄 Factura</button></div>
   <div class="chips">${Object.keys(CUR).map(c=>`<button type="button" class="chip ${(draft.currency||'ARS')===c?'on':''}" onclick="draft.currency='${c}';form()">${CUR[c].flag} ${CUR[c].name}</button>`).join('')}</div>
-  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value">${draft.docType==='factura'?`<input placeholder="Nº de comprobante (ej: 0005-00012345)" value="${esc(draft.docNumber)}" oninput="draft.docNumber=this.value"><input placeholder="CUIT del local (opcional)" inputmode="numeric" value="${esc(draft.taxId)}" oninput="draft.taxId=this.value">`:''}<input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><button class="ghost" type="button" onclick="mapOpen()">📍 Elegir en Google Maps</button><div id="mapbox" hidden><div class="mhead"><b>Ubicación del local</b><button class="ghost" type="button" id="mfull" onclick="mapFull()" style="padding:6px 12px" aria-label="Pantalla completa">⛶</button><button class="x" type="button" onclick="mapClose()" aria-label="Cerrar">✕</button></div><input id="msearch" type="search" placeholder="Buscá el local o la dirección" autocomplete="off" hidden><div id="msug"></div><div id="mchips"></div><div id="mwrap"><div id="map"></div><div id="mpin">📍</div><button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button></div><div id="mmsg" class="mu"></div></div></div>
+  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value">${draft.docType==='factura'?`<input placeholder="Nº de comprobante (ej: 0005-00012345)" value="${esc(draft.docNumber)}" oninput="draft.docNumber=this.value"><input placeholder="CUIT del local (opcional)" inputmode="numeric" value="${esc(draft.taxId)}" oninput="draft.taxId=this.value">`:''}<input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><div id="addrst" class="mu" style="font-size:.85rem"></div><button class="ghost" type="button" onclick="mapOpen()">📍 Elegir en Google Maps</button><div id="mapbox" hidden><div class="mhead"><b>Ubicación del local</b><button class="ghost" type="button" id="mfull" onclick="mapFull()" style="padding:6px 12px" aria-label="Pantalla completa">⛶</button><button class="x" type="button" onclick="mapClose()" aria-label="Cerrar">✕</button></div><input id="msearch" type="search" placeholder="Buscá el local o la dirección" autocomplete="off" hidden><div id="msug"></div><div id="mchips"></div><div id="mwrap"><div id="map"></div><div id="mpin">📍</div><button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button></div><div id="mmsg" class="mu"></div></div></div>
   <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
   ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>${subRow(i,k)}`).join('')}
   <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros',subcategory:''});form()">+ Agregar producto</button></p>
   <div class="card row"><b>Total</b><b class="num">${money(t,draft.currency)}</b></div>
   ${localStorage.getItem('share')!=='0'?`<p class="mu">🔒 Tus precios se comparten de forma anónima.${draft.lat!=null?'':' Elegí el local en el mapa para que aparezcan en búsquedas por zona.'} Podés cambiarlo en Ajustes.</p>`:''}
   <button onclick="save()">${draft.id?'Guardar cambios':'Guardar compra'}</button>${draft.id?` <button class="ghost" onclick="clearBk();go('history')">Cancelar</button>`:''}`);
+  addrStatus();
   if(mapShown)mapOpen();
 }
 /* ---------- Ventanas (modales) ---------- */
@@ -465,10 +466,58 @@ function okModal(r){
   ${r.warn?`<p class="mu" style="background:#fff3cd;border-radius:10px;padding:8px 10px">${esc(r.warn)}</p>`:''}
   <div class="mact"><button onclick="closeModal();go('history')">${r.edit?'Volver a Mis compras':'Ver mis compras'}</button>${r.edit?'':`<button class="ghost" onclick="closeModal();go('scan')">Cargar otra compra</button>`}</div>`,{lock:true});
 }
+async function geoFull(raw){
+  const q=normAddr(raw),ctry={ARS:'AR',BRL:'BR'}[(draft&&draft.currency)||'ARS']||'',key=localStorage.getItem('mk');
+  if(key){
+    try{
+      await loadMaps(key);
+      const g=new google.maps.Geocoder(),req={address:q,language:'es'};
+      if(ctry){req.region=ctry.toLowerCase();req.componentRestrictions={country:ctry}}
+      const r=await g.geocode(req),x=(r.results||[])[0];
+      if(!x)return null;
+      const t=x.types||[];
+      return{addr:shortAddr(x.formatted_address),lat:x.geometry.location.lat(),lng:x.geometry.location.lng(),strong:t.some(k=>['street_address','premise','subpremise','route','intersection','establishment','point_of_interest'].includes(k))};
+    }catch(e){}
+  }
+  try{
+    const u='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&accept-language=es&'+(ctry?'countrycodes='+ctry.toLowerCase()+'&':'')+'q='+encodeURIComponent(q);
+    const r=await fetch(u,{signal:AbortSignal.timeout(8000)}),x=(await r.json())[0];
+    if(!x)return null;
+    const a=x.address||{},road=a.road||a.pedestrian||'',city=a.city||a.town||a.village||'',loc=a.suburb||a.neighbourhood||a.city_district||'';
+    const place=/Aut[oó]noma/i.test(a.state||'')?CABA:(city||a.state||''),num=a.house_number?road+' '+a.house_number:road,addr=road?shortAddr([num,loc&&loc!==city?loc:'',place].filter(Boolean).join(', ')):q;
+    return{addr,lat:+x.lat,lng:+x.lon,strong:!!road};
+  }catch(e){return undefined}
+}
+const addrFailHtml=g=>{
+  const msg=g===undefined?'No pudimos verificar la dirección en este momento (¿sin conexión?).':g===null?'No encontramos esa dirección en el mapa. Revisá que tenga calle, número y localidad, por ejemplo: "Av. Santa Fe 3340, Ciudad Autónoma de Buenos Aires".':'Solo pudimos ubicar "'+g.addr+'", sin la calle y el número exactos. Revisá la dirección.';
+  return `<div class="ic warn">📍</div><h2>No pudimos validar la dirección</h2><p>${esc(msg)}</p><p class="mu">Podés corregirla o guardar la compra sin validar: en ese caso no va a aparecer en las búsquedas por zona.</p><div class="mact"><button onclick="closeModal();addrFix()">Corregir dirección</button><button class="ghost" onclick="closeModal();save()">🔁 Reintentar validación</button><button class="ghost" onclick="closeModal();draft.skipAddr=true;save()">Guardar sin validar</button></div>`;
+};
+function addrFix(){const el=$('#addr');if(el){el.scrollIntoView({block:'center'});el.focus()}}
+function addrStatus(){
+  const e=$('#addrst');if(!e||!draft)return;
+  const a=(draft.address||'').trim();
+  e.innerHTML=!a?'':draft.addrOk?'✅ Dirección validada':'⚠️ Sin validar: se valida al guardar. También podés tocar "Elegir en Google Maps".';
+}
+async function autoValidate(){
+  if(!draft||!draft.address||!draft.address.trim()||draft.addrOk)return;
+  const a0=draft.address;let g;
+  try{g=await T(geoFull(a0),15000)}catch(e){return}
+  if(!g||!g.strong||!draft||draft.address!==a0)return;
+  draft.address=g.addr;draft.lat=g.lat;draft.lng=g.lng;draft.addrOk=true;
+  const el=$('#addr');if(el)el.value=draft.address;addrStatus();
+}
 async function save(){
   if(window._saving)return;
   const v=validate();
   if(v)return modal(errHtml(v.title,v.msg,{focus:v.focus}));
+  if(draft.address.trim()&&!draft.addrOk&&!draft.skipAddr){
+    window._saving=true;
+    modal('<div class="spin"></div><h2>Validando la dirección…</h2><p class="mu">Un momento.</p>',{lock:true});
+    let g;try{g=await T(geoFull(draft.address),15000)}catch(e){g=undefined}
+    window._saving=false;
+    if(g&&g.strong){draft.address=g.addr;draft.lat=g.lat;draft.lng=g.lng;draft.addrOk=true;const el=$('#addr');if(el)el.value=draft.address;addrStatus()}
+    else return modal(addrFailHtml(g));
+  }
   window._saving=true;
   const edit=!!draft.id;
   modal(`<div class="spin"></div><h2>${edit?'Guardando cambios…':'Guardando tu compra…'}</h2><p class="mu">Un momento, no cierres la app.</p>`,{lock:true});
@@ -597,37 +646,42 @@ addEventListener('resize',()=>{if(tourOpen)tourShow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
 
 /* ---------- Novedades ---------- */
-const REL={id:'2026-10-14b',title:'Novedades',items:[
+const RELS=[{id:'2026-10-14b',items:[
   {icon:'✂️',t:'Editá las fotos antes de leerlas',d:'Después de sacar una foto podés girarla, recortarla y mejorar el contraste. También tocando cualquier miniatura.'},
   {icon:'🔁',t:'Aviso y reintento si no se lee',d:'Si Gemini no puede leer las fotos, te lo explicamos y podés reintentar, editar las fotos o cargar a mano, sin volver a sacarlas.'},
   {icon:'💵',t:'Cotización oficial de venta minorista',d:'En Ajustes → Monedas, "Buscar cotización oficial" trae el dólar y el real de venta minorista, con cada campo etiquetado. También podés cargar los valores a mano.'},
   {icon:'💬',t:'Comentarios que le llegan al administrador',d:'Tus comentarios, mejoras y bugs se guardan con un número de ticket y se los avisamos por mail al administrador. Las estrellas son solo para comentarios.'},
   {icon:'🆕',t:'Novedades en cada actualización',d:'Cada vez que mejoremos la app te lo contamos acá. Podés volver a verlas en Ayuda → Novedades.',last:true}
-]};
+]},
+  {id:'2026-10-15',items:[
+  {icon:'📍',t:'Direcciones validadas',d:'La app entiende C.A.B.A., Cap. Fed., Bs. As. y otras abreviaturas, y deja la dirección completa. Si no se puede ubicar, te avisamos antes de guardar y podés corregirla.'}
+]}];
+const RID=RELS[RELS.length-1].id;let NI=RELS[RELS.length-1].items;
+const unseenItems=()=>{const sn=localStorage.getItem('relSeen')||'';return RELS.filter(r=>r.id>sn).flatMap(r=>r.items)};
 let newsI=0,newsOpen=false,newsNo=false;
 function newsStart(manual){
   if(newsOpen||tourOpen)return;
-  closeModal();newsOpen=true;newsI=0;newsNo=false;
+  closeModal();NI=manual?RELS[RELS.length-1].items:unseenItems();if(!NI.length)NI=RELS[RELS.length-1].items;newsOpen=true;newsI=0;newsNo=false;
   const r=document.createElement('div');r.id='news';r.setAttribute('role','dialog');r.setAttribute('aria-modal','true');r.setAttribute('aria-label','Novedades');
   r.innerHTML='<div id="ncard"></div>';document.body.appendChild(r);newsShow();
 }
 function newsShow(){
-  const it=REL.items[newsI],last=newsI===REL.items.length-1,first=newsI===0;
-  $('#ncard').innerHTML=`<div class="mu" style="font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:.75rem">🆕 ${esc(REL.title)}</div><div style="font-size:2.4rem;line-height:1.2;margin-top:6px">${it.icon}</div><h2>${esc(it.t)}</h2><p>${esc(it.d)}</p>
-  <div class="dots" aria-hidden="true">${REL.items.map((_,i)=>`<i class="${i===newsI?'on':''}"></i>`).join('')}</div>
-  <div class="mu" style="font-size:.8rem">${newsI+1} de ${REL.items.length}</div>
+  const it=NI[newsI],last=newsI===NI.length-1,first=newsI===0;
+  $('#ncard').innerHTML=`<div class="mu" style="font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:.75rem">🆕 Novedades</div><div style="font-size:2.4rem;line-height:1.2;margin-top:6px">${it.icon}</div><h2>${esc(it.t)}</h2><p>${esc(it.d)}</p>
+  <div class="dots" aria-hidden="true">${NI.map((_,i)=>`<i class="${i===newsI?'on':''}"></i>`).join('')}</div>
+  <div class="mu" style="font-size:.8rem">${newsI+1} de ${NI.length}</div>
   <div class="tnav">${first?'':'<button class="ghost" onclick="newsGo(-1)">Atrás</button>'}<button id="nnext" onclick="${last?'newsEnd()':'newsGo(1)'}">${last?'¡Entendido!':'Siguiente'}</button></div>
   <label class="tchk"><input type="checkbox" ${newsNo?'checked':''} onchange="newsNo=this.checked"> No mostrar novedades al actualizar la app</label>
   ${last?'':'<button class="tskip" onclick="newsEnd()">Omitir</button>'}`;
   const n=$('#nnext');if(n)n.focus();
 }
-function newsGo(d){newsI=clamp(newsI+d,0,REL.items.length-1);newsShow()}
-function newsEnd(){const r=$('#news');if(r)r.remove();newsOpen=false;localStorage.setItem('relSeen',REL.id);if(newsNo)localStorage.setItem('newsOff','1')}
+function newsGo(d){newsI=clamp(newsI+d,0,NI.length-1);newsShow()}
+function newsEnd(){const r=$('#news');if(r)r.remove();newsOpen=false;localStorage.setItem('relSeen',RID);if(newsNo)localStorage.setItem('newsOff','1')}
 function newsAuto(){
   const seen=localStorage.getItem('relSeen');
-  if(seen===REL.id)return;
-  if(!seen&&localStorage.getItem('tourOff')===null){localStorage.setItem('relSeen',REL.id);return}
-  if(localStorage.getItem('newsOff')==='1'){localStorage.setItem('relSeen',REL.id);return}
+  if(seen===RID)return;
+  if(!seen&&localStorage.getItem('tourOff')===null){localStorage.setItem('relSeen',RID);return}
+  if(localStorage.getItem('newsOff')==='1'){localStorage.setItem('relSeen',RID);return}
   if(!user||draft||window._exp||tourOpen||newsOpen)return;
   const ov=$('#ov');if(ov&&!ov.hidden)return;
   newsStart();
@@ -645,12 +699,12 @@ function help(){
   ${Q('📷 Cargar un ticket o factura',`<ul><li>Tocá el botón de la cámara. Podés <b>sacar fotos</b>, elegirlas de la <b>galería</b> o subir un <b>PDF</b>.</li><li>Hasta <b>5 fotos</b> por comprobante: si el ticket es largo, sacalo en partes con un poco de superposición.</li><li>Después de sacar una foto se abre el <b>editor</b>: girá, recortá o mejorá el contraste. Para editar otra foto, tocá su miniatura.</li><li>Tocá <b>Leer comprobante</b>. Si Gemini no puede leer las fotos, te lo avisa y podés <b>reintentar</b>, editar las fotos o cargar a mano. La app detecta el local, la fecha, los productos, la moneda y si es ticket o factura.</li><li><b>Revisá los datos</b>: podés corregir nombres, cantidades, totales, categorías y subcategorías, quitar o agregar productos.</li><li>Tocá <b>Guardar</b>. Vas a ver una ventana de confirmación con tu compra.</li><li>Si no querés usar la cámara, elegí <b>Cargar a mano</b>.</li></ul>`)}
   ${Q('🧾 Mis compras: editar y eliminar',`<ul><li>En <b>Compras</b> tocá una compra para ver el detalle.</li><li><b>✏️ Editar compra</b> abre el mismo formulario para corregir cualquier dato.</li><li>El <b>📍</b> abre el local en Google Maps.</li><li><b>Eliminar compra</b> la borra de forma definitiva.</li></ul>`)}
   ${Q('🔎 Precios y búsqueda',`<ul><li>Escribí un producto ("leche") o una categoría ("verdura", "fruta"). También encuentra por subcategoría y por la descripción de tus propios tickets.</li><li>Elegí la <b>distancia máxima</b> (1 a 25 km o Todo). Para filtrar por distancia, la app necesita tu ubicación.</li><li>Ordená por <b>más barato</b>, <b>más cerca</b> o <b>más reciente</b>.</li><li>Con la <b>búsqueda inteligente</b> también aparecen productos relacionados (por ejemplo, buscar "malbec" muestra Nicasia). Se apaga en Ajustes.</li><li>Los precios vienen de tickets de otras personas, de forma anónima. Sin nombres.</li></ul>`)}
-  ${Q('📍 Ubicación del local',`<ul><li>En el formulario escribí la dirección o tocá <b>Elegir en Google Maps</b>.</li><li>Con la clave de Maps: buscás el local con sugerencias, tocás uno de <b>Tus locales</b> o <b>Cerca tuyo</b>, o movés el mapa para ubicar el pin.</li><li>Tocá <b>📌 Fijar dirección</b> para escribirla en el campo y guardar las coordenadas.</li><li>Sin coordenadas, tus precios no aparecen en las búsquedas por distancia.</li></ul>`)}
+  ${Q('📍 Ubicación del local',`<ul><li>En el formulario escribí la dirección o tocá <b>Elegir en Google Maps</b>.</li><li>Con la clave de Maps: buscás el local con sugerencias, tocás uno de <b>Tus locales</b> o <b>Cerca tuyo</b>, o movés el mapa para ubicar el pin.</li><li>Tocá <b>📌 Fijar dirección</b> para escribirla en el campo y guardar las coordenadas.</li><li>La app <b>valida la dirección</b>: entiende abreviaturas como C.A.B.A. o Cap. Fed. y la deja completa. Si no se puede ubicar, te avisa antes de guardar y podés corregirla o guardar sin validar.</li><li>Sin coordenadas, tus precios no aparecen en las búsquedas por distancia.</li></ul>`)}
   ${Q('💱 Monedas y tipos de cambio',`<ul><li>Cada compra puede estar en <b>pesos, dólares o reales</b>. La app la detecta y la podés corregir en el formulario.</li><li>En <b>Ajustes → Monedas</b> elegís en qué moneda ver los totales.</li><li>El botón <b>Buscar cotización oficial (venta minorista)</b> trae el dólar y el real de venta. También podés cargar los valores a mano: cada campo dice a qué moneda corresponde. Para usar otro dólar (blue, MEP…), abrí <b>Usar otro dólar (avanzado)</b>.</li><li>Sin tipo de cambio, las compras en otra moneda se muestran aparte y no se suman.</li></ul>`)}
   ${Q('🔒 Privacidad y datos compartidos',`<ul><li>Tus compras son privadas: solo vos las ves.</li><li>Los <b>precios</b> (producto, precio, local y fecha) se comparten de forma <b>anónima</b>, sin tu nombre ni tu email. Podés apagarlo en <b>Ajustes → Precios compartidos</b>.</li><li>Tu descripción del ticket nunca se comparte.</li><li>Las claves de Gemini y Maps se guardan solo en tu dispositivo.</li></ul>`)}
   ${Q('📲 Instalar la app',`<ul><li><b>Android:</b> en Chrome, menú ⋮ → <b>Instalar app</b>.</li><li><b>iPhone:</b> en Safari, <b>Compartir</b> → <b>Agregar a pantalla de inicio</b>. La app instalada guarda sus datos aparte: iniciá sesión y cargá las claves de nuevo.</li><li>Para invitar a alguien, usá <b>Ajustes → Compartir e instalar</b>.</li></ul>`)}
   ${Q('🛠️ Problemas frecuentes',`<ul><li><b>No lee bien el ticket:</b> apoyalo plano, con buena luz y sin flash; encuadralo completo. Si es largo, sacalo en partes.</li><li><b>Dice que falta la clave de Gemini:</b> cargala en Ajustes.</li><li><b>Tu sesión expiró:</b> iniciá sesión de nuevo; el ticket que estabas cargando se puede recuperar.</li><li><b>No aparece un precio en Precios:</b> probá con "Todo" en la distancia o con otro nombre; puede que el local no tenga ubicación.</li><li><b>El mapa es simple y no completa la dirección:</b> falta la clave de Google Maps en Ajustes.</li></ul>`)}
-  ${Q('🆕 Novedades',`<ul>${REL.items.map(i=>`<li>${i.icon} <b>${esc(i.t)}</b>: ${esc(i.d)}</li>`).join('')}</ul><div class="mact"><button onclick="newsStart(true)">Ver novedades</button></div>`)}
+  ${Q('🆕 Novedades',`<ul>${RELS[RELS.length-1].items.map(i=>`<li>${i.icon} <b>${esc(i.t)}</b>: ${esc(i.d)}</li>`).join('')}</ul><div class="mact"><button onclick="newsStart(true)">Ver novedades</button></div>`)}
   ${Q('💬 Contacto y comentarios',`<p>Elegí si es un <b>comentario</b>, una <b>mejora</b> o un <b>bug</b> (las estrellas son solo para comentarios). Cada mensaje recibe un número de ticket y le llega por mail al administrador de Canasta.</p><div class="mact"><button onclick="openFeedback()">💬 Enviar comentarios</button></div>`)}
   <p class="mu" style="text-align:center;margin-top:16px">Canasta · versión ${esc(APP_VER)}</p></div>`);
 }
@@ -806,7 +860,27 @@ async function fbList(){
 /* ---------- Asistente de Google Maps ---------- */
 let gm=null,gcd=null,Pl=null,AS=null,stok=null,sugs=[],sugT=0,lockUntil=0,mineL=[],nearL=[];
 const ll=o=>({lat:typeof o.lat==='function'?o.lat():o.lat,lng:typeof o.lng==='function'?o.lng():o.lng});
-const shortAddr=a=>String(a||'').split(',').map(x=>x.trim().replace(/^[A-Z]?\d{4}[A-Z]{0,3}\s*/,'')).filter(x=>x&&!/^argentina$/i.test(x)).slice(0,3).join(', ');
+const CABA='Ciudad Autónoma de Buenos Aires';
+const tcase=p=>p.toLowerCase().replace(/(^|[\s.])([a-zà-ÿ])/g,(m,a,b)=>a+b.toUpperCase()).replace(/\s(De|Del|La|Las|Los|Y|El)(?=\s|$)/g,x=>x.toLowerCase());
+function normAddr(a){
+  let t=String(a||'').replace(/\s+/g,' ').trim();const L='A-Za-zÀ-ÿ';
+  const w=(re,rep)=>{t=t.replace(new RegExp('(^|[^'+L+'])(?:'+re+')(?![0-9'+L+'])','gi'),'$1'+rep)};
+  w('C\\.?\\s?A\\.?\\s?B\\.?\\s?A\\.?',CABA);
+  w('Cap(?:ital)?\\.?\\s?Fed(?:eral)?\\.?',CABA);
+  w('Cdad\\.?\\s?(?:Aut[oó]noma\\s)?(?:de\\s)?(?:Bs\\.?\\s?As\\.?|Buenos\\sAires)',CABA);
+  w('Ciudad\\s(?:de\\s)?Buenos\\sAires',CABA);
+  w('Ciudad\\sAut[oó]noma\\s(?:de\\s)?Buenos\\sAires',CABA);
+  w('Bs\\.?\\s?As\\.?','Buenos Aires');
+  w('Pcia\\.?(?:\\sde)?','Provincia de');
+  w('Gral\\.?','General');w('Cnel\\.?','Coronel');w('Tte\\.?','Teniente');w('Avda\\.?','Avenida');w('Bv\\.?|Blvd\\.?','Bulevar');
+  t=t.replace(/\bC\.?\s?P\.?\s*[:.]?\s*\(?\s*[A-Z]?\d{4}[A-Z]{0,3}\s*\)?/gi,' ')
+     .replace(/\bS\/N\b/gi,' ')
+     .replace(/\b(?:piso|dpto\.?|depto\.?|departamento|oficina|of\.?)\s*[A-Za-z0-9º°]{1,3}\b/gi,' ')
+     .replace(/\b(?:pb|planta baja)\b/gi,' ')
+     .replace(/\s*\/\s*/g,', ').replace(/[()]/g,' ').replace(/([^,\s])\s+(Ciudad Autónoma de Buenos Aires)/g,'$1, $2').replace(/\s+,/g,',').replace(/,\s*,+/g,',').replace(/\s+/g,' ').replace(/^[,\s]+|[,\s]+$/g,'');
+  return t.split(', ').map(x=>(x===x.toUpperCase()&&/[A-ZÀ-Ý]/.test(x))?tcase(x):x).join(', ');
+}
+const shortAddr=a=>normAddr(String(a||'').split(',').map(x=>x.trim().replace(/^[A-Z]?\d{4}[A-Z]{0,3}\s*/,'')).filter(x=>x&&!/^argentina$/i.test(x)).slice(0,3).join(', '));
 const hav=(a,b)=>{const r=x=>x*Math.PI/180,h=Math.sin(r(b.lat-a.lat)/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(r(b.lng-a.lng)/2)**2;return 12742*Math.asin(Math.sqrt(h))};
 function getPos(){return new Promise(ok=>{if(pos||!navigator.geolocation)return ok(pos);navigator.geolocation.getCurrentPosition(p=>{pos={lat:p.coords.latitude,lng:p.coords.longitude};ok(pos)},()=>ok(null),{timeout:10000,maximumAge:600000})})}
 async function mapOpen(){
@@ -840,7 +914,7 @@ async function mapJs(key,c,q){
     Pl=lib.Place;AS=lib.AutocompleteSuggestion;stok=new lib.AutocompleteSessionToken();gcd=new google.maps.Geocoder();
     let has=draft.lat!=null,center=has?{lat:draft.lat,lng:draft.lng}:(c||{lat:-34.6037,lng:-58.3816}),start=null;
     if(has)start={addr:draft.address,loc:center};
-    else if(draft.address.trim()){try{const r0=await gcd.geocode({address:draft.address,region:'ar',language:'es'});const g=(r0.results||[])[0];if(g){center=ll(g.geometry.location);has=true;start={addr:g.formatted_address,loc:center}}}catch(e){}}
+    else if(draft.address.trim()){try{const r0=await gcd.geocode({address:normAddr(draft.address),region:'ar',language:'es'});const g=(r0.results||[])[0];if(g){center=ll(g.geometry.location);has=true;start={addr:g.formatted_address,loc:center}}}catch(e){}}
     gm=new google.maps.Map($('#map'),{center,zoom:has||c?17:12,mapTypeControl:false,streetViewControl:false,fullscreenControl:false,gestureHandling:'greedy'});
     if(c)new google.maps.Marker({map:gm,position:c,title:'Vos',icon:{path:google.maps.SymbolPath.CIRCLE,scale:7,fillColor:'#4285F4',fillOpacity:1,strokeColor:'#fff',strokeWeight:2}});
     gm.addListener('dragstart',()=>{m.textContent='Soltá el mapa donde está el local…'});
@@ -878,10 +952,10 @@ function showFound(){
 }
 function useFound(){
   if(!found||!found.addr)return;
-  draft.address=found.addr;draft.lat=found.loc?found.loc.lat:null;draft.lng=found.loc?found.loc.lng:null;
+  draft.address=found.addr;draft.lat=found.loc?found.loc.lat:null;draft.lng=found.loc?found.loc.lng:null;draft.addrOk=!!found.loc;draft.skipAddr=false;
   $('#addr').value=draft.address;
   if(found.name&&!draft.store.trim()){draft.store=found.name;$('#store').value=found.name}
-  mapClose();toast('Dirección fijada');
+  mapClose();addrStatus();toast('Dirección fijada');
   $('#addr').scrollIntoView({block:'center',behavior:'smooth'});
 }
 async function suggest(t){
@@ -927,12 +1001,12 @@ async function pickMine(k){
   const x=mineL[k];
   if(x.loc)return setFound(x.store,x.addr,x.loc);
   try{
-    const r=await gcd.geocode({address:x.addr,language:'es',region:'ar'});
+    const r=await gcd.geocode({address:normAddr(x.addr),language:'es',region:'ar'});
     const g=(r.results||[])[0];
     if(g)setFound(x.store,x.addr,g.geometry.location);else{found={name:x.store,addr:x.addr,loc:null};showFound()}
   }catch(e){found={name:x.store,addr:x.addr,loc:null};showFound()}
 }
-const cleanAddr=a=>String(a||'').replace(/C\.?\s?P\.?\s*\(?\s*[A-Z]?\d{4}[A-Z]{0,3}\s*\)?/ig,' ').replace(/[()\/]/g,' ').replace(/\s+/g,' ').trim();
+const cleanAddr=a=>normAddr(a);
 async function geocodeAddr(a){
   const q=cleanAddr(a);if(q.length<5)return null;
   try{
@@ -965,14 +1039,14 @@ let fixing=false;
 async function fixCoords(){
   if(fixing||!user)return;fixing=true;
   try{
-    let bad=[];try{bad=JSON.parse(localStorage.getItem('nogeo')||'[]')}catch(e){}
+    let bad=[];try{bad=JSON.parse(localStorage.getItem('nogeo2')||'[]')}catch(e){}
     const {data=[]}=await sb.from('receipts').select('id,store_address').not('store_address','is',null).is('store_lat',null).limit(30);
     for(const r of data.filter(x=>!bad.includes(x.id)).slice(0,8)){
       const c=await geocodeAddr(r.store_address);
       if(c){
         await sb.from('receipts').update({store_lat:c.lat,store_lng:c.lng}).eq('id',r.id);
         await sb.from('price_points').update({lat:c.lat,lng:c.lng}).eq('receipt_id',r.id);
-      }else{bad.push(r.id);localStorage.setItem('nogeo',JSON.stringify(bad.slice(-100)))}
+      }else{bad.push(r.id);localStorage.setItem('nogeo2',JSON.stringify(bad.slice(-100)))}
       await new Promise(x=>setTimeout(x,1200));
     }
   }catch(e){}
@@ -980,7 +1054,7 @@ async function fixCoords(){
 }
 let addrT=0,addrTok=0,mapReady=false;
 async function kl(v){
-  v=String(v||'').trim();const my=++addrTok,m=$('#mmsg'),f=$('#map iframe');
+  v=normAddr(String(v||'').trim());const my=++addrTok,m=$('#mmsg'),f=$('#map iframe');
   if(!f||v.length<4)return;
   f.src=`https://maps.google.com/maps?output=embed&z=17&hl=es&q=${encodeURIComponent(v)}`;
   try{
@@ -995,7 +1069,7 @@ async function kl(v){
     showFound();
   }catch(e){}
 }
-function addrTyped(v){draft.address=v;draft.lat=draft.lng=null;clearTimeout(addrT);addrT=setTimeout(()=>mapFromText(v),700)}
+function addrTyped(v){draft.address=v;draft.lat=draft.lng=null;draft.addrOk=false;draft.skipAddr=false;addrStatus();clearTimeout(addrT);addrT=setTimeout(()=>mapFromText(v),700)}
 async function mapFromText(v){
   v=String(v||'').trim();const my=++addrTok;
   if(v.length<6)return;
@@ -1004,7 +1078,7 @@ async function mapFromText(v){
   for(let i=0;i<30&&!(mapReady&&gm);i++)await new Promise(r=>setTimeout(r,300));
   if(my!==addrTok||!gm||!gcd)return;
   try{
-    const req={address:v,region:'ar',language:'es'};
+    const req={address:normAddr(v),region:'ar',language:'es'};
     if(pos)req.bounds=new google.maps.Circle({center:pos,radius:30000}).getBounds();
     const r=await gcd.geocode(req);
     if(my!==addrTok)return;
@@ -1122,7 +1196,7 @@ async function editR(id){
   const [{data:r},{data:its=[]},{data:pp=[]}]=await Promise.all([sb.from('receipts').select('*').eq('id',id).single(),sb.from('receipt_items').select('*').eq('receipt_id',id),sb.from('price_points').select('lat,lng').eq('receipt_id',id).limit(1)]);
   if(!r)return toast('No se pudo cargar la compra');
   mapShown=!!r.store_address;
-  draft={id,currency:r.currency||'ARS',docType:r.doc_type==='factura'?'factura':'ticket',docNumber:r.doc_number||'',taxId:r.store_tax_id||'',store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros',subcategory:i.subcategory||''}))};
+  draft={id,addrOk:!!(r.store_address&&r.store_lat!=null),currency:r.currency||'ARS',docType:r.doc_type==='factura'?'factura':'ticket',docNumber:r.doc_number||'',taxId:r.store_tax_id||'',store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros',subcategory:i.subcategory||''}))};
   form();
 }
 async function del(id){
