@@ -407,22 +407,33 @@ function readFailModal(e){
   let t='No pudimos leer el comprobante',msg='Gemini no pudo leer las fotos. Probá de nuevo; si sigue fallando, mejorá las fotos o cargá los datos a mano.',key=false;
   if(/Falta la clave/i.test(m)){msg='Falta la clave de Gemini. Cargala en Ajustes para poder leer tickets.';key=true}
   else if(st===403||(st===400&&/API key/i.test(m))){msg='La clave de Gemini no es válida o no tiene permiso. Revisala en Ajustes.';key=true}
-  else if(st===429)msg='Se alcanzó el límite de uso de Gemini. Esperá un minuto y reintentá.';
+  else if(st===429||/quota|resource_exhausted/i.test(m)){msg='Se alcanzó el límite de uso de tu clave de Gemini en este momento. Esperá unos instantes y reintentá.';}
   else if(st>=500)msg='Gemini está saturado en este momento. Reintentá en unos segundos.';
-  else if(!navigator.onLine||/aborted|timeout|Failed to fetch|NetworkError|Load failed/i.test(m)){t='Sin conexión o demasiado lento';msg='No pudimos comunicarnos con Gemini. Revisá tu conexión y reintentá.'}
+  else if(!navigator.onLine||/aborted|timeout|Failed to fetch|NetworkError|Load failed/i.test(m)){t='Sin conexión o demasiado lento';msg='No pudimos comunicarnos con Gemini a tiempo. Revisá tu conexión y reintentá.'}
   modal(`<div class="ic bad">⚠️</div><h2>${esc(t)}</h2><p>${esc(msg)}</p><p class="mu">Tus fotos siguen acá: no hace falta volver a sacarlas.</p><div class="mact">${key?`<button onclick="closeModal();go('settings')">Ir a Ajustes</button>`:`<button onclick="closeModal();run(pendParts)">🔁 Reintentar</button>`}<button class="ghost" onclick="closeModal();scanUI()">Revisar o editar las fotos</button><button class="ghost" onclick="closeModal();manual()">Cargar a mano</button></div>`);
 }
-const resize=f=>new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(f);const clean=()=>{try{URL.revokeObjectURL(u)}catch(e){}};i.onerror=()=>{clean();no(Error('No se pudo abrir la imagen'))};i.onload=()=>{clean();const k=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok({b64:c.toDataURL('image/jpeg',.8).split(',')[1],q:quality(i)})};i.src=u});
+const resize=f=>new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(f);const clean=()=>{try{URL.revokeObjectURL(u)}catch(e){}};i.onerror=()=>{clean();no(Error('No se pudo abrir la imagen'))};i.onload=()=>{clean();try{const k=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);let q={blur:100,bright:150,min:Math.min(i.width,i.height)};try{q=quality(i)}catch(qe){}ok({b64:c.toDataURL('image/jpeg',.8).split(',')[1],q})}catch(err){no(Error('Error al procesar la imagen'))}};i.src=u});
 async function extract(parts){
   const key=(localStorage.getItem('gk')||'').trim();
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
   const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
-  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({contents:[{parts:[{text:prompt},...parts.map(x=>({inline_data:{mime_type:x.mime||'image/jpeg',data:x.b64}}))]}],generationConfig:{responseMimeType:'application/json'}})});
-  const j=await r.json();
-  if(!r.ok){const e=Error(j.error?.message||'Error al leer el comprobante');e.status=r.status;throw e}
-  const c0=j.candidates&&j.candidates[0],tx=c0&&c0.content&&c0.content.parts&&c0.content.parts[0]&&c0.content.parts[0].text;
-  if(!tx)throw Error('Respuesta vacía de Gemini');
-  return JSON.parse(tx);
+  const models=[{m:'gemini-2.5-flash',th:{thinkingBudget:0}},{m:'gemini-3.5-flash',th:{thinkingLevel:'LOW'}},{m:'gemini-2.5-flash',th:null}];
+  let lastErr=null;
+  for(const model of models){
+    try{
+      const body={contents:[{parts:[{text:prompt},...parts.map(x=>({inline_data:{mime_type:x.mime||'image/jpeg',data:x.b64}}))]}],generationConfig:{responseMimeType:'application/json',temperature:.1,...(model.th?{thinkingConfig:model.th}:{})}};
+      const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.m}:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(25000),body:JSON.stringify(body)});
+      const j=await r.json();
+      if(!r.ok){const e=Error(j.error?.message||'Error al leer el comprobante');e.status=r.status;lastErr=e;if(r.status===429||r.status>=500||r.status===404)continue;throw e}
+      const c0=j.candidates&&j.candidates[0];
+      const part=c0?.content?.parts?.find(p=>p.text&&!p.thought)||c0?.content?.parts?.[c0.content.parts.length-1];
+      const tx=part&&part.text;
+      if(!tx)throw Error('Respuesta vacía de Gemini');
+      const clean=tx.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
+      return JSON.parse(clean);
+    }catch(err){lastErr=err;if(err.name==='AbortError'||/timeout/i.test(err.message))continue;if(!navigator.onLine)throw err}
+  }
+  throw lastErr||Error('No se pudo leer el comprobante con Gemini.');
 }
 const norm=d=>({currency:CUR[d.currency]?d.currency:'ARS',docType:d.doc_type==='factura'?'factura':'ticket',docNumber:String(d.doc_number||'').trim(),taxId:String(d.store_tax_id||'').trim(),lat:null,lng:null,address:String(d.store_address||'').trim(),description:String(d.description||'').trim(),store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||'')}))});
 
@@ -919,9 +930,13 @@ async function fixSubcats(){
     if(!data.length){fixingS=false;return}
     const list=data.map((x,i)=>`${i+1}. ${x.name} (${x.category||'otros'})`).join('\n');
     const prompt=`Para cada producto de supermercado argentino, devolvé una subcategoría corta, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Respondé solo JSON {"s":["..."]} con una entrada por producto, en el mismo orden.\n${list}`;
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(20000),body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:.1,thinkingConfig:{thinkingLevel:"LOW"}}})});
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:.1,thinkingConfig:{thinkingBudget:0}}})});
     const j=await r.json();if(!r.ok)throw Error('gemini');
-    const subs=JSON.parse(j.candidates[0].content.parts[0].text).s||[];
+    const c0=j.candidates&&j.candidates[0];
+    const part=c0?.content?.parts?.find(p=>p.text&&!p.thought)||c0?.content?.parts?.[0];
+    const tx=part?.text||'{}';
+    const clean=tx.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
+    const subs=JSON.parse(clean).s||[];
     for(let i=0;i<data.length;i++){
       const sc=nk(subs[i]||''),x=data[i];
       await sb.from('receipt_items').update({subcategory:sc}).eq('id',x.id);
@@ -1001,9 +1016,13 @@ async function expand(q){
   const key=(localStorage.getItem('gk')||'').trim(),ck='exp2:'+q;
   try{const c=localStorage.getItem(ck);if(c)return JSON.parse(c)}catch(e){}
   const prompt=`Sos un asistente de compras de supermercados en Argentina. Un usuario busca el producto "${q}". Devolvé hasta 10 términos relacionados, todos en singular, que puedan aparecer en el nombre de ese producto en un ticket de supermercado. Si "${q}" es una categoría o tipo (por ejemplo "malbec"), devolvé marcas y variedades argentinas conocidas de esa categoría (por ejemplo Nicasia, Trapiche, Rutini). Si es una marca, devolvé su categoría y sus variedades. Sumá sinónimos y abreviaturas comunes de tickets. No repitas "${q}". Respondé solo JSON: {"terms":["..."]} con términos cortos, en minúsculas y sin tildes.`;
-  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(8000),body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:.2,thinkingConfig:{thinkingLevel:"LOW"}}})});
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(7000),body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:.2,thinkingConfig:{thinkingBudget:0}}})});
   const j=await r.json();if(!r.ok)throw Error(j.error?.message||'Error de Gemini');
-  const t=[...new Set((JSON.parse(j.candidates[0].content.parts[0].text).terms||[]).map(nk).filter(x=>x.length>=2&&x!==q))].slice(0,10);
+  const c0=j.candidates&&j.candidates[0];
+  const part=c0?.content?.parts?.find(p=>p.text&&!p.thought)||c0?.content?.parts?.[0];
+  const tx=part?.text||'{}';
+  const clean=tx.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
+  const t=[...new Set((JSON.parse(clean).terms||[]).map(nk).filter(x=>x.length>=2&&x!==q))].slice(0,10);
   if(t.length)try{localStorage.setItem(ck,JSON.stringify(t))}catch(e){}
   return t;
 }
