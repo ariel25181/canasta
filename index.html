@@ -149,6 +149,7 @@ const sb=supabase.createClient(SB_URL,SB_KEY);
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const CUR={ARS:{flag:'🇦🇷',name:'Pesos'},USD:{flag:'🇺🇸',name:'Dólares'},BRL:{flag:'🇧🇷',name:'Reales'}};
+const r2=n=>Math.round((Number(n)||0)*100)/100;
 const money=(n,c)=>{c=CUR[c]?c:'ARS';const d=c==='ARS'?0:2;return new Intl.NumberFormat('es-AR',{style:'currency',currency:c,minimumFractionDigits:d,maximumFractionDigits:d}).format(n||0)};
 const fxr=()=>{try{return JSON.parse(localStorage.getItem('fx')||'null')}catch(e){return null}};
 const rate=c=>c==='ARS'?1:((fxr()||{})[c]||null);
@@ -399,7 +400,7 @@ async function run(parts){
   try{
     const d=await extract(parts),n=(d.items||[]).length,bad=d.quality&&d.quality.legible===false;
     if(bad||!n){pendData=d;const tips=((d.quality&&d.quality.issues)||[]).filter(Boolean);return retake(tips.length?tips:['No pude identificar productos en el archivo.'],n?'data':'')}
-    draft=norm(d);pages=[];form();
+    draft=norm(d);pages=[];mapShown=!!String(draft.address||'').trim();form();
   }catch(err){readFailModal(err)}
 }
 function readFailModal(e){
@@ -452,7 +453,7 @@ function form(){
   <div class="card row"><b>Total</b><b class="num">${money(t,draft.currency)}</b></div>
   ${localStorage.getItem('share')!=='0'?`<p class="mu">🔒 Tus precios se comparten de forma anónima.${draft.lat!=null?'':' Elegí el local en el mapa para que aparezcan en búsquedas por zona.'} Podés cambiarlo en Ajustes.</p>`:''}
   <button onclick="save()">${draft.id?'Guardar cambios':'Guardar compra'}</button>${draft.id?` <button class="ghost" onclick="clearBk();go('history')">Cancelar</button>`:''}`);
-  if(mapShown)mapOpen();
+  if(mapShown)mapOpen().catch(e=>{const m=$('#mmsg');if(m)m.textContent='No pude cargar el mapa: '+(e&&e.message||e)});
 }
 /* ---------- Ventanas (modales) ---------- */
 let ovLock=false;
@@ -519,7 +520,7 @@ async function _save(){
   if(oldI.length)await sb.from('receipt_items').delete().in('id',oldI);
   let warn=null;
   if(localStorage.getItem('share')!=='0'){
-    const seenK=new Set(),pp=[];for(const i of items){const pk=nk(i.name);if(i.total_price>0&&pk&&!seenK.has(pk)){seenK.add(pk);pp.push({receipt_id:rid,currency:draft.currency||ARS,store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:pk,category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:Math.max(0.001,Number(i.qty)||1),unit_price:r2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:r2(i.total_price),purchased_at:draft.date})}}
+    const seenK=new Set(),pp=[];for(const i of items){const pk=nk(i.name);if(i.total_price>0&&pk&&!seenK.has(pk)){seenK.add(pk);pp.push({receipt_id:rid,currency:draft.currency||'ARS',store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:pk,category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:Math.max(0.001,Number(i.qty)||1),unit_price:r2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:r2(i.total_price),purchased_at:draft.date})}}
     if(pp.length){const {error:e3}=await sb.from('price_points').insert(pp);if(e3)warn='La compra se guardó, pero no se pudieron compartir los precios.';else if(draft.lat==null)warn='Tus precios se compartieron sin la ubicación del local: no van a aparecer en búsquedas por zona hasta que lo ubiques en el mapa.'}
   }
   if(oldP.length)await sb.from('price_points').delete().in('id',oldP);
