@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-17T12:">
+<meta name="app-version" content="2026-10-17T14:">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -418,7 +418,7 @@ const resize=f=>new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(
 async function extract(parts){
   const key=(localStorage.getItem('gk')||'').trim();
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
-  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string,"brand":string,"variant":string,"size_value":number,"size_unit":"ml|g|un","ident":"alta|baja","ean":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. Para identificar bien cada producto: expandí las abreviaturas del ticket (por ejemplo LECHE LS ENT 1L es La Serenísima, leche entera, 1 litro). brand es la marca (La Serenísima, Coca-Cola, Arcor…), vacía si es un producto suelto sin marca. subcategory es el producto base (leche, gaseosa, arroz). variant es lo que distingue una versión de otra (entera, descremada, sin TACC, light, zero, 00…), vacía si no hay. size_value y size_unit son el tamaño del envase tal como se vende, convertido a ml, g o un (1 L = 1000 ml; 1 kg = 1000 g; un pack de 12 huevos = 12 un); si no figura o no lo sabés, poné size_value 0 y size_unit vacío. No inventes marca ni tamaño. ean es el código de barras de 8 a 14 dígitos solo si el ticket lo imprime junto al producto; vacío si no figura (no lo inventes ni uses códigos internos o PLU). ident es alta solo si estás seguro de la marca, el producto y el tamaño; si hay cualquier duda, baja. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
+  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string,"brand":string,"variant":string,"size_value":number,"size_unit":"ml|g|un","ident":"alta|baja","ean":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné solo la calle, el número y la localidad del local (por ejemplo Av. Santa Fe 2349, Martínez), sin el nombre del local, sin números de sucursal ni códigos de comercio y sin código postal; si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. Para identificar bien cada producto: expandí las abreviaturas del ticket (por ejemplo LECHE LS ENT 1L es La Serenísima, leche entera, 1 litro). brand es la marca (La Serenísima, Coca-Cola, Arcor…), vacía si es un producto suelto sin marca. subcategory es el producto base (leche, gaseosa, arroz). variant es lo que distingue una versión de otra (entera, descremada, sin TACC, light, zero, 00…), vacía si no hay. size_value y size_unit son el tamaño del envase tal como se vende, convertido a ml, g o un (1 L = 1000 ml; 1 kg = 1000 g; un pack de 12 huevos = 12 un); si no figura o no lo sabés, poné size_value 0 y size_unit vacío. No inventes marca ni tamaño. ean es el código de barras de 8 a 14 dígitos solo si el ticket lo imprime junto al producto; vacío si no figura (no lo inventes ni uses códigos internos o PLU). ident es alta solo si estás seguro de la marca, el producto y el tamaño; si hay cualquier duda, baja. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
   const models=[{m:'gemini-2.5-flash',th:{thinkingBudget:0}},{m:'gemini-3.5-flash',th:{thinkingLevel:'LOW'}},{m:'gemini-2.5-flash',th:null}];
   let lastErr=null;
   for(const model of models){
@@ -510,7 +510,7 @@ async function save(){
 async function _save(){
   const items=draft.items.filter(i=>i.name.trim());
   const total=r2(items.reduce((s,i)=>s+(Number(i.total_price)||0),0)),edit=!!draft.id;
-  if(draft.address.trim()&&draft.lat==null){const g=await geocodeAddr(draft.address);if(g){draft.lat=g.lat;draft.lng=g.lng}}
+  if(draft.address.trim()&&draft.lat==null){const g=await geocodeAddr(draft.address,2);if(g){draft.lat=g.lat;draft.lng=g.lng}}
   const rid=draft.id||draft.rid||(draft.rid=crypto.randomUUID());
   const row={id:rid,store:draft.store.trim(),purchased_at:draft.date,description:draft.description.trim()||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,currency:draft.currency||'ARS',doc_type:draft.docType==='factura'?'factura':'ticket',doc_number:(draft.docNumber||'').trim()||null,store_tax_id:String(draft.taxId||'').replace(/[^0-9-]/g,'')||null,total};
   const {error}=await sb.from('receipts').upsert(row);
@@ -799,7 +799,7 @@ async function mapOpen(){
   const c=await getPos(),key=localStorage.getItem('mk'),q=draft.store.trim();
   if(key)return mapJs(key,c,q);
   $('#mpin').style.display='none';$('#mgps').style.display='none';$('#msearch').hidden=true;
-  const ad=draft.address.trim(),hasC=draft.lat!=null,qq=hasC?`${draft.lat},${draft.lng}`:(ad||q||'supermercado');
+  const ad=draft.address.trim(),hasC=draft.lat!=null,adq=ad?(addrCandidates(ad)[0]||ad):'',qq=hasC?`${draft.lat},${draft.lng}`:(adq||q||'supermercado');
   const src=`https://maps.google.com/maps?output=embed&z=${ad||hasC?17:15}&hl=es&q=${encodeURIComponent(qq)}${c&&!ad&&!hasC?`&ll=${c.lat},${c.lng}`:''}`;
   $('#map').innerHTML=`<iframe src="${src}" loading="lazy" title="Mapa"></iframe>`;
   $('#mmsg').innerHTML=`Buscá tu local y copiá la dirección. <a href="https://www.google.com/maps/search/${encodeURIComponent(qq)}${c&&!ad&&!hasC?`/@${c.lat},${c.lng},15z`:''}" target="_blank" rel="noopener">Abrir en Google Maps</a>. Con una clave de Maps en Ajustes tenés sugerencias, locales cercanos y pin.`;
@@ -825,7 +825,7 @@ async function mapJs(key,c,q){
     Pl=lib.Place;AS=lib.AutocompleteSuggestion;stok=new lib.AutocompleteSessionToken();gcd=new google.maps.Geocoder();
     let has=draft.lat!=null,center=has?{lat:draft.lat,lng:draft.lng}:(c||{lat:-34.6037,lng:-58.3816}),start=null;
     if(has)start={addr:draft.address,loc:center};
-    else if(draft.address.trim()){try{const r0=await gcd.geocode({address:draft.address,region:'ar',language:'es'});const g=(r0.results||[])[0];if(g){center=ll(g.geometry.location);has=true;start={addr:g.formatted_address,loc:center}}}catch(e){}}
+    else if(draft.address.trim()){try{const g=await gcdFind(draft.address);if(g){center=ll(g.geometry.location);has=true;start={addr:g.formatted_address,loc:center}}}catch(e){}}
     gm=new google.maps.Map($('#map'),{center,zoom:has||c?17:12,mapTypeControl:false,streetViewControl:false,fullscreenControl:false,gestureHandling:'greedy'});
     if(c)new google.maps.Marker({map:gm,position:c,title:'Vos',icon:{path:google.maps.SymbolPath.CIRCLE,scale:7,fillColor:'#4285F4',fillOpacity:1,strokeColor:'#fff',strokeWeight:2}});
     gm.addListener('dragstart',()=>{m.textContent='Soltá el mapa donde está el local…'});
@@ -917,14 +917,52 @@ async function pickMine(k){
     if(g)setFound(x.store,x.addr,g.geometry.location);else{found={name:x.store,addr:x.addr,loc:null};showFound()}
   }catch(e){found={name:x.store,addr:x.addr,loc:null};showFound()}
 }
-const cleanAddr=a=>String(a||'').replace(/C\.?\s?P\.?\s*\(?\s*[A-Z]?\d{4}[A-Z]{0,3}\s*\)?/ig,' ').replace(/[()\/]/g,' ').replace(/\s+/g,' ').trim();
-async function geocodeAddr(a){
-  const q=cleanAddr(a);if(q.length<5)return null;
-  try{
-    const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=ar&accept-language=es&q='+encodeURIComponent(q),{signal:AbortSignal.timeout(6000)});
-    const x=(await r.json())[0];
-    return x?{lat:+x.lat,lng:+x.lon}:null;
-  }catch(e){return null}
+const cleanAddr=a=>String(a||'').replace(/\b[A-Z]\d{4}[A-Z]{0,3}\b/g,' ').replace(/C\.?\s?P\.?\s*\(?\s*[A-Z]?\d{4}[A-Z]{0,3}\s*\)?/ig,' ').replace(/[()\/]/g,' ').replace(/\s+/g,' ').trim();
+const ADDR_ABB={av:'Avenida',avda:'Avenida',bv:'Boulevard',bvd:'Boulevard',blvd:'Boulevard',diag:'Diagonal',pje:'Pasaje',psje:'Pasaje',gral:'General',cnel:'Coronel',cnl:'Coronel',dr:'Doctor',ing:'Ingeniero',sta:'Santa',sto:'Santo',pres:'Presidente',pdte:'Presidente',tte:'Teniente',alte:'Almirante',prof:'Profesor'};
+const ADDR_TYPES=new Set(['avenida','calle','boulevard','diagonal','pasaje','ruta','camino','autopista','peatonal']);
+const addrTitle=t=>/^[A-Z]{2,4}$/.test(t)?t:t.toLowerCase().replace(/(^|\s)(\S)/g,(m,a,b)=>a+b.toUpperCase());
+function parseAddr(a){
+  let t=cleanAddr(a).replace(/[,;]/g,' ').replace(/(^|\s)[-–]+(?=\s|$)/g,' ').replace(/\bN[°º]/gi,' N ').split(/\s+/).filter(Boolean).map(x=>x.replace(/\.$/,'')).map(x=>ADDR_ABB[x.toLowerCase()]||x);
+  const ki=t.findIndex(x=>ADDR_TYPES.has(x.toLowerCase()));
+  if(ki>0&&ki<=4&&t.slice(0,ki).some(x=>/\d/.test(x)))t=t.slice(ki);
+  if(t.length&&['ruta','autopista','camino'].includes(t[0].toLowerCase()))return null;
+  const mk=t.findIndex((x,i)=>/^(n|nro|numero|num)$/i.test(x)&&/^\d{1,5}$/.test(t[i+1]||''));
+  let ni=-1;
+  if(mk>=0)ni=mk+1;
+  else{
+    const cand=[];t.forEach((x,i)=>{if(/^\d{1,5}[A-Za-z]?$/.test(x)&&!/^(de|del)$/i.test(t[i+1]||''))cand.push(i)});
+    ni=cand.length>1&&(t[cand[0]-1]||'').toLowerCase()==='calle'?cand[1]:(cand.length?cand[0]:-1);
+  }
+  if(ni<=0)return null;
+  const street=t.slice(0,mk>=0?mk:ni).join(' ').trim(),num=t[ni],loc=t.slice(ni+1,ni+5).join(' ').trim();
+  if(!street)return null;
+  return {street:addrTitle(street),num,locality:loc?addrTitle(loc):''};
+}
+function addrCandidates(a){
+  const raw=cleanAddr(a);if(raw.length<5)return [];
+  const p=parseAddr(a),out=[];
+  if(p){const b=p.street+' '+p.num;if(p.locality)out.push(b+', '+p.locality+', Argentina');out.push(b+', Argentina')}
+  out.push(raw+', Argentina');
+  return [...new Set(out)];
+}
+async function gcdFind(addr,bounds){
+  for(const q of addrCandidates(addr).concat([String(addr||'')]).filter(Boolean)){
+    try{const req={address:q,region:'ar',language:'es',componentRestrictions:{country:'AR'}};if(bounds)req.bounds=bounds;const r=await gcd.geocode(req);const g=(r.results||[])[0];if(g)return g}
+    catch(e){if(e&&e.code&&e.code!=='ZERO_RESULTS')throw e}
+  }
+  return null;
+}
+async function geocodeAddr(a,max){
+  const cands=addrCandidates(a).slice(0,max||3);
+  for(let i=0;i<cands.length;i++){
+    if(i)await new Promise(r=>setTimeout(r,1100));
+    try{
+      const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=ar&accept-language=es&q='+encodeURIComponent(cands[i]),{signal:AbortSignal.timeout(6000)});
+      const x=(await r.json())[0];
+      if(x)return {lat:+x.lat,lng:+x.lon};
+    }catch(e){}
+  }
+  return null;
 }
 let fixingS=false;
 async function fixSubcats(){
@@ -971,12 +1009,17 @@ let addrT=0,addrTok=0,mapReady=false;
 async function kl(v){
   v=String(v||'').trim();const my=++addrTok,m=$('#mmsg'),f=$('#map iframe');
   if(!f||v.length<4)return;
-  f.src=`https://maps.google.com/maps?output=embed&z=17&hl=es&q=${encodeURIComponent(v)}`;
+  const cands=addrCandidates(v),best=cands[0]||v;
+  f.src=`https://maps.google.com/maps?output=embed&z=17&hl=es&q=${encodeURIComponent(best)}`;
   try{
-    const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=ar&accept-language=es&q='+encodeURIComponent(v));
-    const j=await r.json();if(my!==addrTok)return;
-    const x=j[0];
-    if(!x){m.textContent='No pude ubicar esa dirección con precisión. Probá con calle, número y localidad.';return}
+    let x=null;const tries=cands.length?cands.slice(0,3):[v];
+    for(let i=0;i<tries.length&&!x;i++){
+      if(i)await new Promise(r=>setTimeout(r,1100));
+      const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=ar&accept-language=es&q='+encodeURIComponent(tries[i]));
+      const j=await r.json();if(my!==addrTok)return;
+      x=j[0]||null;
+    }
+    if(!x){m.innerHTML=`Mostré la dirección en el mapa, pero no pude fijar el punto exacto. Si el pin no está en el lugar correcto, <a href="https://www.google.com/maps/search/${encodeURIComponent(best)}" target="_blank" rel="noopener">abrila en Google Maps</a> o escribí calle, número y localidad.`;return}
     const a=x.address||{},road=a.road||a.pedestrian||'',loc=a.suburb||a.neighbourhood||a.city_district||a.city||a.town||a.village||'';
     const addr=a.house_number&&road?[road+' '+a.house_number,loc].filter(Boolean).join(', '):v;
     found={name:'',addr,loc:{lat:+x.lat,lng:+x.lon}};
@@ -993,11 +1036,8 @@ async function mapFromText(v){
   for(let i=0;i<30&&!(mapReady&&gm);i++)await new Promise(r=>setTimeout(r,300));
   if(my!==addrTok||!gm||!gcd)return;
   try{
-    const req={address:v,region:'ar',language:'es'};
-    if(pos)req.bounds=new google.maps.Circle({center:pos,radius:30000}).getBounds();
-    const r=await gcd.geocode(req);
+    const g=await gcdFind(v,pos?new google.maps.Circle({center:pos,radius:30000}).getBounds():null);
     if(my!==addrTok)return;
-    const g=(r.results||[])[0];
     if(!g){$('#mmsg').textContent='No encontré esa dirección en el mapa. Probá con calle, número y localidad.';return}
     setFound('',g.formatted_address,g.geometry.location);
   }catch(e){$('#mmsg').innerHTML='No pude ubicar esa dirección ('+esc(e.code||e.message)+'). Revisá que la <b>Geocoding API</b> esté activada en tu clave.'}
@@ -1112,25 +1152,49 @@ function eanTyped(k,v){
   eanApply(k,c);
 }
 function eanClear(k){const i=draft.items[k];i.ean='';i._cat=null;i._sug=null;form()}
+/* Lector de respaldo (iPhone y navegadores sin BarcodeDetector): se carga solo cuando hace falta, desde la propia app */
+function loadScript(src){return new Promise((ok,no)=>{const e=document.createElement('script');e.src=src;e.onload=ok;e.onerror=()=>no(new Error('load'));document.head.appendChild(e)})}
+let bdLoading=null;
+function ensureDetector(){
+  if(window.BarcodeDetector)return Promise.resolve(true);
+  if(!bdLoading)bdLoading=T(loadScript('vendor/barcode-detector-3.2.2.js'),15000).then(()=>{
+    try{window.BarcodeDetectionAPI.setZXingModuleOverrides({locateFile:(f,pre)=>/\.wasm$/.test(f)?'vendor/zxing_reader-3.1.3.wasm':pre+f})}catch(e){}
+    return !!window.BarcodeDetector;
+  }).catch(()=>false).then(ok=>{if(!ok)bdLoading=null;return ok});
+  return bdLoading;
+}
+function grabFrame(v){
+  try{const w=v.videoWidth,h=v.videoHeight;if(!(w>0&&h>0))return v;
+    const k=Math.min(1,960/w),c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(h*k);
+    const x=c.getContext('2d',{willReadFrequently:true});if(!x)return v;x.drawImage(v,0,0,c.width,c.height);return c;
+  }catch(e){return v}
+}
 async function scanOpen(k){
   scanK=k;stopScan();
-  const can=!!(window.BarcodeDetector&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
+  const cam=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
   modal(`<h2>📷 Código de barras</h2>
-  ${can?`<video id="scv" playsinline muted autoplay style="width:100%;max-height:38vh;border-radius:12px;background:#000"></video><p class="mu" id="scm">Apuntá la cámara al código de barras del envase.</p>`:`<p class="mu" id="scm">Este navegador no puede leer códigos con la cámara. Escribí el número que está debajo de las barras.</p>`}
+  ${cam?`<video id="scv" playsinline webkit-playsinline muted autoplay style="width:100%;max-height:38vh;border-radius:12px;background:#000"></video><p class="mu" id="scm">Abriendo la cámara…</p>`:`<p class="mu" id="scm">Este navegador no puede usar la cámara. Escribí el número que está debajo de las barras.</p>`}
   <div class="fields"><input id="scn" inputmode="numeric" maxlength="14" placeholder="O escribí el número" aria-label="Número del código"><button type="button" onclick="scanManual()">Usar</button></div>
   <div class="mact"><button class="ghost" onclick="closeModal()">Cancelar</button></div>`);
-  if(!can)return;
+  if(!cam)return;
+  const say=t=>{const m=$('#scm');if(m)m.textContent=t};
   try{
+    const dp=ensureDetector();
     const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
     const v=$('#scv');
     if(!v){st.getTracks().forEach(t=>t.stop());return}
     scanStream=st;v.srcObject=st;try{await v.play()}catch(e){}
+    say('Preparando el lector…');
+    const has=await dp;
+    if(!$('#scv')){stopScan();return}
+    if(!has){stopScan();v.style.display='none';say('No se pudo cargar el lector de códigos. Escribí el número abajo.');return}
+    say('Apuntá la cámara al código de barras del envase.');
     const det=new window.BarcodeDetector({formats:['ean_13','ean_8','upc_a']});
     let busy=false;
     scanTimer=setInterval(async()=>{
       const el=$('#scv');if(!el){stopScan();return}
       if(busy)return;busy=true;
-      try{const r=await det.detect(el);const c=(r||[]).map(x=>eanNorm(x.rawValue)).find(Boolean);if(c){stopScan();closeModal();eanApply(scanK,c)}}catch(e){}
+      try{const r=await det.detect(grabFrame(el));const c=(r||[]).map(x=>eanNorm(x.rawValue)).find(Boolean);if(c){stopScan();closeModal();eanApply(scanK,c)}}catch(e){}
       busy=false;
     },250);
   }catch(e){const m=$('#scm');if(m)m.textContent=(e&&e.name==='NotAllowedError')?'No hay permiso para usar la cámara. Podés escribir el número abajo.':'No se pudo abrir la cámara. Podés escribir el número abajo.'}
