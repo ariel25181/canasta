@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-16T23:">
+<meta name="app-version" content="2026-10-17T12:">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -370,7 +370,7 @@ function readPages(){
   if(pages.reduce((t,x)=>t+x.b64.length,0)>18e6)return toast('Los archivos pesan demasiado juntos: sacá menos fotos o usá un PDF más liviano.');
   run(pages);
 }
-function manual(){mapShown=false;draft={store:'',date:today(),currency:'ARS',docType:'ticket',docNumber:'',taxId:'',description:'',address:'',lat:null,lng:null,items:[{name:'',qty:1,total_price:0,category:'otros',subcategory:'',brand:'',variant:'',size_value:null,size_unit:null,ident_ok:false}]};form()}
+function manual(){mapShown=false;draft={store:'',date:today(),currency:'ARS',docType:'ticket',docNumber:'',taxId:'',description:'',address:'',lat:null,lng:null,items:[{name:'',qty:1,total_price:0,category:'otros',subcategory:'',brand:'',variant:'',size_value:null,size_unit:null,ident_ok:false,ean:''}]};form()}
 function quality(i){
   const k=Math.min(1,1000/Math.max(i.width,i.height)),w=Math.round(i.width*k),h=Math.round(i.height*k),c=document.createElement('canvas');
   c.width=w;c.height=h;const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(i,0,0,w,h);
@@ -418,7 +418,7 @@ const resize=f=>new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(
 async function extract(parts){
   const key=(localStorage.getItem('gk')||'').trim();
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
-  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string,"brand":string,"variant":string,"size_value":number,"size_unit":"ml|g|un","ident":"alta|baja"}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. Para identificar bien cada producto: expandí las abreviaturas del ticket (por ejemplo LECHE LS ENT 1L es La Serenísima, leche entera, 1 litro). brand es la marca (La Serenísima, Coca-Cola, Arcor…), vacía si es un producto suelto sin marca. subcategory es el producto base (leche, gaseosa, arroz). variant es lo que distingue una versión de otra (entera, descremada, sin TACC, light, zero, 00…), vacía si no hay. size_value y size_unit son el tamaño del envase tal como se vende, convertido a ml, g o un (1 L = 1000 ml; 1 kg = 1000 g; un pack de 12 huevos = 12 un); si no figura o no lo sabés, poné size_value 0 y size_unit vacío. No inventes marca ni tamaño. ident es alta solo si estás seguro de la marca, el producto y el tamaño; si hay cualquier duda, baja. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
+  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string,"brand":string,"variant":string,"size_value":number,"size_unit":"ml|g|un","ident":"alta|baja","ean":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. Para identificar bien cada producto: expandí las abreviaturas del ticket (por ejemplo LECHE LS ENT 1L es La Serenísima, leche entera, 1 litro). brand es la marca (La Serenísima, Coca-Cola, Arcor…), vacía si es un producto suelto sin marca. subcategory es el producto base (leche, gaseosa, arroz). variant es lo que distingue una versión de otra (entera, descremada, sin TACC, light, zero, 00…), vacía si no hay. size_value y size_unit son el tamaño del envase tal como se vende, convertido a ml, g o un (1 L = 1000 ml; 1 kg = 1000 g; un pack de 12 huevos = 12 un); si no figura o no lo sabés, poné size_value 0 y size_unit vacío. No inventes marca ni tamaño. ean es el código de barras de 8 a 14 dígitos solo si el ticket lo imprime junto al producto; vacío si no figura (no lo inventes ni uses códigos internos o PLU). ident es alta solo si estás seguro de la marca, el producto y el tamaño; si hay cualquier duda, baja. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
   const models=[{m:'gemini-2.5-flash',th:{thinkingBudget:0}},{m:'gemini-3.5-flash',th:{thinkingLevel:'LOW'}},{m:'gemini-2.5-flash',th:null}];
   let lastErr=null;
   for(const model of models){
@@ -450,7 +450,7 @@ function form(){
   <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value">${draft.docType==='factura'?`<input placeholder="Nº de comprobante (ej: 0005-00012345)" value="${esc(draft.docNumber)}" oninput="draft.docNumber=this.value"><input placeholder="CUIT del local (opcional)" inputmode="numeric" value="${esc(draft.taxId)}" oninput="draft.taxId=this.value">`:''}<input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><button class="ghost" type="button" onclick="mapOpen()">📍 Elegir en Google Maps</button><div id="mapbox" hidden><div class="mhead"><b>Ubicación del local</b><button class="ghost" type="button" id="mfull" onclick="mapFull()" style="padding:6px 12px" aria-label="Pantalla completa">⛶</button><button class="x" type="button" onclick="mapClose()" aria-label="Cerrar">✕</button></div><input id="msearch" type="search" placeholder="Buscá el local o la dirección" autocomplete="off" hidden><div id="msug"></div><div id="mchips"></div><div id="mwrap"><div id="map"></div><div id="mpin">📍</div><button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button></div><div id="mmsg" class="mu"></div></div></div>
   <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
   ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>${subRow(i,k)}${idRow(i,k)}`).join('')}
-  <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros',subcategory:'',brand:'',variant:'',size_value:null,size_unit:null,ident_ok:false});form()">+ Agregar producto</button></p>
+  <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros',subcategory:'',brand:'',variant:'',size_value:null,size_unit:null,ident_ok:false,ean:''});form()">+ Agregar producto</button></p>
   <div class="card row"><b>Total</b><b class="num">${money(t,draft.currency)}</b></div>
   ${localStorage.getItem('share')!=='0'?`<p class="mu">🔒 Tus precios se comparten de forma anónima.${draft.lat!=null?'':' Elegí el local en el mapa para que aparezcan en búsquedas por zona.'} Podés cambiarlo en Ajustes.</p>`:''}
   <button onclick="save()">${draft.id?'Guardar cambios':'Guardar compra'}</button>${draft.id?` <button class="ghost" onclick="clearBk();go('history')">Cancelar</button>`:''}`);
@@ -459,7 +459,7 @@ function form(){
 /* ---------- Ventanas (modales) ---------- */
 let ovLock=false;
 function modal(h,o={}){ovLock=!!o.lock;$('#mdl').innerHTML=h;$('#ov').hidden=false;const b=$('#mdl button');if(b)b.focus()}
-function closeModal(){$('#ov').hidden=true;$('#mdl').innerHTML='';ovLock=false}
+function closeModal(){stopScan();$('#ov').hidden=true;$('#mdl').innerHTML='';ovLock=false}
 $('#ov').onclick=e=>{if(e.target.id==='ov'&&!ovLock)closeModal()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!ovLock&&!$('#ov').hidden)closeModal()});
 const T=(p,ms)=>Promise.race([p,new Promise((_,no)=>setTimeout(()=>no(Error('timeout')),ms))]);
@@ -517,12 +517,12 @@ async function _save(){
   if(error)throw error;
   const oldI=((await sb.from('receipt_items').select('id').eq('receipt_id',rid)).data||[]).map(x=>x.id);
   const oldP=((await sb.from('price_points').select('id').eq('receipt_id',rid)).data||[]).map(x=>x.id);
-  const {error:e2}=await sb.from('receipt_items').insert(items.map(i=>({receipt_id:rid,name:i.name.trim(),qty:i.qty||1,unit_price:r2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:r2(i.total_price),category:i.category,subcategory:nk(i.subcategory)||null,brand:(i.brand||'').trim()||null,variant:(i.variant||'').trim()||null,size_value:i.size_unit?i.size_value:null,size_unit:i.size_unit||null,canon_key:finalCanon(i)||null,ident_ok:!!finalCanon(i)})));
+  const {error:e2}=await sb.from('receipt_items').insert(items.map(i=>({receipt_id:rid,name:i.name.trim(),qty:i.qty||1,unit_price:r2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:r2(i.total_price),category:i.category,subcategory:nk(i.subcategory)||null,brand:(i.brand||'').trim()||null,variant:(i.variant||'').trim()||null,size_value:i.size_unit?i.size_value:null,size_unit:i.size_unit||null,canon_key:finalCanon(i)||null,ident_ok:!!finalCanon(i),ean:eanNorm(i.ean)||null})));
   if(e2){if(!edit&&!oldI.length)await sb.from('receipts').delete().eq('id',rid);throw e2}
   if(oldI.length)await sb.from('receipt_items').delete().in('id',oldI);
   let warn=null;
   if(localStorage.getItem('share')!=='0'){
-    const seenK=new Set(),pp=[];for(const i of items){const pk=nk(i.name);const sk=finalCanon(i)||pk;if(i.total_price>0&&pk&&!seenK.has(sk)){seenK.add(sk);pp.push({receipt_id:rid,currency:draft.currency||'ARS',store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:pk,category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:Math.max(0.001,Number(i.qty)||1),unit_price:r2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:r2(i.total_price),purchased_at:draft.date,brand:(i.brand||'').trim()||null,variant:(i.variant||'').trim()||null,size_value:i.size_unit?i.size_value:null,size_unit:i.size_unit||null,canon_key:finalCanon(i)||null})}}
+    const seenK=new Set(),pp=[];for(const i of items){const pk=nk(i.name);const sk=finalCanon(i)||pk;if(i.total_price>0&&pk&&!seenK.has(sk)){seenK.add(sk);pp.push({receipt_id:rid,currency:draft.currency||'ARS',store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:pk,category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:Math.max(0.001,Number(i.qty)||1),unit_price:r2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:r2(i.total_price),purchased_at:draft.date,brand:(i.brand||'').trim()||null,variant:(i.variant||'').trim()||null,size_value:i.size_unit?i.size_value:null,size_unit:i.size_unit||null,canon_key:finalCanon(i)||null,ean:eanNorm(i.ean)||null})}}
     if(pp.length){const {error:e3}=await sb.from('price_points').insert(pp);if(e3)warn='La compra se guardó, pero no se pudieron compartir los precios.';else if(draft.lat==null)warn='Tus precios se compartieron sin la ubicación del local: no van a aparecer en búsquedas por zona hasta que lo ubiques en el mapa.'}
   }
   if(oldP.length)await sb.from('price_points').delete().in('id',oldP);
@@ -1021,24 +1021,27 @@ function sizeParts(i){
   return [v,'un'];
 }
 const fmtSize=i=>{const p=sizeParts(i);return p?`${+p[0].toFixed(3)} ${p[1]==='l'?'L':p[1]}`:''};
-const canonKey=i=>{const b=nk(i.brand),s=nk(i.subcategory),v=nk(i.variant);if(!b||!s||!(Number(i.size_value)>0)||!i.size_unit)return '';return [b,s,v,+Number(i.size_value).toFixed(3)+i.size_unit].join('|')};
+const idSrc=i=>i._cat?{brand:i._cat.brand,subcategory:i._cat.product,variant:i._cat.variant,size_value:i._cat.size_value,size_unit:i._cat.size_unit}:i;
+const canonKey=i=>{i=idSrc(i);const b=nk(i.brand),s=nk(i.subcategory),v=nk(i.variant);if(!b||!s||!(Number(i.size_value)>0)||!i.size_unit)return '';return [b,s,v,+Number(i.size_value).toFixed(3)+i.size_unit].join('|')};
+function eanValid(c){if(!/^\d+$/.test(c)||![8,12,13,14].includes(c.length))return false;const n=c.length;let t=0;for(let k=1;k<n;k++)t+=(+c[n-1-k])*(k%2?3:1);return (10-t%10)%10===+c[n-1]}
+function eanNorm(raw){let c=String(raw==null?'':raw).replace(/\D/g,'');if(c.length===12)c='0'+c;return eanValid(c)?c:''}
 const finalCanon=i=>i.ident_ok?canonKey(i):'';
-const identLabel=i=>[i.brand,i.subcategory,i.variant,fmtSize(i)].map(x=>String(x||'').trim()).filter(Boolean).join(' · ');
+const identLabel=i=>(i=idSrc(i),[i.brand,i.subcategory,i.variant,fmtSize(i)]).map(x=>String(x||'').trim()).filter(Boolean).join(' · ');
 function aliasMap(){try{return JSON.parse(localStorage.getItem('alias')||'{}')||{}}catch(e){return {}}}
 const aliasKey=(store,name)=>nk(store)+'|'+nk(name);
 function aliasSave(store,raw,i){
   try{
     if(!raw||!canonKey(i))return;
-    const a=aliasMap();a[aliasKey(store,raw)]={brand:i.brand,variant:i.variant||'',subcategory:i.subcategory,size_value:i.size_value,size_unit:i.size_unit};
+    const a=aliasMap();a[aliasKey(store,raw)]={brand:i.brand,variant:i.variant||'',subcategory:i.subcategory,size_value:i.size_value,size_unit:i.size_unit,ean:i.ean||''};
     const ks=Object.keys(a);if(ks.length>400)ks.slice(0,ks.length-400).forEach(k=>delete a[k]);
     localStorage.setItem('alias',JSON.stringify(a));
   }catch(e){}
 }
 function mkItem(i,store){
   const sz=normSize(i.size_value,i.size_unit)||{};
-  const it={name:i.name||'',raw:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||''),brand:String(i.brand||'').trim(),variant:String(i.variant||'').trim(),size_value:sz.size_value||null,size_unit:sz.size_unit||null,ident_ok:String(i.ident||'').toLowerCase()==='alta'};
+  const it={name:i.name||'',raw:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||''),brand:String(i.brand||'').trim(),variant:String(i.variant||'').trim(),size_value:sz.size_value||null,size_unit:sz.size_unit||null,ident_ok:String(i.ident||'').toLowerCase()==='alta',ean:eanNorm(i.ean)};
   const al=aliasMap()[aliasKey(store,it.raw)];
-  if(al){it.brand=al.brand;it.variant=al.variant||'';it.subcategory=al.subcategory||it.subcategory;it.size_value=al.size_value;it.size_unit=al.size_unit;it.ident_ok=true}
+  if(al){if(al.ean)it.ean=al.ean;it.brand=al.brand;it.variant=al.variant||'';it.subcategory=al.subcategory||it.subcategory;it.size_value=al.size_value;it.size_unit=al.size_unit;it.ident_ok=true}
   if(!canonKey(it))it.ident_ok=false;
   return it;
 }
@@ -1046,20 +1049,97 @@ function idRow(i,k){
   const c=!!canonKey(i);
   if(i._ed){
     const sp=sizeParts(i)||['', 'l'];
-    return `<div class="idr"><div class="fields"><input placeholder="Marca (ej: La Serenísima)" value="${esc(i.brand||'')}" oninput="idSet(${k},'brand',this.value)" aria-label="Marca"><input placeholder="Variante (ej: entera, sin TACC)" value="${esc(i.variant||'')}" oninput="idSet(${k},'variant',this.value)" aria-label="Variante"></div>
-    <div class="fields"><input id="sv${k}" type="number" min="0" step="any" inputmode="decimal" placeholder="Tamaño (ej: 1)" value="${sp[0]}" onchange="szSet(${k})" aria-label="Tamaño"><select id="su${k}" onchange="szSet(${k})" aria-label="Unidad">${['l','ml','kg','g','un'].map(u=>`<option value="${u}"${sp[1]===u?' selected':''}>${u==='l'?'litros':u==='ml'?'ml':u==='kg'?'kilos':u==='g'?'gramos':'unidades'}</option>`).join('')}</select></div>
+    return `<div class="idr"><div class="fields"><input id="ean${k}" inputmode="numeric" maxlength="14" placeholder="Código de barras (opcional)" value="${esc(i.ean||'')}" onchange="eanTyped(${k},this.value)" aria-label="Código de barras"><button type="button" class="chip" onclick="scanOpen(${k})">📷 Escanear</button></div>
+    ${i._cat?`<p class="mu" style="margin:4px 0">✅ Datos del catálogo por código de barras. <button type="button" class="chip" onclick="eanClear(${k})">Quitar código</button></p>`:i._sug?`<p class="mu" style="margin:4px 0">Sugerido por Open Food Facts${i._sug===true?'':': '+esc(i._sug)}. Revisá y confirmá.</p>`:''}
+    <div class="fields"><input placeholder="Marca (ej: La Serenísima)" value="${esc(i.brand||'')}"${i._cat?' readonly':''} oninput="idSet(${k},'brand',this.value)" aria-label="Marca"><input placeholder="Variante (ej: entera, sin TACC)" value="${esc(i.variant||'')}"${i._cat?' readonly':''} oninput="idSet(${k},'variant',this.value)" aria-label="Variante"></div>
+    <div class="fields"><input id="sv${k}" type="number" min="0" step="any" inputmode="decimal" placeholder="Tamaño (ej: 1)" value="${sp[0]}"${i._cat?' readonly':''} onchange="szSet(${k})" aria-label="Tamaño"><select id="su${k}"${i._cat?' disabled':''} onchange="szSet(${k})" aria-label="Unidad">${['l','ml','kg','g','un'].map(u=>`<option value="${u}"${sp[1]===u?' selected':''}>${u==='l'?'litros':u==='ml'?'ml':u==='kg'?'kilos':u==='g'?'gramos':'unidades'}</option>`).join('')}</select></div>
     <p class="mu" style="margin:4px 0">Producto: <b>${esc(i.subcategory||'—')}</b> (se edita en Subcategoría). Para compararlo con otros hace falta marca, producto y tamaño.</p>
     <button type="button" class="ghost sm" onclick="idDone(${k})">Listo</button></div>`;
   }
-  if(c&&i.ident_ok)return `<div class="idr mu">✅ ${esc(identLabel(i))} <button type="button" class="chip" onclick="idEdit(${k})">Editar</button></div>`;
-  if(c)return `<div class="idr">❓ ¿Es <b>${esc(identLabel(i))}</b>? <button type="button" class="chip on" onclick="idYes(${k})">Sí</button> <button type="button" class="chip" onclick="idEdit(${k})">Corregir</button></div>`;
-  return `<div class="idr mu">🏷️ Sin marca o tamaño: no se compara con otros. <button type="button" class="chip" onclick="idEdit(${k})">Completar</button></div>`;
+  const ec=i.ean?` <span class="mu">· código ${esc(i.ean)}</span>`:'';
+  if(c&&i.ident_ok)return `<div class="idr mu">✅ ${esc(identLabel(i))}${ec} <button type="button" class="chip" onclick="idEdit(${k})">Editar</button></div>`;
+  if(c)return `<div class="idr">❓ ¿Es <b>${esc(identLabel(i))}</b>?${ec} <button type="button" class="chip on" onclick="idYes(${k})">Sí</button> <button type="button" class="chip" onclick="idEdit(${k})">Corregir</button> <button type="button" class="chip" onclick="scanOpen(${k})">📷 Código</button></div>`;
+  return `<div class="idr mu">🏷️ Sin marca o tamaño: no se compara con otros.${ec} <button type="button" class="chip" onclick="scanOpen(${k})">📷 Escanear código</button> <button type="button" class="chip" onclick="idEdit(${k})">Completar</button></div>`;
 }
 function idEdit(k){draft.items[k]._ed=true;form()}
 function idSet(k,f,v){draft.items[k][f]=v;draft.items[k].ident_ok=true}
 function szSet(k){const i=draft.items[k],n=normSize($('#sv'+k).value,$('#su'+k).value);i.size_value=n?n.size_value:null;i.size_unit=n?n.size_unit:null;i.ident_ok=true}
-function idDone(k){const i=draft.items[k];i._ed=false;i.ident_ok=!!canonKey(i);if(i.ident_ok)aliasSave(draft.store,i.raw||i.name,i);form()}
-function idYes(k){const i=draft.items[k];i.ident_ok=true;aliasSave(draft.store,i.raw||i.name,i);form()}
+function idDone(k){const i=draft.items[k];i._ed=false;i._sug=null;i.ident_ok=!!canonKey(i);if(i.ident_ok){aliasSave(draft.store,i.raw||i.name,i);eanSave(i)}form()}
+function idYes(k){const i=draft.items[k];i.ident_ok=true;aliasSave(draft.store,i.raw||i.name,i);eanSave(i);form()}
+/* ---------- Código de barras ---------- */
+let scanStream=null,scanTimer=null,scanK=null;
+function stopScan(){clearInterval(scanTimer);scanTimer=null;if(scanStream){try{scanStream.getTracks().forEach(t=>t.stop())}catch(e){}scanStream=null}}
+function eanSave(i){
+  try{if(!i.ean||i._cat||!canonKey(i)||!i.ident_ok)return;const src=idSrc(i);
+    Promise.resolve(sb.rpc('save_ean',{code:i.ean,p_brand:src.brand,p_product:src.subcategory,p_variant:src.variant||'',p_size_value:src.size_value,p_size_unit:src.size_unit})).catch(()=>{});
+  }catch(e){}
+}
+async function offLookup(code){
+  try{
+    const r=await T(fetch('https://world.openfoodfacts.org/api/v2/product/'+code+'.json?fields=product_name,brands,quantity'),4000);
+    if(!r.ok)return null;const j=await r.json();const p=j&&j.status!==0&&j.product;if(!p)return null;
+    const brand=String(p.brands||'').split(',')[0].trim();
+    const m=/^\s*([\d.,]+)\s*([a-zA-Z]+)/.exec(String(p.quantity||''));const sz=m?normSize(m[1],m[2]):null;
+    if(!brand&&!sz)return null;
+    return {brand,size:sz,name:String(p.product_name||'').slice(0,60)};
+  }catch(e){return null}
+}
+async function eanApply(k,code){
+  const i=draft&&draft.items[k];if(!i||!code)return;
+  i.ean=code;
+  let cat=null;
+  try{const {data}=await T(sb.rpc('lookup_ean',{code}),5000);cat=Array.isArray(data)?data[0]:data}catch(e){}
+  if(cat&&cat.brand&&Number(cat.size_value)>0){
+    i._cat={brand:cat.brand,product:cat.product,variant:cat.variant||'',size_value:Number(cat.size_value),size_unit:cat.size_unit};
+    i.brand=cat.brand;i.subcategory=cat.product;i.variant=cat.variant||'';i.size_value=Number(cat.size_value);i.size_unit=cat.size_unit;
+    i.ident_ok=true;i._ed=false;i._sug=null;
+    aliasSave(draft.store,i.raw||i.name,i);toast('✅ Reconocido: '+identLabel(i));form();return;
+  }
+  i._cat=null;i.ident_ok=false;i._ed=true;
+  const off=await offLookup(code);
+  if(off){
+    if(off.brand&&!i.brand)i.brand=off.brand;
+    if(off.size){i.size_value=off.size.size_value;i.size_unit=off.size.size_unit}
+    i._sug=off.name||true;toast('Código nuevo: revisá los datos sugeridos y confirmá');
+  }else{i._sug=null;toast('Código nuevo: completá marca y tamaño una sola vez')}
+  form();
+}
+function eanTyped(k,v){
+  const i=draft.items[k];const raw=String(v||'').trim();
+  if(!raw){eanClear(k);return}
+  const c=eanNorm(raw);
+  if(!c){toast('Ese código no es válido: revisá los dígitos');return}
+  eanApply(k,c);
+}
+function eanClear(k){const i=draft.items[k];i.ean='';i._cat=null;i._sug=null;form()}
+async function scanOpen(k){
+  scanK=k;stopScan();
+  const can=!!(window.BarcodeDetector&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
+  modal(`<h2>📷 Código de barras</h2>
+  ${can?`<video id="scv" playsinline muted autoplay style="width:100%;max-height:38vh;border-radius:12px;background:#000"></video><p class="mu" id="scm">Apuntá la cámara al código de barras del envase.</p>`:`<p class="mu" id="scm">Este navegador no puede leer códigos con la cámara. Escribí el número que está debajo de las barras.</p>`}
+  <div class="fields"><input id="scn" inputmode="numeric" maxlength="14" placeholder="O escribí el número" aria-label="Número del código"><button type="button" onclick="scanManual()">Usar</button></div>
+  <div class="mact"><button class="ghost" onclick="closeModal()">Cancelar</button></div>`);
+  if(!can)return;
+  try{
+    const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+    const v=$('#scv');
+    if(!v){st.getTracks().forEach(t=>t.stop());return}
+    scanStream=st;v.srcObject=st;try{await v.play()}catch(e){}
+    const det=new window.BarcodeDetector({formats:['ean_13','ean_8','upc_a']});
+    let busy=false;
+    scanTimer=setInterval(async()=>{
+      const el=$('#scv');if(!el){stopScan();return}
+      if(busy)return;busy=true;
+      try{const r=await det.detect(el);const c=(r||[]).map(x=>eanNorm(x.rawValue)).find(Boolean);if(c){stopScan();closeModal();eanApply(scanK,c)}}catch(e){}
+      busy=false;
+    },250);
+  }catch(e){const m=$('#scm');if(m)m.textContent=(e&&e.name==='NotAllowedError')?'No hay permiso para usar la cámara. Podés escribir el número abajo.':'No se pudo abrir la cámara. Podés escribir el número abajo.'}
+}
+function scanManual(){
+  const c=eanNorm(($('#scn')||{}).value);
+  if(!c){toast('Ese código no es válido: revisá los dígitos');return}
+  stopScan();closeModal();eanApply(scanK,c);
+}
 
 const RADS=[1,3,5,10,25,0];
 const rad=()=>{const v=localStorage.getItem('rad');return v===null?5:+v};
@@ -1182,7 +1262,7 @@ async function editR(id){
   const [{data:r},{data:its=[]},{data:pp=[]}]=await Promise.all([sb.from('receipts').select('*').eq('id',id).single(),sb.from('receipt_items').select('*').eq('receipt_id',id),sb.from('price_points').select('lat,lng').eq('receipt_id',id).limit(1)]);
   if(!r)return toast('No se pudo cargar la compra');
   mapShown=!!r.store_address;
-  draft={id,currency:r.currency||'ARS',docType:r.doc_type==='factura'?'factura':'ticket',docNumber:r.doc_number||'',taxId:r.store_tax_id||'',store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,raw:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros',subcategory:i.subcategory||'',brand:i.brand||'',variant:i.variant||'',size_value:i.size_value!=null?Number(i.size_value):null,size_unit:i.size_unit||null,ident_ok:!!i.ident_ok}))};
+  draft={id,currency:r.currency||'ARS',docType:r.doc_type==='factura'?'factura':'ticket',docNumber:r.doc_number||'',taxId:r.store_tax_id||'',store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,raw:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros',subcategory:i.subcategory||'',brand:i.brand||'',variant:i.variant||'',size_value:i.size_value!=null?Number(i.size_value):null,size_unit:i.size_unit||null,ident_ok:!!i.ident_ok,ean:i.ean||''}))};
   form();
 }
 async function del(id){
