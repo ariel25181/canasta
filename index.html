@@ -154,28 +154,103 @@ const fxr=()=>{try{return JSON.parse(localStorage.getItem('fx')||'null')}catch(e
 const rate=c=>c==='ARS'?1:((fxr()||{})[c]||null);
 const conv=(n,from,to)=>{from=from||'ARS';if(from===to)return n;const a=rate(from),b=rate(to);return a&&b?n*a/b:null};
 const dispCur=()=>{const v=localStorage.getItem('disp');return CUR[v]?v:'ARS'};
-async function fetchFx(force){
-  const cur=fxr();if(cur&&cur.src==='manual'&&!force)return cur;
+const FX_TYPES={
+  oficial:{label:'Oficial',icon:'🏛️',desc:'Banco Nación / Oficial'},
+  blue:{label:'Blue',icon:'💵',desc:'Dólar Libre / Informal'},
+  bolsa:{label:'MEP / Bolsa',icon:'📈',desc:'Dólar Bolsa / MEP'},
+  tarjeta:{label:'Tarjeta',icon:'💳',desc:'Turista / Tarjeta'},
+  cripto:{label:'Cripto',icon:'🪙',desc:'Criptodólar / USDT'}
+};
+const curFxType=()=>localStorage.getItem('fx_type')||(fxr()&&fxr().type)||'oficial';
+async function fetchFx(force,type){
+  type=type||curFxType();
+  const cur=fxr();
+  if(cur&&cur.src==='manual'&&!force)return cur;
+  try{
+    const [dRes,bRes]=await Promise.all([
+      fetch('https://dolarapi.com/v1/dolares',{signal:AbortSignal.timeout(6000)}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch('https://dolarapi.com/v1/cotizaciones/brl',{signal:AbortSignal.timeout(6000)}).then(r=>r.ok?r.json():null).catch(()=>null)
+    ]);
+    if(Array.isArray(dRes)&&dRes.length){
+      const match=dRes.find(x=>x.casa===type)||dRes.find(x=>x.casa==='oficial')||dRes[0];
+      const usdRate=Number(match.venta||match.compra||0);
+      let brlRate=bRes?Number(bRes.venta||bRes.compra||0):0;
+      if(usdRate>0){
+        if(!brlRate||brlRate<=0){
+          brlRate=usdRate/5.13;
+        }else if(type==='blue'||type==='bolsa'){
+          const ofMatch=dRes.find(x=>x.casa==='oficial');
+          const ofUsd=ofMatch?Number(ofMatch.venta||ofMatch.compra||0):0;
+          if(ofUsd>0)brlRate=Number((brlRate*(usdRate/ofUsd)).toFixed(2));
+        }
+        const fx={
+          USD:Number(usdRate.toFixed(2)),
+          BRL:Number(brlRate.toFixed(2)),
+          t:Date.now(),
+          src:'auto',
+          type,
+          typeName:match.nombre||(FX_TYPES[type]?FX_TYPES[type].label:type)
+        };
+        localStorage.setItem('fx',JSON.stringify(fx));
+        localStorage.setItem('fx_type',type);
+        lastH.home=null;
+        return fx;
+      }
+    }
+  }catch(e){}
   try{
     const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(7000)});
     const j=await r.json();
     if(j.result==='success'&&j.rates&&+j.rates.ARS>0&&+j.rates.BRL>0){
-      const fx={USD:+j.rates.ARS,BRL:+j.rates.ARS/+j.rates.BRL,t:Date.now(),src:'auto'};
-      localStorage.setItem('fx',JSON.stringify(fx));lastH.home=null;return fx;
+      const fx={
+        USD:Number((+j.rates.ARS).toFixed(2)),
+        BRL:Number((+j.rates.ARS/+j.rates.BRL).toFixed(2)),
+        t:Date.now(),
+        src:'auto',
+        type:'oficial',
+        typeName:'Oficial'
+      };
+      localStorage.setItem('fx',JSON.stringify(fx));
+      localStorage.setItem('fx_type','oficial');
+      lastH.home=null;
+      return fx;
     }
   }catch(e){}
   return null;
 }
 function autoFx(){const f=fxr();if(!f||(f.src!=='manual'&&Date.now()-f.t>43200000))fetchFx()}
 function saveFx(){
-  const u=+$('#fxu').value,b=+$('#fxb').value;
+  const uEl=$('#fxu'),bEl=$('#fxb');
+  const u=uEl?+uEl.value:0,b=bEl?+bEl.value:0;
   if(!(u>0)||!(b>0))return toast('Cargá los dos tipos de cambio (números mayores a 0).');
-  localStorage.setItem('fx',JSON.stringify({USD:u,BRL:b,t:Date.now(),src:'manual'}));lastH.home=null;toast('Tipos de cambio guardados');settings();
+  const t=curFxType();
+  localStorage.setItem('fx',JSON.stringify({USD:u,BRL:b,t:Date.now(),src:'manual',type:t,typeName:'Personalizada'}));
+  lastH.home=null;
+  toast('Tipos de cambio guardados');
+  settings();
+}
+async function selectFxType(t){
+  localStorage.setItem('fx_type',t);
+  toast(`Consultando cotización ${FX_TYPES[t]?.label||t}…`);
+  const f=await fetchFx(true,t);
+  if(!f)toast('No pude obtener la cotización. Podés cargarla a mano.');
+  else toast(`Cotización ${FX_TYPES[t]?.label||t} actualizada`);
+  settings();
 }
 async function autoFxBtn(){
-  toast('Buscando cotización…');const f=await fetchFx(true);
+  const t=curFxType();
+  toast(`Buscando cotización ${FX_TYPES[t]?.label||t}…`);
+  const f=await fetchFx(true,t);
   if(!f)return toast('No pude obtener la cotización. Cargala a mano.');
-  settings();toast('Cotización actualizada');
+  settings();
+  toast(`Cotización ${FX_TYPES[t]?.label||t} actualizada`);
+}
+function fxStatusText(){
+  const f=fxr();
+  if(!f)return 'Sin tipos de cambio cargados. Podés elegir una cotización arriba o ingresar los valores a mano.';
+  const fecha=new Date(f.t).toLocaleString('es-AR');
+  const tipo=f.src==='manual'?'Manual':`Automática (${f.typeName||FX_TYPES[f.type]?.label||'Oficial'})`;
+  return `Última actualización: ${fecha} · Origen: ${tipo}. Podés ajustar cualquier valor a mano y guardar.`;
 }
 const CAT={lacteos:'🥛',carnes:'🥩',panaderia:'🍞',verduras:'🥬',frutas:'🍎',bebidas:'🥤',limpieza:'🧴',almacen:'🥫',otros:'🛒'};
 const today=()=>new Date().toISOString().slice(0,10);
@@ -627,7 +702,7 @@ function help(){
   ${Q('🧾 Mis compras: editar y eliminar',`<ul><li>En <b>Compras</b> tocá una compra para ver el detalle.</li><li><b>✏️ Editar compra</b> abre el mismo formulario para corregir cualquier dato.</li><li>El <b>📍</b> abre el local en Google Maps.</li><li><b>Eliminar compra</b> la borra de forma definitiva.</li></ul>`)}
   ${Q('🔎 Precios y búsqueda',`<ul><li>Escribí un producto ("leche") o una categoría ("verdura", "fruta"). También encuentra por subcategoría y por la descripción de tus propios tickets.</li><li>Elegí la <b>distancia máxima</b> (1 a 25 km o Todo). Para filtrar por distancia, la app necesita tu ubicación.</li><li>Ordená por <b>más barato</b>, <b>más cerca</b> o <b>más reciente</b>.</li><li>Con la <b>búsqueda inteligente</b> también aparecen productos relacionados (por ejemplo, buscar "malbec" muestra Nicasia). Se apaga en Ajustes.</li><li>Los precios vienen de tickets de otras personas, de forma anónima. Sin nombres.</li></ul>`)}
   ${Q('📍 Ubicación del local',`<ul><li>En el formulario escribí la dirección o tocá <b>Elegir en Google Maps</b>.</li><li>Con la clave de Maps: buscás el local con sugerencias, tocás uno de <b>Tus locales</b> o <b>Cerca tuyo</b>, o movés el mapa para ubicar el pin.</li><li>Tocá <b>📌 Fijar dirección</b> para escribirla en el campo y guardar las coordenadas.</li><li>Sin coordenadas, tus precios no aparecen en las búsquedas por distancia.</li></ul>`)}
-  ${Q('💱 Monedas y tipos de cambio',`<ul><li>Cada compra puede estar en <b>pesos, dólares o reales</b>. La app la detecta y la podés corregir en el formulario.</li><li>En <b>Ajustes → Monedas</b> elegís en qué moneda ver los totales y cargás los tipos de cambio (a mano o con la cotización oficial).</li><li>Sin tipo de cambio, las compras en otra moneda se muestran aparte y no se suman.</li></ul>`)}
+  ${Q('💱 Monedas y tipos de cambio',`<ul><li>Cada compra puede estar en <b>pesos, dólares o reales</b>. La app la detecta y la podés corregir en el formulario.</li><li>En <b>Ajustes → Monedas y cotización</b> elegís en qué moneda ver los totales y seleccionás el tipo de cotización (Oficial, Blue, MEP/Bolsa, Tarjeta o Cripto) o cargás los tipos de cambio a mano.</li><li>Sin tipo de cambio, las compras en otra moneda se muestran aparte y no se suman.</li></ul>`)}
   ${Q('🔒 Privacidad y datos compartidos',`<ul><li>Tus compras son privadas: solo vos las ves.</li><li>Los <b>precios</b> (producto, precio, local y fecha) se comparten de forma <b>anónima</b>, sin tu nombre ni tu email. Podés apagarlo en <b>Ajustes → Precios compartidos</b>.</li><li>Tu descripción del ticket nunca se comparte.</li><li>Las claves de Gemini y Maps se guardan solo en tu dispositivo.</li></ul>`)}
   ${Q('📲 Instalar la app',`<ul><li><b>Android:</b> en Chrome, menú ⋮ → <b>Instalar app</b>.</li><li><b>iPhone:</b> en Safari, <b>Compartir</b> → <b>Agregar a pantalla de inicio</b>. La app instalada guarda sus datos aparte: iniciá sesión y cargá las claves de nuevo.</li><li>Para invitar a alguien, usá <b>Ajustes → Compartir e instalar</b>.</li></ul>`)}
   ${Q('🛠️ Problemas frecuentes',`<ul><li><b>No lee bien el ticket:</b> apoyalo plano, con buena luz y sin flash; encuadralo completo. Si es largo, sacalo en partes.</li><li><b>Dice que falta la clave de Gemini:</b> cargala en Ajustes.</li><li><b>Tu sesión expiró:</b> iniciá sesión de nuevo; el ticket que estabas cargando se puede recuperar.</li><li><b>No aparece un precio en Precios:</b> probá con "Todo" en la distancia o con otro nombre; puede que el local no tenga ubicación.</li><li><b>El mapa es simple y no completa la dirección:</b> falta la clave de Google Maps en Ajustes.</li></ul>`)}
@@ -1155,11 +1230,43 @@ function settings(){
   app(`<h1>Ajustes</h1><div class="card"><h2 style="margin-top:0">Lectura de tickets</h2>
   <p class="mu">Clave de Gemini (se guarda solo en este dispositivo).</p>
   <input id="gk" type="password" placeholder="Clave de Gemini" value="${esc(localStorage.getItem('gk')||'')}"><p><button onclick="localStorage.setItem('gk',$('#gk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
-  <div class="card"><h2 style="margin-top:0">Monedas</h2><p class="mu" style="margin-top:0">Mostrar los totales en:</p><div class="chips">${Object.keys(CUR).map(c=>`<button class="chip ${dispCur()===c?'on':''}" onclick="localStorage.setItem('disp','${c}');lastH.home=null;settings()">${CUR[c].flag} ${CUR[c].name}</button>`).join('')}</div>
-  <p class="mu">Tipos de cambio (cuántos pesos vale cada moneda). Sirven para sumar compras hechas en distintas monedas.</p>
-  <div class="fields"><input id="fxu" type="number" step="any" inputmode="decimal" placeholder="1 US$ = ? pesos" value="${(fxr()||{}).USD||''}"><input id="fxb" type="number" step="any" inputmode="decimal" placeholder="1 R$ = ? pesos" value="${(fxr()||{}).BRL||''}"></div>
-  <p><button onclick="saveFx()">Guardar</button> <button class="ghost" onclick="autoFxBtn()">Buscar cotización oficial</button></p>
-  <p class="mu">${fxr()?`Última actualización: ${new Date(fxr().t).toLocaleString('es-AR')} (${fxr().src==='manual'?'manual':'automática, tipo de cambio oficial'}).`:'Sin tipos de cambio cargados.'} Si usás otro dólar (blue, MEP), cargalo a mano.</p></div>
+  <div class="card"><h2 style="margin-top:0">Monedas y cotización</h2>
+  <p class="mu" style="margin-top:0">Mostrar los totales en:</p>
+  <div class="chips">${Object.keys(CUR).map(c=>`<button class="chip ${dispCur()===c?'on':''}" onclick="localStorage.setItem('disp','${c}');lastH.home=null;settings()">${CUR[c].flag} ${CUR[c].name}</button>`).join('')}</div>
+  <p class="mu" style="margin:14px 0 6px"><b>Tipo de cotización</b> (consultá y aplicá cotizaciones en tiempo real):</p>
+  <div class="chips">${Object.keys(FX_TYPES).map(k=>`<button class="chip ${curFxType()===k?'on':''}" onclick="selectFxType('${k}')" title="${esc(FX_TYPES[k].desc)}">${FX_TYPES[k].icon} ${FX_TYPES[k].label}</button>`).join('')}</div>
+  <p class="mu" style="margin:12px 0 8px">Tipos de cambio cargados. Sirven para unificar compras en distintas monedas:</p>
+  <div style="display:flex;flex-direction:column;gap:12px;margin:10px 0 14px">
+    <div style="background:#fcfbf8;border:1.5px solid var(--ln);border-radius:14px;padding:12px">
+      <label for="fxu" style="display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:.92rem;margin-bottom:6px">
+        <span>🇺🇸 Conversión Dólar (USD a pesos)</span>
+        <span class="mu" style="font-weight:600;font-size:.8rem">1 US$</span>
+      </label>
+      <div style="position:relative;display:flex;align-items:center">
+        <span style="position:absolute;left:12px;font-weight:700;color:var(--mu);pointer-events:none;font-size:.9rem">1 US$ =</span>
+        <input id="fxu" type="number" step="any" inputmode="decimal" placeholder="Ej: 1535" value="${(fxr()||{}).USD||''}" style="padding-left:72px;padding-right:52px;font-weight:600">
+        <span style="position:absolute;right:12px;font-weight:700;color:var(--mu);pointer-events:none;font-size:.85rem">ARS</span>
+      </div>
+      <p class="mu" style="margin:6px 0 0;font-size:.8rem">Cantidad de pesos argentinos por cada dólar estadounidense.</p>
+    </div>
+    <div style="background:#fcfbf8;border:1.5px solid var(--ln);border-radius:14px;padding:12px">
+      <label for="fxb" style="display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:.92rem;margin-bottom:6px">
+        <span>🇧🇷 Conversión Reales (BRL a pesos)</span>
+        <span class="mu" style="font-weight:600;font-size:.8rem">1 R$</span>
+      </label>
+      <div style="position:relative;display:flex;align-items:center">
+        <span style="position:absolute;left:12px;font-weight:700;color:var(--mu);pointer-events:none;font-size:.9rem">1 R$ =</span>
+        <input id="fxb" type="number" step="any" inputmode="decimal" placeholder="Ej: 299.24" value="${(fxr()||{}).BRL||''}" style="padding-left:72px;padding-right:52px;font-weight:600">
+        <span style="position:absolute;right:12px;font-weight:700;color:var(--mu);pointer-events:none;font-size:.85rem">ARS</span>
+      </div>
+      <p class="mu" style="margin:6px 0 0;font-size:.8rem">Cantidad de pesos argentinos por cada real brasileño.</p>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button onclick="saveFx()">Guardar valores</button>
+    <button class="ghost" onclick="autoFxBtn()">Actualizar cotización (${esc(FX_TYPES[curFxType()]?.label||'Oficial')})</button>
+  </div>
+  <p class="mu" style="margin-top:12px">${fxStatusText()}</p></div>
   <div class="card"><h2 style="margin-top:0">Búsqueda inteligente</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('ai')!=='0'?'checked':''} onchange="localStorage.setItem('ai',this.checked?'1':'0')"><span>Usar IA para encontrar productos relacionados (por ejemplo, buscar "malbec" también muestra Nicasia). <span class="mu">Usa tu clave de Gemini y envía solo el texto que buscás.</span></span></label></div>
   <div class="card"><h2 style="margin-top:0">Precios compartidos</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('share')!=='0'?'checked':''} onchange="localStorage.setItem('share',this.checked?'1':'0')"><span>Compartir mis precios de forma anónima con otros usuarios <span class="mu">(producto, precio, local y fecha; nunca tu nombre ni tu email). Se aplica a los tickets que cargues desde ahora.</span></span></label></div>
   <div class="card"><h2 style="margin-top:0">Google Maps (opcional)</h2><p class="mu">Con una clave con Maps JavaScript API, Places API (New) y Geocoding API activadas, podés buscar el local con sugerencias, ver los más cercanos y confirmar la ubicación con un pin. Sin clave se muestra un mapa simple.</p><input id="mk" type="password" placeholder="Clave de Google Maps" value="${esc(localStorage.getItem('mk')||'')}"><p><button onclick="localStorage.setItem('mk',$('#mk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
