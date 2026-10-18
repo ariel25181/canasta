@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-17T14:">
+<meta name="app-version" content="2026-10-18T01:">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -1129,6 +1129,11 @@ async function eanApply(k,code){
   i.ean=code;
   let cat=null;
   try{const {data}=await T(sb.rpc('lookup_ean',{code}),5000);cat=Array.isArray(data)?data[0]:data}catch(e){}
+  if(cat&&cat.brand&&Number(cat.size_value)>0&&cat.confidence==='media'){
+    i._cat=null;i.brand=cat.brand;i.subcategory=cat.product;i.variant=cat.variant||'';i.size_value=Number(cat.size_value);i.size_unit=cat.size_unit;
+    i.ident_ok=false;i._ed=false;i._sug=null;
+    toast('Sugerencia del catálogo: confirmá si es correcto');form();return;
+  }
   if(cat&&cat.brand&&Number(cat.size_value)>0){
     i._cat={brand:cat.brand,product:cat.product,variant:cat.variant||'',size_value:Number(cat.size_value),size_unit:cat.size_unit};
     i.brand=cat.brand;i.subcategory=cat.product;i.variant=cat.variant||'';i.size_value=Number(cat.size_value);i.size_unit=cat.size_unit;
