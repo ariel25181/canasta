@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-18T01:">
+<meta name="app-version" content="2026-10-18T03:">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -130,6 +130,7 @@ details.hq p,details.hq ul,details.hq ol{margin:8px 0 0;color:#3b4a41}details.hq
 #toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%}
 @media(min-width:900px){nav{max-width:420px;left:50%;transform:translateX(-50%);border-radius:20px 20px 0 0}}
 .idr{margin:-2px 0 12px;padding:8px 10px;background:#f6f4ee;border-radius:12px;font-size:.92rem}.idr .fields{margin-bottom:6px}.idr .chip{padding:4px 10px;margin-left:4px}.ghd{margin:16px 0 6px;padding:2px 4px}
+.pts{cursor:pointer}.pts .ptop{display:flex;justify-content:space-between;align-items:center;gap:8px}.pts .bar{height:8px;background:#e9e5d8;border-radius:99px;overflow:hidden;margin:8px 0}.pts .bar i{display:block;height:100%;background:var(--g);border-radius:99px}.ptl .row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--ln)}
 </style>
 </head>
 <body>
@@ -208,7 +209,7 @@ function explainAuth(e){
   if(/NetworkError|Failed to fetch/i.test(m))return "Problema de conexión. Revisá tu internet y volvé a intentar.";
   return m;
 }
-function login(msg){
+function login(msg){ptsCache=null;
   $('#nav').hidden=true;
   app(`<h1>🧺 Canasta</h1><div class="card"><p>Registrá tus compras del súper y mirá cómo cambian los precios.</p>
   ${msg?`<p class="mu" style="background:#fff3cd;border-radius:10px;padding:8px 10px;color:#7a5901">${esc(msg)}</p>`:""}
@@ -288,6 +289,7 @@ function donut(sl,total,disp){
   return `<svg viewBox="0 0 160 160" width="176" height="176" role="img" aria-label="Gasto por categoría"><circle cx="80" cy="80" r="${r}" fill="none" stroke="#f1ede2" stroke-width="26"/>${arcs}<text x="80" y="76" text-anchor="middle" font-size="11" fill="#6b7a70">Total</text><text x="80" y="96" text-anchor="middle" font-size="${total>=1e7?13:16}" font-weight="800" fill="#23312A">${money(total,disp)}</text></svg>`;
 }
 async function home(silent){
+  const ptsP=getPoints(true);
   if(!silent){if(lastH.home){app(lastH.home);curH=lastH.home}else app('<p class="mu">Cargando…</p>')}
   const n=new Date(),base=new Date(n.getFullYear(),n.getMonth()+hm,1),nxt=new Date(n.getFullYear(),n.getMonth()+hm+1,1),prv=new Date(n.getFullYear(),n.getMonth()+hm-1,1);
   const ymd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
@@ -314,11 +316,13 @@ async function home(silent){
   const hoy=cap(n.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'})),mLabel=cap(base.toLocaleDateString('es-AR',{month:'long',year:'numeric'}));
   const rec=cur.slice(0,4).map(r=>{const dt=new Date(r.purchased_at+'T00:00');return `<div class="row" onclick="go('history')" style="cursor:pointer;border:0;padding:6px 0"><span style="display:flex;gap:12px;align-items:center;min-width:0"><span class="dbadge"><b>${dt.getDate()}</b>${dt.toLocaleDateString('es-AR',{month:'short'}).replace('.','')}</span><span style="min-width:0"><b>${esc(r.store)}</b><br><span class="mu">${ago(r.purchased_at)}</span></span></span><b class="num">${money(r.total,cc(r))}</b></div>`}).join('');
   const un=Object.entries(unconv);
+  const P=await ptsP;
   const h=`<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div><div class="mu">${hoy}</div><h1 style="margin-top:2px">Tu resumen</h1></div><button class="chip" onclick="go('help')" aria-label="Ayuda" style="width:40px;height:40px;padding:0;border-radius:50%;font-size:1.1rem">?</button></div>
   <div class="mnav"><button onclick="hmGo(-1)" aria-label="Mes anterior">‹</button><b>${mLabel}</b><button onclick="hmGo(1)" aria-label="Mes siguiente" ${hm===0?'disabled':''}>›</button></div>
   <div class="hero"><div class="l">Gastaste en el súper</div><div class="v">${money(c,disp)}</div><div class="hr">${d===null?'':`<span class="pill">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1).replace('.',',')}% vs. mes anterior</span>`}<span>${cur.length} compra${cur.length===1?'':'s'}</span></div>
   ${hasConv?'<div style="margin-top:8px;font-size:.82rem;opacity:.9">Incluye compras en otras monedas, convertidas al tipo de cambio de Ajustes.</div>':''}
   ${un.length?`<div style="margin-top:8px;font-size:.85rem">+ ${un.map(([k,v])=>money(v,k)).join(' · ')} sin convertir: cargá los tipos de cambio en Ajustes.</div>`:''}</div>
+  ${ptsCard(P)}
   ${cur.length?`<div class="mini"><div><b>${cur.length}</b><span>Compras</span></div><div><b>${nConv?money(c/nConv,disp):'-'}</b><span>Ticket promedio</span></div><div><b>${fav?esc(fav[0]):'-'}</b><span>Más visitado</span></div></div>
   <div class="card"><h2 style="margin-top:0">¿En qué gastás?</h2>${sl.length?`<div class="donut">${donut(sl,ct,disp)}<div class="leg">${sl.map(x=>`<div class="lg"><span class="dot" style="background:${COL[x.k]||'#9AA5A0'}"></span><span class="lgn">${CAT[x.k]} ${x.k}</span><span class="mu num">${money(x.v,disp)}</span><b class="num" style="min-width:42px;text-align:right">${Math.round(x.v/ct*100)}%</b></div>`).join('')}</div></div>`:'<div class="mu">Todavía no hay productos con precio este mes.</div>'}</div>
   <div class="card"><h2 style="margin-top:0">Últimas compras</h2>${rec}</div>
@@ -484,6 +488,7 @@ function okModal(r){
   modal(`<div class="ic ok">✅</div><h2>${r.edit?'¡Cambios guardados!':r.fact?'¡Factura guardada!':'¡Ticket guardado!'}</h2>
   <p><b>${esc(r.store)}</b><br>${r.n} producto${r.n===1?'':'s'} · <b>${money(r.total,r.cur)}</b></p>
   ${r.cmp?`<p style="background:#e3f2e8;border-radius:10px;padding:8px 10px">${r.cmp.pct>=2?`🎉 Ahorraste <b>${money(r.cmp.ref-r.cmp.paid,r.cmp.cur)}</b> (${r.cmp.pct}% menos que el precio típico de la zona)`:r.cmp.pct<=-2?`Pagaste ${-r.cmp.pct}% más que el precio típico de la zona`:'Pagaste lo mismo que el precio típico de la zona'}<br><span class="mu">Se comparan ${r.cmp.n} de ${r.cmp.of} productos idénticos (misma marca, producto y tamaño), de los últimos 30 días y a menos de 10 km.</span></p>`:''}
+  ${r.pts?`<p style="background:#fff8e1;border-radius:10px;padding:8px 10px">⭐ <b>+${r.pts.earned} puntos</b> <span class="mu">(${r.pts.items.map(x=>esc(PT_LABEL[x.ev]||'Puntos')).join(' · ')})</span>${r.pts.up?`<br>🎉 ¡Subiste a <b>${esc(r.pts.lvl.name)}</b>!`:''}${r.pts.lvl&&r.pts.lvl.next?`<br><span class="mu">Te faltan ${r.pts.lvl.toNext} para ${esc(r.pts.lvl.next.n)}</span>`:''}${r.pts.after&&r.pts.after.streak>1?`<br><span class="mu">🔥 Racha de ${r.pts.after.streak} semanas</span>`:''}</p>`:''}
   ${r.warn?`<p class="mu" style="background:#fff3cd;border-radius:10px;padding:8px 10px">${esc(r.warn)}</p>`:''}
   <div class="mact"><button onclick="closeModal();go('history')">${r.edit?'Volver a Mis compras':'Ver mis compras'}</button>${r.edit?'':`<button class="ghost" onclick="closeModal();go('scan')">Cargar otra compra</button>`}</div>`,{lock:true});
 }
@@ -529,7 +534,14 @@ async function _save(){
   draft.id=rid;draft.saved=true;clearBk();lastH.home=lastH.history=null;
   let cmp=null;
   try{const {data}=await T(sb.rpc('compare_receipt',{rid}),4000),c=Array.isArray(data)?data[0]:data;if(c&&c.compared>0&&+c.ref>0){const paid=+c.paid,ref=+c.ref;cmp={n:c.compared,of:c.total_items,paid,ref,pct:Math.round((1-paid/ref)*100),cur:c.currency||draft.currency||'ARS'}}}catch(e){}
-  return{cmp,edit,cur:draft.currency||'ARS',fact:draft.docType==='factura',store:draft.store.trim(),n:items.length,total,warn};
+  let pts=null;
+  try{
+    const before=ptsCache||await getPoints();
+    const {data}=await T(sb.rpc('award_receipt',{rid}),5000);
+    const items=(Array.isArray(data)?data:[]).filter(x=>x&&Number(x.pts)>0);
+    if(items.length){const after=await getPoints(true);pts={items,earned:items.reduce((a,x)=>a+Number(x.pts),0),after,lvl:after?levelOf(after.total):null,up:!!(after&&before&&levelOf(after.total).i>levelOf(before.total).i)}}
+  }catch(e){}
+  return{pts,cmp,edit,cur:draft.currency||'ARS',fact:draft.docType==='factura',store:draft.store.trim(),n:items.length,total,warn};
 }
 
 /* ---------- Sesión vencida y borrador ---------- */
@@ -1106,12 +1118,53 @@ function idSet(k,f,v){draft.items[k][f]=v;draft.items[k].ident_ok=true}
 function szSet(k){const i=draft.items[k],n=normSize($('#sv'+k).value,$('#su'+k).value);i.size_value=n?n.size_value:null;i.size_unit=n?n.size_unit:null;i.ident_ok=true}
 function idDone(k){const i=draft.items[k];i._ed=false;i._sug=null;i.ident_ok=!!canonKey(i);if(i.ident_ok){aliasSave(draft.store,i.raw||i.name,i);eanSave(i)}form()}
 function idYes(k){const i=draft.items[k];i.ident_ok=true;aliasSave(draft.store,i.raw||i.name,i);eanSave(i);form()}
+/* ---------- Puntos ---------- */
+const LEVELS=[{n:'Nuevo',min:0},{n:'Changuito',min:20},{n:'Carrito',min:50},{n:'Mayorista',min:150},{n:'Almacenero',min:400},{n:'Hipermercado',min:1000}];
+const PT_LABEL={first_ticket:'Primer ticket',full_ticket:'Ticket completo',confirm_suggestion:'Confirmaste una sugerencia',new_ean:'Código de barras nuevo',streak_week:'Racha semanal'};
+function levelOf(total){
+  total=Math.max(0,Number(total)||0);let i=0;LEVELS.forEach((l,k)=>{if(total>=l.min)i=k});
+  const cur=LEVELS[i],next=LEVELS[i+1]||null;
+  return {i,name:cur.n,next,toNext:next?next.min-total:0,pct:next?Math.round((total-cur.min)/(next.min-cur.min)*100):100};
+}
+let ptsCache=null;
+async function getPoints(force){
+  if(ptsCache&&!force)return ptsCache;
+  try{
+    const {data,error}=await T(sb.rpc('points_summary'),5000);
+    if(error)return ptsCache;
+    const r=Array.isArray(data)?data[0]:data;if(!r)return ptsCache;
+    ptsCache={total:+r.total_pts||0,today:+r.today_pts||0,cap:+r.daily_cap||50,streak:+r.streak||0,week:!!r.ticket_this_week};
+    return ptsCache;
+  }catch(e){return ptsCache}
+}
+function ptsCard(P){
+  if(!P)return '';
+  const L=levelOf(P.total);
+  const sub=P.total===0?'Cargá tu primer ticket y ganás 20 puntos.':(L.next?`Te faltan ${L.toNext} para ${esc(L.next.n)}`:'¡Llegaste al nivel máximo!');
+  const st=P.streak>0?` · 🔥 racha de ${P.streak} semana${P.streak===1?'':'s'}${P.week?'':' (cargá un ticket esta semana para sostenerla)'}`:'';
+  return `<div class="card pts" onclick="ptsHistory()" role="button" tabindex="0" aria-label="Ver mis puntos"><div class="ptop"><b>⭐ ${P.total} punto${P.total===1?'':'s'}</b><span class="pill" style="background:#eaf4ee;color:var(--gd)">${esc(L.name)}</span></div><div class="bar"><i style="width:${L.pct}%"></i></div><div class="mu">${sub}${st}</div></div>`;
+}
+async function ptsHistory(){
+  modal('<div class="spin"></div><h2>Cargando…</h2>');
+  let rows=[];
+  try{const {data}=await T(sb.from('points_ledger').select('event,points,created_at').order('created_at',{ascending:false}).limit(30),6000);rows=Array.isArray(data)?data:[]}catch(e){}
+  const P=await getPoints(true),L=P?levelOf(P.total):null;
+  modal(`<h2>⭐ Tus puntos</h2>${P?`<p><b>${P.total}</b> en total · nivel <b>${esc(L.name)}</b>${L.next?` · te faltan ${L.toNext} para ${esc(L.next.n)}`:''}<br><span class="mu">Hoy sumaste ${P.today} de ${P.cap} posibles</span></p>`:''}
+  <div class="ptl" style="max-height:30vh;overflow:auto">${rows.length?rows.map(r=>`<div class="row"><span>${esc(PT_LABEL[r.event]||'Puntos')} <span class="mu">${esc(new Date(r.created_at).toLocaleDateString('es-AR',{day:'numeric',month:'short'}))}</span></span><b>+${Number(r.points)||0}</b></div>`).join(''):'<p class="mu">Todavía no sumaste puntos.</p>'}</div>
+  <h3>Cómo sumar</h3><ul class="mu" style="padding-left:18px;margin:4px 0 10px"><li>Primer ticket: +20 (una vez)</li><li>Ticket completo (3 o más productos y 80% identificados): +10</li><li>Confirmar o corregir una sugerencia del catálogo: +5</li><li>Código de barras nuevo: +10</li><li>Una semana con ticket: +5</li><li>Tope: 50 puntos por día</li></ul>
+  <div class="mact"><button onclick="closeModal()">Cerrar</button></div>`);
+}
 /* ---------- Código de barras ---------- */
 let scanStream=null,scanTimer=null,scanK=null;
 function stopScan(){clearInterval(scanTimer);scanTimer=null;if(scanStream){try{scanStream.getTracks().forEach(t=>t.stop())}catch(e){}scanStream=null}}
 function eanSave(i){
   try{if(!i.ean||i._cat||!canonKey(i)||!i.ident_ok)return;const src=idSrc(i);
-    Promise.resolve(sb.rpc('save_ean',{code:i.ean,p_brand:src.brand,p_product:src.subcategory,p_variant:src.variant||'',p_size_value:src.size_value,p_size_unit:src.size_unit})).catch(()=>{});
+    const b=ptsCache?ptsCache.total:null;
+    (async()=>{
+      await sb.rpc('save_ean',{code:i.ean,p_brand:src.brand,p_product:src.subcategory,p_variant:src.variant||'',p_size_value:src.size_value,p_size_unit:src.size_unit});
+      const a=await getPoints(true);
+      if(a&&b!=null&&a.total>b){const up=levelOf(a.total).i>levelOf(b).i;toast(`⭐ +${a.total-b} puntos${up?' · ¡Nivel '+levelOf(a.total).name+'!':''}`)}
+    })().catch(()=>{});
   }catch(e){}
 }
 async function offLookup(code){
