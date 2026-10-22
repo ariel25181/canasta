@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-15T16:">
+<meta name="app-version" content="2026-10-22T13:30">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -14,6 +14,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>Canasta</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+<script>
+// Garantía permanente: función global de redondeo de importes a 2 decimales
+window.r2 = function(n) { return Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100; };
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script defer src="https://cloud.umami.is/script.js" data-website-id="7510cabf-2500-42fc-9344-525dd0eb789a"></script>
 <style>
@@ -149,6 +153,9 @@ const SB_URL='https://ddzklkweeftwqqbaozty.supabase.co', SB_KEY='eyJhbGciOiJIUzI
 const sb=supabase.createClient(SB_URL,SB_KEY);
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const r2=n=>Math.round(((Number(n)||0)+Number.EPSILON)*100)/100;
+window.r2=r2;
+const nk=s=>{const m=String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();return m||String(s||'').trim().toLowerCase().slice(0,50)};
 const CUR={ARS:{flag:'🇦🇷',name:'Pesos'},USD:{flag:'🇺🇸',name:'Dólares'},BRL:{flag:'🇧🇷',name:'Reales'}};
 const money=(n,c)=>{c=CUR[c]?c:'ARS';const d=c==='ARS'?0:2;return new Intl.NumberFormat('es-AR',{style:'currency',currency:c,minimumFractionDigits:d,maximumFractionDigits:d}).format(n||0)};
 const fxr=()=>{try{return JSON.parse(localStorage.getItem('fx')||'null')}catch(e){return null}};
@@ -270,17 +277,32 @@ const safe=()=>!(document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.a
 
 /* ---------- Auth ---------- */
 function explainAuth(e){
-  const m=String(e?.message||e||""),c=String(e?.code||e?.error_code||"");
-  if(/over_email_send_rate_limit|security purposes.*seconds/i.test(m+c)){
-    const s=m.match(/(\d+)\s*seconds/i)?.[1]||"unos";
-    return `Por seguridad, esperá ${s} segundos antes de volver a solicitar el correo.`;
+  const m=String(e?.message||e?.msg||e||""),c=String(e?.code||e?.error_code||"");
+  if(/over_email_send_rate_limit|rate limit|security purposes.*seconds/i.test(m+c)){
+    const s=m.match(/(\d+)\s*seconds/i)?.[1]||"60";
+    return `Límite de correos de Supabase alcanzado. Por seguridad, esperá ${s} segundos antes de volver a intentar.`;
   }
   if(/User already registered|already registered/i.test(m))return "Ya existe una cuenta con este email. Tocá \"Entrar\" para iniciar sesión.";
-  if(/Email not confirmed|not confirmed/i.test(m))return "Falta confirmar tu email. Revisá tu casilla de correo (o carpeta spam) para activarlo.";
+  if(/Email not confirmed|email_not_confirmed|not confirmed/i.test(m+c))return "Falta confirmar tu email. Revisá tu casilla de correo (o carpeta spam) para activarlo antes de entrar.";
   if(/Invalid login credentials|invalid_credentials/i.test(m+c))return "Email o contraseña incorrectos. Revisá los datos e intentá de nuevo.";
   if(/Password should be at least 6/i.test(m))return "La contraseña debe tener al menos 6 caracteres.";
   if(/NetworkError|Failed to fetch/i.test(m))return "Problema de conexión. Revisá tu internet y volvé a intentar.";
   return m;
+}
+async function resendConfirmation(email){
+  if(!email)return;
+  toast("Reenviando correo…");
+  try{
+    const {error}=await sb.auth.resend({
+      type:'signup',
+      email,
+      options:{emailRedirectTo:window.location.origin+window.location.pathname}
+    });
+    if(error){toast(explainAuth(error));}
+    else{toast("¡Correo reenviado! Revisá tu bandeja y spam.");}
+  }catch(e){
+    toast("No se pudo reenviar. Intentá en unos minutos.");
+  }
 }
 function login(msg){
   $('#nav').hidden=true;
@@ -307,25 +329,81 @@ async function auth(k){
   toast(k==='in'?"Iniciando sesión…":"Creando tu cuenta…");
   try{
     if(k==='in'){
-      const {data,error}=await sb.auth.signInWithPassword({email,password});
-      if(error){toast(explainAuth(error));return}
-      boot();
-    }else{
-      const {data,error}=await sb.auth.signUp({email,password});
-      if(error){toast(explainAuth(error));return}
-      if(!data?.session){
-        app(`<h1>🧺 Canasta</h1><div class="card" style="text-align:center">
-          <div class="ic ok" style="margin-top:4px">✉️</div>
-          <h2>¡Cuenta creada con éxito!</h2>
-          <p>Te enviamos un correo de confirmación a:<br><b style="color:var(--g)">${esc(email)}</b></p>
-          <p class="mu" style="margin:12px 0">Abrí tu correo (revisá también <b>Spam</b> o correo no deseado) y hacé clic en el enlace para activar tu cuenta.</p>
-          <div class="mact">
-            <button onclick="login()">Volver al inicio</button>
-          </div>
-        </div>`);
+      let {data,error}=await sb.auth.signInWithPassword({email,password});
+      if(error && /email_not_confirmed|not confirmed/i.test(String(error?.message||error?.error_code))){
+        // Try auto-confirming via backend if unconfirmed
+        try{
+          const cr=await fetch('/api/canasta/auth/confirm-user',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({email})
+          });
+          if(cr.ok){
+            // Retry sign in immediately
+            const retry=await sb.auth.signInWithPassword({email,password});
+            if(!retry.error){boot();return;}
+          }
+        }catch(_){}
+      }
+      if(error){
+        const expl=explainAuth(error);
+        if(/email_not_confirmed|not confirmed/i.test(String(error?.message||error?.error_code))){
+          login(expl);
+        } else {
+          toast(expl);
+        }
         return;
       }
       boot();
+    }else{
+      // Try auto-confirmed signup first via server
+      let createdViaServer=false;
+      try{
+        const r=await fetch('/api/canasta/auth/signup',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({email,password})
+        });
+        const resJson=await r.json().catch(()=>({}));
+        if(r.ok && resJson.success){
+          createdViaServer=true;
+          // Sign in directly
+          const {error:inErr}=await sb.auth.signInWithPassword({email,password});
+          if(!inErr){
+            toast("¡Cuenta creada con éxito!");
+            boot();
+            return;
+          }
+        } else if(resJson?.alreadyRegistered){
+          toast(resJson.error);
+          return;
+        }
+      }catch(_){}
+
+      if(!createdViaServer){
+        const {data,error}=await sb.auth.signUp({
+          email,
+          password,
+          options:{
+            emailRedirectTo:window.location.origin+window.location.pathname
+          }
+        });
+        if(error){toast(explainAuth(error));return}
+        if(!data?.session){
+          app(`<h1>🧺 Canasta</h1><div class="card" style="text-align:center">
+            <div class="ic ok" style="margin-top:4px">✉️</div>
+            <h2>¡Cuenta creada!</h2>
+            <p>Te enviamos un correo de confirmación a:<br><b style="color:var(--g)">${esc(email)}</b></p>
+            <p class="mu" style="margin:12px 0">Abrí tu correo (revisá también <b>Spam</b> o correo no deseado) y hacé clic en el enlace para activar tu cuenta.</p>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+              <button onclick="login()">Volver al inicio</button>
+              <button class="ghost" onclick="resendConfirmation('${esc(email)}')">¿No llegó? Reenviar correo</button>
+            </div>
+          </div>`);
+          return;
+        }
+        boot();
+      }
     }
   }catch(err){
     toast(explainAuth(err));
@@ -581,8 +659,9 @@ async function save(){
   window._fbPre='Error al guardar: '+x.title+' — '+x.msg;modal(errHtml(x.title,x.msg,{retry:true}));
 }
 async function _save(){
+  const round2 = n => (typeof r2 === 'function' ? r2(n) : Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100);
   const items=draft.items.filter(i=>i.name.trim());
-  const total=r2(items.reduce((s,i)=>s+(Number(i.total_price)||0),0)),edit=!!draft.id;
+  const total=round2(items.reduce((s,i)=>s+(Number(i.total_price)||0),0)),edit=!!draft.id;
   if(draft.address.trim()&&draft.lat==null){const g=await geocodeAddr(draft.address);if(g){draft.lat=g.lat;draft.lng=g.lng}}
   const rid=draft.id||draft.rid||(draft.rid=crypto.randomUUID());
   const row={id:rid,store:draft.store.trim(),purchased_at:draft.date,description:draft.description.trim()||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,currency:draft.currency||'ARS',doc_type:draft.docType==='factura'?'factura':'ticket',doc_number:(draft.docNumber||'').trim()||null,store_tax_id:String(draft.taxId||'').replace(/[^0-9-]/g,'')||null,total};
@@ -590,12 +669,12 @@ async function _save(){
   if(error)throw error;
   const oldI=((await sb.from('receipt_items').select('id').eq('receipt_id',rid)).data||[]).map(x=>x.id);
   const oldP=((await sb.from('price_points').select('id').eq('receipt_id',rid)).data||[]).map(x=>x.id);
-  const {error:e2}=await sb.from('receipt_items').insert(items.map(i=>({receipt_id:rid,name:i.name.trim(),qty:i.qty||1,unit_price:r2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:r2(i.total_price),category:i.category,subcategory:nk(i.subcategory)||null})));
+  const {error:e2}=await sb.from('receipt_items').insert(items.map(i=>({receipt_id:rid,name:i.name.trim(),qty:i.qty||1,unit_price:round2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:round2(i.total_price),category:i.category,subcategory:nk(i.subcategory)||null})));
   if(e2){if(!edit&&!oldI.length)await sb.from('receipts').delete().eq('id',rid);throw e2}
   if(oldI.length)await sb.from('receipt_items').delete().in('id',oldI);
   let warn=null;
   if(localStorage.getItem('share')!=='0'){
-    const seenK=new Set(),pp=[];for(const i of items){const pk=nk(i.name);if(i.total_price>0&&pk&&!seenK.has(pk)){seenK.add(pk);pp.push({receipt_id:rid,currency:draft.currency||'ARS',store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:pk,category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:Math.max(0.001,Number(i.qty)||1),unit_price:r2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:r2(i.total_price),purchased_at:draft.date})}}
+    const seenK=new Set(),pp=[];for(const i of items){const pk=nk(i.name);if(i.total_price>0&&pk&&!seenK.has(pk)){seenK.add(pk);pp.push({receipt_id:rid,currency:draft.currency||'ARS',store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:pk,category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:Math.max(0.001,Number(i.qty)||1),unit_price:round2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:round2(i.total_price),purchased_at:draft.date})}}
     if(pp.length){const {error:e3}=await sb.from('price_points').insert(pp);if(e3)warn='La compra se guardó, pero no se pudieron compartir los precios.';else if(draft.lat==null)warn='Tus precios se compartieron sin la ubicación del local: no van a aparecer en búsquedas por zona hasta que lo ubiques en el mapa.'}
   }
   if(oldP.length)await sb.from('price_points').delete().in('id',oldP);
