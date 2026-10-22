@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-22T13:30">
+<meta name="app-version" content="2026-10-22T13:50">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -314,7 +314,137 @@ function login(msg){
   <div style="display:flex;gap:8px;margin-top:8px">
     <button id="btn-in" onclick="auth('in')" style="flex:1">Entrar</button>
     <button id="btn-up" class="ghost" onclick="auth('up')" style="flex:1">Crear cuenta</button>
-  </div></div>`);
+  </div>
+  <div style="text-align:center;margin-top:16px;border-top:1px solid var(--ln);padding-top:12px">
+    <button type="button" class="ghost" onclick="forgotPasswordUI()" style="padding:6px 12px;font-size:.88rem;color:var(--mu);border:0;background:transparent;text-decoration:underline;cursor:pointer">¿Olvidaste tu contraseña?</button>
+  </div>
+</div>`);
+}
+
+function forgotPasswordUI(preEmail){
+  $('#nav').hidden=true;
+  const currEmail=preEmail || ($('#em')?$('#em').value.trim():'');
+  app(`<h1>🧺 Canasta</h1><div class="card">
+    <h2>Recuperar contraseña</h2>
+    <p class="mu">Ingresá el email de tu cuenta y te ayudaremos a restablecer tu contraseña.</p>
+    <form onsubmit="event.preventDefault();sendPasswordReset()" class="fields">
+      <input id="rec-em" type="email" placeholder="Email de tu cuenta" value="${esc(currEmail)}" autocomplete="email" required>
+    </form>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+      <button id="btn-rec" onclick="sendPasswordReset()">Enviar correo de recuperación</button>
+      <button type="button" class="ghost" onclick="login()">Volver al inicio de sesión</button>
+    </div>
+  </div>`);
+}
+
+async function sendPasswordReset(){
+  const emEl=$('#rec-em');
+  const email=emEl?emEl.value.trim():'';
+  if(!email||!email.includes('@'))return toast('Escribí un email válido.');
+  const btn=$('#btn-rec');
+  if(btn)btn.disabled=true;
+  toast('Procesando solicitud…');
+  try{
+    // Try Supabase client resetPasswordForEmail
+    const {error}=await sb.auth.resetPasswordForEmail(email,{
+      redirectTo:window.location.origin+window.location.pathname
+    });
+
+    if(error){
+      // If error is rate limit or email issues, generate direct recovery link via backend
+      let directLink=null;
+      try{
+        const r=await fetch('/api/canasta/auth/generate-recovery-link',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({email})
+        });
+        const d=await r.json();
+        if(d?.success&&d.action_link){
+          directLink=d.action_link;
+        }
+      }catch(_){}
+
+      if(directLink){
+        app(`<h1>🧺 Canasta</h1><div class="card" style="text-align:center">
+          <div class="ic ok" style="margin-top:4px">🔑</div>
+          <h2>Recuperación lista</h2>
+          <p>Para la cuenta <b style="color:var(--g)">${esc(email)}</b>:</p>
+          <p class="mu" style="margin:12px 0">Hacé clic en el siguiente botón para crear tu nueva contraseña inmediatamente:</p>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+            <a href="${directLink}" class="btn" style="text-decoration:none;text-align:center">Restablecer mi contraseña ahora</a>
+            <button class="ghost" onclick="login()">Volver a Iniciar sesión</button>
+          </div>
+        </div>`);
+        return;
+      }
+
+      toast(explainAuth(error));
+      if(btn)btn.disabled=false;
+      return;
+    }
+
+    app(`<h1>🧺 Canasta</h1><div class="card" style="text-align:center">
+      <div class="ic ok" style="margin-top:4px">📨</div>
+      <h2>¡Correo enviado!</h2>
+      <p>Te enviamos un enlace de recuperación a:<br><b style="color:var(--g)">${esc(email)}</b></p>
+      <p class="mu" style="margin:12px 0">Abrí tu correo (revisá también <b>Spam</b> o correo no deseado) y hacé clic en el enlace para ingresar tu nueva contraseña.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+        <button onclick="login()">Volver al inicio de sesión</button>
+        <button class="ghost" onclick="forgotPasswordUI('${esc(email)}')">Reintentar con otro email</button>
+      </div>
+    </div>`);
+  }catch(err){
+    toast('Ocurrió un error al enviar el correo. Probá de nuevo.');
+    if(btn)btn.disabled=false;
+  }
+}
+
+function newPasswordUI(){
+  $('#nav').hidden=true;
+  app(`<h1>🧺 Canasta</h1><div class="card">
+    <h2>Crear nueva contraseña</h2>
+    <p class="mu">Escribí tu nueva contraseña para volver a entrar a tu cuenta.</p>
+    <form onsubmit="event.preventDefault();submitNewPassword()" class="fields">
+      <input id="npw1" type="password" placeholder="Nueva contraseña (mín. 6 caracteres)" minlength="6" autocomplete="new-password" required>
+      <input id="npw2" type="password" placeholder="Repetí la nueva contraseña" minlength="6" autocomplete="new-password" required>
+    </form>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+      <button id="btn-npw" onclick="submitNewPassword()">Guardar nueva contraseña</button>
+      <button type="button" class="ghost" onclick="clearRecoveryHash();login()">Cancelar</button>
+    </div>
+  </div>`);
+}
+
+function clearRecoveryHash(){
+  try{
+    if(location.hash && /access_token|type=recovery/i.test(location.hash)){
+      history.replaceState(null,'',location.pathname+location.search);
+    }
+  }catch(_){}
+}
+
+async function submitNewPassword(){
+  const p1=$('#npw1')?.value||'', p2=$('#npw2')?.value||'';
+  if(!p1||p1.length<6)return toast('La contraseña debe tener al menos 6 caracteres.');
+  if(p1!==p2)return toast('Las dos contraseñas no coinciden.');
+  const btn=$('#btn-npw');
+  if(btn)btn.disabled=true;
+  toast('Actualizando contraseña…');
+  try{
+    const {error}=await sb.auth.updateUser({password:p1});
+    if(error){
+      toast(explainAuth(error));
+      if(btn)btn.disabled=false;
+      return;
+    }
+    clearRecoveryHash();
+    toast('¡Contraseña actualizada con éxito!');
+    boot();
+  }catch(e){
+    toast('Error al actualizar la contraseña: '+(e?.message||e));
+    if(btn)btn.disabled=false;
+  }
 }
 async function auth(k){
   if(window._authing)return;
@@ -412,6 +542,11 @@ async function auth(k){
   }
 }
 async function boot(){
+  const hash=location.hash||'';
+  const sp=new URLSearchParams(location.search);
+  if(/type=recovery/i.test(hash)||sp.get('type')==='recovery'){
+    return newPasswordUI();
+  }
   const {data}=await sb.auth.getSession();
   user=data.session?.user||null;
   if(!user)return login();
@@ -705,7 +840,7 @@ async function checkSession(){
     }
   }catch(e){}
 }
-sb.auth.onAuthStateChange(ev=>{if(ev==='SIGNED_OUT'&&user&&!window._manualOut)expired()});
+sb.auth.onAuthStateChange(ev=>{if(ev==='PASSWORD_RECOVERY')newPasswordUI();else if(ev==='SIGNED_OUT'&&user&&!window._manualOut)expired()});
 setInterval(()=>{if(draft)checkSession()},30000);
 function offerRestore(){
   const b=readBk();if(!b||!user||b.uid!==user.id)return;
@@ -1352,8 +1487,35 @@ function settings(){
   <div class="card"><h2 style="margin-top:0">Ayuda</h2><p class="mu" style="margin-top:0">Guía de uso y recorrido guiado de la app.</p><div class="mact" style="margin-top:8px"><button onclick="go('help')">❓ Guía de uso</button><button class="ghost" onclick="tourStart(true)">▶ Ver el recorrido guiado</button></div></div>
   ${installCard()}
   <div class="card"><h2 style="margin-top:0">Comentarios</h2><p class="mu" style="margin-top:0">¿Encontraste un error o tenés una idea? Contanos y te damos un número de ticket.</p><div class="mact" style="margin-top:8px"><button onclick="openFeedback()">💬 Enviar comentarios</button></div><div id="fbl"></div></div>
-  <div class="card"><div class="mu">${esc(user.email)}</div><p><button class="ghost" onclick="window._manualOut=true;clearBk();sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
+  <div class="card"><div class="mu">${esc(user.email)}</div><p style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="ghost" onclick="changePasswordModal()">Cambiar contraseña</button><button class="ghost" onclick="window._manualOut=true;clearBk();sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
   fbList();
+}
+
+function changePasswordModal(){
+  modal(`<h2>Cambiar contraseña</h2>
+  <p class="mu">Escribí tu nueva contraseña para la cuenta <b>${esc(user.email)}</b>.</p>
+  <div class="fields" style="margin-top:12px">
+    <input id="cpw1" type="password" placeholder="Nueva contraseña (mín. 6)" minlength="6" autocomplete="new-password">
+    <input id="cpw2" type="password" placeholder="Repetí la nueva contraseña" minlength="6" autocomplete="new-password">
+  </div>
+  <div class="mact" style="margin-top:16px">
+    <button onclick="saveNewPasswordSettings()">Guardar contraseña</button>
+    <button class="ghost" onclick="closeModal()">Cancelar</button>
+  </div>`);
+}
+async function saveNewPasswordSettings(){
+  const p1=$('#cpw1')?.value||'', p2=$('#cpw2')?.value||'';
+  if(!p1||p1.length<6)return toast('La contraseña debe tener al menos 6 caracteres.');
+  if(p1!==p2)return toast('Las dos contraseñas no coinciden.');
+  toast('Actualizando contraseña…');
+  try{
+    const {error}=await sb.auth.updateUser({password:p1});
+    if(error)return toast(explainAuth(error));
+    closeModal();
+    toast('¡Contraseña actualizada con éxito!');
+  }catch(e){
+    toast('Error: '+(e?.message||e));
+  }
 }
 
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
