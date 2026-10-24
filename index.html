@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-22T13:50">
+<meta name="app-version" content="2026-10-24T14:50">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -156,12 +156,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const r2=n=>Math.round(((Number(n)||0)+Number.EPSILON)*100)/100;
 window.r2=r2;
 const PUBLIC_CANASTA_URL='https://ais-pre-dnawz6iit4o5vfytkjn6mg-151039245127.us-east1.run.app/canasta';
-const appUrl=()=>{
-  if(!location.origin||location.hostname==='localhost'||location.hostname==='127.0.0.1'||location.hostname==='0.0.0.0'){
-    return PUBLIC_CANASTA_URL;
-  }
-  return location.origin+location.pathname;
-};
+const appUrl=()=>PUBLIC_CANASTA_URL;
 const CUR={ARS:{flag:'🇦🇷',name:'Pesos'},USD:{flag:'🇺🇸',name:'Dólares'},BRL:{flag:'🇧🇷',name:'Reales'}};
 const money=(n,c)=>{c=CUR[c]?c:'ARS';const d=c==='ARS'?0:2;return new Intl.NumberFormat('es-AR',{style:'currency',currency:c,minimumFractionDigits:d,maximumFractionDigits:d}).format(n||0)};
 const fxr=()=>{try{return JSON.parse(localStorage.getItem('fx')||'null')}catch(e){return null}};
