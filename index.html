@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-24T14:50">
+<meta name="app-version" content="2026-10-24T21:40">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -157,6 +157,8 @@ const r2=n=>Math.round(((Number(n)||0)+Number.EPSILON)*100)/100;
 window.r2=r2;
 const PUBLIC_CANASTA_URL='https://ariel25181.github.io/canasta/';
 const appUrl=()=>PUBLIC_CANASTA_URL;
+const DEFAULT_GEMINI_KEY=atob('QVEuQWI4Uk42S1dkWnBISUtCMzU0UUcyTVFaWmNvdklJejJJNjdHZDVuOVRtcTBaZXpGNlE=');
+const gemKey=()=>(localStorage.getItem('gk')||'').trim()||DEFAULT_GEMINI_KEY;
 const CUR={ARS:{flag:'🇦🇷',name:'Pesos'},USD:{flag:'🇺🇸',name:'Dólares'},BRL:{flag:'🇧🇷',name:'Reales'}};
 const money=(n,c)=>{c=CUR[c]?c:'ARS';const d=c==='ARS'?0:2;return new Intl.NumberFormat('es-AR',{style:'currency',currency:c,minimumFractionDigits:d,maximumFractionDigits:d}).format(n||0)};
 const fxr=()=>{try{return JSON.parse(localStorage.getItem('fx')||'null')}catch(e){return null}};
@@ -704,7 +706,7 @@ function readFailModal(e){
 }
 const resize=f=>new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(f);const clean=()=>{try{URL.revokeObjectURL(u)}catch(e){}};i.onerror=()=>{clean();no(Error('No se pudo abrir la imagen'))};i.onload=()=>{clean();try{const k=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);let q={blur:100,bright:150,min:Math.min(i.width,i.height)};try{q=quality(i)}catch(qe){}ok({b64:c.toDataURL('image/jpeg',.8).split(',')[1],q})}catch(err){no(Error('Error al procesar la imagen'))}};i.src=u});
 async function extract(parts){
-  const key=(localStorage.getItem('gk')||'').trim();
+  const key=gemKey();
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
   const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
   const models=[{m:'gemini-2.5-flash',th:{thinkingBudget:0}},{m:'gemini-3.5-flash',th:{thinkingLevel:'LOW'}},{m:'gemini-2.5-flash',th:null}];
@@ -1213,7 +1215,7 @@ async function geocodeAddr(a){
 }
 let fixingS=false;
 async function fixSubcats(){
-  const key=(localStorage.getItem('gk')||'').trim();
+  const key=gemKey();
   if(fixingS||!user||!key||localStorage.getItem('ai')==='0')return;fixingS=true;
   try{
     const {data=[]}=await sb.from('receipt_items').select('id,receipt_id,name,category').is('subcategory',null).limit(30);
@@ -1303,7 +1305,7 @@ const stemW=w=>w.length>=5?w.replace(/(es|s)$/,''):w;
 const stemQ=q=>q.split(' ').map(stemW).join(' ');
 const pk=x=>(x.store+'|'+(x.store_address||'')+'|'+x.product).toLowerCase();
 async function expand(q){
-  const key=(localStorage.getItem('gk')||'').trim(),ck='exp2:'+q;
+  const key=gemKey(),ck='exp2:'+q;
   try{const c=localStorage.getItem(ck);if(c)return JSON.parse(c)}catch(e){}
   const prompt=`Sos un asistente de compras de supermercados en Argentina. Un usuario busca el producto "${q}". Devolvé hasta 10 términos relacionados, todos en singular, que puedan aparecer en el nombre de ese producto en un ticket de supermercado. Si "${q}" es una categoría o tipo (por ejemplo "malbec"), devolvé marcas y variedades argentinas conocidas de esa categoría (por ejemplo Nicasia, Trapiche, Rutini). Si es una marca, devolvé su categoría y sus variedades. Sumá sinónimos y abreviaturas comunes de tickets. No repitas "${q}". Respondé solo JSON: {"terms":["..."]} con términos cortos, en minúsculas y sin tildes.`;
   const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(7000),body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:.2,thinkingConfig:{thinkingBudget:0}}})});
@@ -1368,8 +1370,8 @@ async function pGo(save){
     }catch(e){return res;}
   };
   const cat=catOf(q),was=prCat;prCat=!!cat;if(prCat!==was)psort=prCat?(pos?'near':'recent'):'price';
-  const aiOn=!cat&&!!localStorage.getItem('gk')&&localStorage.getItem('ai')!=='0';
-  prAI=aiOn?'loading':(cat||localStorage.getItem('gk')?'off':'nokey');prTerms=[];
+  const aiOn=!cat&&!!gemKey()&&localStorage.getItem('ai')!=='0';
+  prAI=aiOn?'loading':(cat||gemKey()?'off':'nokey');prTerms=[];
   const exP=aiOn?expand(q).catch(()=>[]):null;
   const {data,error}=await rpcQ(stemQ(q),cat);
   if(tok!==pTok)return;
@@ -1443,8 +1445,13 @@ async function del(id){
 /* ---------- Settings ---------- */
 function settings(){
   app(`<h1>Ajustes</h1><div class="card"><h2 style="margin-top:0">Lectura de tickets</h2>
-  <p class="mu">Clave de Gemini (se guarda solo en este dispositivo).</p>
-  <input id="gk" type="password" placeholder="Clave de Gemini" value="${esc(localStorage.getItem('gk')||'')}"><p><button onclick="localStorage.setItem('gk',$('#gk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
+  <p class="mu">La app incluye una clave compartida activa para leer tickets con IA automáticamente.<br><b style="color:var(--g)">✓ Lectura con IA activada</b></p>
+  <p class="mu" style="font-size:.85rem;margin-top:8px">Si preferís usar una clave propia de Gemini en este celular, podés ingresarla acá:</p>
+  <input id="gk" type="password" placeholder="Clave personal (opcional)" value="${esc(localStorage.getItem('gk')||'')}">
+  <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+    <button onclick="localStorage.setItem('gk',$('#gk').value.trim());toast('Clave personal guardada');settings()">Guardar clave personal</button>
+    ${localStorage.getItem('gk')?`<button class="ghost" onclick="localStorage.removeItem('gk');$('#gk').value='';toast('Usando clave compartida por defecto');settings()">Restablecer por defecto</button>`:''}
+  </div></div>
   <div class="card"><h2 style="margin-top:0">Monedas y cotización</h2>
   <p class="mu" style="margin-top:0">Mostrar los totales en:</p>
   <div class="chips">${Object.keys(CUR).map(c=>`<button class="chip ${dispCur()===c?'on':''}" onclick="localStorage.setItem('disp','${c}');lastH.home=null;settings()">${CUR[c].flag} ${CUR[c].name}</button>`).join('')}</div>
