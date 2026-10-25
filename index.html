@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-24T21:40">
+<meta name="app-version" content="2026-10-25T15:10">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -159,6 +159,8 @@ const PUBLIC_CANASTA_URL='https://ariel25181.github.io/canasta/';
 const appUrl=()=>PUBLIC_CANASTA_URL;
 const DEFAULT_GEMINI_KEY=atob('QVEuQWI4Uk42S1dkWnBISUtCMzU0UUcyTVFaWmNvdklJejJJNjdHZDVuOVRtcTBaZXpGNlE=');
 const gemKey=()=>(localStorage.getItem('gk')||'').trim()||DEFAULT_GEMINI_KEY;
+const DEFAULT_MAPS_KEY=atob('QUl6YVN5QWFkYzV3YWxHSFYzTktoQlc2a2I2Vm5tSkZFTDFxdjhF');
+const mapsKey=()=>(localStorage.getItem('mk')||'').trim()||DEFAULT_MAPS_KEY;
 const CUR={ARS:{flag:'🇦🇷',name:'Pesos'},USD:{flag:'🇺🇸',name:'Dólares'},BRL:{flag:'🇧🇷',name:'Reales'}};
 const money=(n,c)=>{c=CUR[c]?c:'ARS';const d=c==='ARS'?0:2;return new Intl.NumberFormat('es-AR',{style:'currency',currency:c,minimumFractionDigits:d,maximumFractionDigits:d}).format(n||0)};
 const fxr=()=>{try{return JSON.parse(localStorage.getItem('fx')||'null')}catch(e){return null}};
@@ -1083,14 +1085,16 @@ const hav=(a,b)=>{const r=x=>x*Math.PI/180,h=Math.sin(r(b.lat-a.lat)/2)**2+Math.
 function getPos(){return new Promise(ok=>{if(pos||!navigator.geolocation)return ok(pos);navigator.geolocation.getCurrentPosition(p=>{pos={lat:p.coords.latitude,lng:p.coords.longitude};ok(pos)},()=>ok(null),{timeout:10000,maximumAge:600000})})}
 async function mapOpen(){
   mapShown=true;found=null;mapReady=false;$('#mapbox').hidden=false;
-  const c=await getPos(),key=localStorage.getItem('mk'),q=draft.store.trim();
-  if(key)return mapJs(key,c,q);
-  $('#mpin').style.display='none';$('#mgps').style.display='none';$('#msearch').hidden=true;
-  const ad=draft.address.trim(),hasC=draft.lat!=null,qq=hasC?`${draft.lat},${draft.lng}`:(ad||q||'supermercado');
-  const src=`https://maps.google.com/maps?output=embed&z=${ad||hasC?17:15}&hl=es&q=${encodeURIComponent(qq)}${c&&!ad&&!hasC?`&ll=${c.lat},${c.lng}`:''}`;
-  $('#map').innerHTML=`<iframe src="${src}" loading="lazy" title="Mapa"></iframe>`;
-  $('#mmsg').innerHTML=`Buscá tu local y copiá la dirección. <a href="https://www.google.com/maps/search/${encodeURIComponent(qq)}${c&&!ad&&!hasC?`/@${c.lat},${c.lng},15z`:''}" target="_blank" rel="noopener">Abrir en Google Maps</a>. Con una clave de Maps en Ajustes tenés sugerencias, locales cercanos y pin.`;
-  if(hasC&&ad){found={name:'',addr:ad,loc:{lat:draft.lat,lng:draft.lng}};showFound()}else if(ad)kl(ad);
+  const c=await getPos(),key=mapsKey(),q=draft.store.trim();
+  if(key){
+    try{
+      await mapJs(key,c,q);
+      return;
+    }catch(e){
+      console.warn('Google Maps unavailable, using OpenStreetMap:',e);
+    }
+  }
+  mapOsm(c,q);
 }
 function mapClose(){mapShown=false;const b=$('#mapbox');b.hidden=true;b.classList.remove('full')}
 function mapFull(){
@@ -1100,8 +1104,55 @@ function mapFull(){
 }
 async function mapGps(){
   pos=null;const c=await getPos();
-  if(!c||!gm)return toast('No pude obtener tu ubicación. Permitila en el navegador.');
-  lockUntil=0;gm.setZoom(17);gm.setCenter(c);
+  if(!c)return toast('No pude obtener tu ubicación. Permitila en el navegador.');
+  if(gm){lockUntil=0;gm.setZoom(17);gm.setCenter(c)}
+  else{mapOsm(c,draft.store.trim())}
+}
+function mapOsm(c,q){
+  mapReady=true;$('#mpin').style.display='none';$('#mgps').style.display='none';
+  const inp=$('#msearch');inp.hidden=false;
+  inp.placeholder='Buscá el local (ej: Coto, Día, Carrefour) o dirección';
+  inp.value=q||'';
+  inp.oninput=()=>{clearTimeout(sugT);sugT=setTimeout(()=>suggestPhoton(inp.value,c),250)};
+  const ad=draft.address.trim(),hasC=draft.lat!=null,qq=hasC?`${draft.lat},${draft.lng}`:(ad||q||'supermercado');
+  const src=`https://maps.google.com/maps?output=embed&z=${ad||hasC?17:15}&hl=es&q=${encodeURIComponent(qq)}${c&&!ad&&!hasC?`&ll=${c.lat},${c.lng}`:''}`;
+  $('#map').innerHTML=`<iframe src="${src}" loading="lazy" title="Mapa" style="width:100%;height:100%;border:0"></iframe>`;
+  $('#mmsg').innerHTML=hasC&&ad?`<div class="card" style="margin:8px 0 0"><div class="mu">Ubicación fijada</div><b>${esc(ad)}</b><p style="margin:8px 0 0"><button onclick="mapClose()" style="width:100%">Listo</button></p></div>`:`<p class="mu" style="margin:6px 0">Escribí el nombre del súper o la dirección arriba para sugerencias automáticas (OpenStreetMap).</p>`;
+  if(q)suggestPhoton(q,c);
+  loadChips(c);
+}
+async function suggestPhoton(t,c){
+  const box=$('#msug');t=String(t||'').trim();
+  if(t.length<2){box.innerHTML='';sugs=[];return}
+  box.innerHTML='<p class="mu" style="padding:6px 8px">Buscando locales…</p>';
+  try{
+    const posCoords=c||pos||{lat:-34.6037,lng:-58.3816};
+    const url=`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&lat=${posCoords.lat}&lon=${posCoords.lng}&limit=6`;
+    const r=await fetch(url,{signal:AbortSignal.timeout(5000)});
+    if(!r.ok)throw new Error('Error al buscar');
+    const data=await r.json();
+    const feats=(data.features||[]).filter(f=>f.geometry&&f.geometry.coordinates);
+    if(!feats.length){box.innerHTML='<p class="mu" style="padding:6px 8px">Sin resultados en OpenStreetMap. Probá con otra calle o nombre.</p>';return}
+    sugs=feats.map(f=>{
+      const p=f.properties||{};
+      const [lng,lat]=f.geometry.coordinates;
+      const street=[p.street,p.housenumber].filter(Boolean).join(' ')||p.name||'';
+      const locality=p.locality||p.district||p.city||p.county||'';
+      const fullAddr=[street,locality].filter(Boolean).join(', ')||p.name||'';
+      const name=p.name||t;
+      const d=(c||pos)?hav(c||pos,{lat,lng}):null;
+      return {name,addr:fullAddr,loc:{lat,lng},d};
+    });
+    box.innerHTML=sugs.map((x,k)=>`<button type="button" class="opt" onclick="pickPhoton(${k})" style="text-align:left;width:100%;padding:8px 10px;border-bottom:1px solid var(--ln);background:none;border-left:0;border-right:0;border-top:0;cursor:pointer"><b>${esc(x.name)}</b>${x.d!=null?` <span class="mu">· ${fmtD(x.d)}</span>`:''}<br><span class="mu" style="font-size:.85rem">${esc(x.addr)}</span></button>`).join('');
+  }catch(e){box.innerHTML=`<p class="mu" style="padding:6px 8px">No se pudo buscar sugerencias (${esc(e.message)}).</p>`}
+}
+function pickPhoton(k){
+  const x=sugs[k];if(!x)return;
+  $('#msug').innerHTML='';$('#msearch').value=x.name;
+  setFound(x.name,x.addr,x.loc);
+  const qq=`${x.loc.lat},${x.loc.lng}`;
+  const src=`https://maps.google.com/maps?output=embed&z=17&hl=es&q=${encodeURIComponent(qq)}`;
+  $('#map').innerHTML=`<iframe src="${src}" loading="lazy" title="Mapa" style="width:100%;height:100%;border:0"></iframe>`;
 }
 function loadMaps(key){return window.google&&google.maps&&google.maps.importLibrary?Promise.resolve():new Promise((ok,no)=>{window.__mi=ok;const s=document.createElement('script');s.src=`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&loading=async&language=es&callback=__mi`;s.onerror=()=>no(Error('No se pudo cargar Google Maps'));document.head.appendChild(s)})}
 async function mapJs(key,c,q){
@@ -1123,8 +1174,12 @@ async function mapJs(key,c,q){
     inp.oninput=()=>{clearTimeout(sugT);sugT=setTimeout(()=>suggest(inp.value),250)};
     if(q&&!start)suggest(q);
     loadChips(c);mapReady=true;
-  }catch(err){m.textContent='Maps: '+err.message}
+  }catch(err){
+    console.warn('Google Maps error, falling back to OpenStreetMap:',err);
+    mapOsm(c,q);
+  }
 }
+
 function setFound(name,addr,loc){
   ++revTok;
   found={name:name||'',addr:shortAddr(addr),loc:loc?ll(loc):null};
@@ -1275,7 +1330,7 @@ function addrTyped(v){draft.address=v;draft.lat=draft.lng=null;clearTimeout(addr
 async function mapFromText(v){
   v=String(v||'').trim();const my=++addrTok;
   if(v.length<6)return;
-  if(!localStorage.getItem('mk')){if(!mapShown)mapOpen();else kl(v);return}
+  if(!mapsKey()){if(!mapShown)mapOpen();else kl(v);return}
   if(!mapShown)mapOpen();
   for(let i=0;i<30&&!(mapReady&&gm);i++)await new Promise(r=>setTimeout(r,300));
   if(my!==addrTok||!gm||!gcd)return;
@@ -1491,7 +1546,13 @@ function settings(){
   <p class="mu" style="margin-top:12px">${fxStatusText()}</p></div>
   <div class="card"><h2 style="margin-top:0">Búsqueda inteligente</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('ai')!=='0'?'checked':''} onchange="localStorage.setItem('ai',this.checked?'1':'0')"><span>Usar IA para encontrar productos relacionados (por ejemplo, buscar "malbec" también muestra Nicasia). <span class="mu">Usa tu clave de Gemini y envía solo el texto que buscás.</span></span></label></div>
   <div class="card"><h2 style="margin-top:0">Precios compartidos</h2><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:4px" ${localStorage.getItem('share')!=='0'?'checked':''} onchange="localStorage.setItem('share',this.checked?'1':'0')"><span>Compartir mis precios de forma anónima con otros usuarios <span class="mu">(producto, precio, local y fecha; nunca tu nombre ni tu email). Se aplica a los tickets que cargues desde ahora.</span></span></label></div>
-  <div class="card"><h2 style="margin-top:0">Google Maps (opcional)</h2><p class="mu">Con una clave con Maps JavaScript API, Places API (New) y Geocoding API activadas, podés buscar el local con sugerencias, ver los más cercanos y confirmar la ubicación con un pin. Sin clave se muestra un mapa simple.</p><input id="mk" type="password" placeholder="Clave de Google Maps" value="${esc(localStorage.getItem('mk')||'')}"><p><button onclick="localStorage.setItem('mk',$('#mk').value.trim());toast('Clave guardada')">Guardar clave</button></p></div>
+  <div class="card"><h2 style="margin-top:0">Google Maps (opcional)</h2>
+  ${mapsKey()?`<p class="mu"><b style="color:var(--g)">✓ Búsqueda de locales y mapas activada</b><br>La app incluye una clave compartida para sugerir locales y ubicar sucursales automáticamente.</p>`:`<p class="mu">Con una clave con Maps JavaScript API, Places API (New) y Geocoding API activadas, podés buscar el local con sugerencias, ver los más cercanos y confirmar la ubicación con un pin. Sin clave se muestra un mapa simple.</p>`}
+  <input id="mk" type="password" placeholder="Clave personal (opcional)" value="${esc(localStorage.getItem('mk')||'')}">
+  <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+    <button onclick="localStorage.setItem('mk',$('#mk').value.trim());toast('Clave personal guardada');settings()">Guardar clave personal</button>
+    ${localStorage.getItem('mk')?`<button class="ghost" onclick="localStorage.removeItem('mk');$('#mk').value='';toast('Usando clave compartida');settings()">Restablecer por defecto</button>`:''}
+  </div></div>
   <div class="card"><h2 style="margin-top:0">Ayuda</h2><p class="mu" style="margin-top:0">Guía de uso y recorrido guiado de la app.</p><div class="mact" style="margin-top:8px"><button onclick="go('help')">❓ Guía de uso</button><button class="ghost" onclick="tourStart(true)">▶ Ver el recorrido guiado</button></div></div>
   ${installCard()}
   <div class="card"><h2 style="margin-top:0">Comentarios</h2><p class="mu" style="margin-top:0">¿Encontraste un error o tenés una idea? Contanos y te damos un número de ticket.</p><div class="mact" style="margin-top:8px"><button onclick="openFeedback()">💬 Enviar comentarios</button></div><div id="fbl"></div></div>
