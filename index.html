@@ -1837,16 +1837,22 @@ async function pGo(save){
   prAI='done';pRender(q,r,useR);
 }
 const prCard=(min,avg,anyExact)=>x=>{
-  const disp=dispCur(),cu=x.currency||'ARS',pv=x._p,best=!prCat&&pv!=null&&pv===min&&(x.is_exact||!anyExact),diff=!prCat&&pv!=null&&min>0?Math.round((pv/min-1)*100):0,
-    diffAvg=avg>0&&pv!=null?Math.round((pv/avg-1)*100):0,
-    dest=x.lat!=null?`${x.lat},${x.lng}`:encodeURIComponent(x.store_address||x.store),
-    dDiff=days(x.purchased_at),
-    dt=new Date(x.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'});
+  const disp=dispCur(),cu=x.currency||'ARS',pv=x._p;
+  const isRelated=!!x.rel||x.is_exact===false;
+  const canCompare=!prCat&&!isRelated&&pv!=null;
+  const best=canCompare&&pv===min&&(x.is_exact||!anyExact);
+  const diff=canCompare&&min>0?Math.round((pv/min-1)*100):0;
+  const diffAvg=canCompare&&avg>0?Math.round((pv/avg-1)*100):0;
+  const dest=x.lat!=null?`${x.lat},${x.lng}`:encodeURIComponent(x.store_address||x.store);
+  const dDiff=days(x.purchased_at);
+  const dt=new Date(x.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'});
   const freshBadge=dDiff<=7?'<span class="tag" style="background:#e8f5e9;color:#2e7d32">🟢 Reciente</span>':dDiff>30?'<span class="tag" style="background:#fff3e0;color:#e65100">⚠️ Puede haber variado</span>':'';
-  const avgBadge=diffAvg>5?`<span class="tag" style="background:#fee2e2;color:#991b1b">+${diffAvg}% vs promedio</span>`:diffAvg<-5?`<span class="tag" style="background:#e0f2fe;color:#0369a1">${Math.abs(diffAvg)}% bajo promedio</span>`:'';
+  const avgBadge=canCompare?(diffAvg>5?`<span class="tag" style="background:#fee2e2;color:#991b1b">+${diffAvg}% vs promedio</span>`:diffAvg<-5?`<span class="tag" style="background:#e0f2fe;color:#0369a1">${Math.abs(diffAvg)}% bajo promedio</span>`:''):'';
+  const bestBadge=best?'<span class="tag best">🏆 Más barato</span>':'';
+  const diffBadge=canCompare&&!best&&diff>0?`<span class="tag">+${diff}% vs. el más barato</span>`:'';
   return `<div class="card"><div class="row" style="border:0;align-items:flex-start;padding-top:0"><div><b>${esc(x.store)}</b><div class="mu">${esc(x.store_address||'Sin dirección')}</div></div><div class="pp"><div class="p2">${money(+x.unit_price,cu)}</div><div class="mu">${cu!==disp?(pv!=null?`≈ ${money(pv,disp)}`:'sin tipo de cambio'):'por unidad'}</div></div></div>
   <div class="mu">${x.category&&CAT[x.category]?CAT[x.category]+' ':''}${esc(x.product)}${x.subcategory?` · ${esc(x.subcategory)}`:''}${x.rel?`<span class="sim" style="background:#e3f2e8">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim">similar</span>'}</div>
-  <div class="tags">${best?'<span class="tag best">🏆 Más barato</span>':diff>0?`<span class="tag">+${diff}% vs. el más barato</span>`:''}${avgBadge}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">📅 ${dt} (${ago(x.purchased_at)})</span>${freshBadge}${x.desc_match&&x.description?`<span class="tag">📝 ${esc(x.description)}</span>`:''}</div>
+  <div class="tags">${bestBadge}${diffBadge}${avgBadge}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">📅 ${dt} (${ago(x.purchased_at)})</span>${freshBadge}${x.desc_match&&x.description?`<span class="tag">📝 ${esc(x.description)}</span>`:''}</div>
   <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener">Cómo llegar</a></div>`;
 };
 function pRender(q,r,useR){
