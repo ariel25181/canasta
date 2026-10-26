@@ -720,7 +720,7 @@ const resize=f=>new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(
 async function extract(parts){
   const key=gemKey();
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
-  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
+  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. En productos pesables o vendidos al peso (frutas, verduras, carnes, fiambres, etc.), en qty poné el peso en kilogramos con decimales (por ejemplo 1.845 para 1,845 kg) y en total_price el importe total de ese renglón, para que el precio unitario sea exactamente el precio por kilo. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
   const models=[{m:'gemini-2.5-flash',th:{thinkingBudget:0}},{m:'gemini-3.5-flash',th:{thinkingLevel:'LOW'}},{m:'gemini-2.5-flash',th:null}];
   let lastErr=null;
   for(const model of models){
@@ -825,6 +825,38 @@ function checkEquiv(keyA,keyB){
 function normSizeStr(s){
   return String(s||'').replace(/\s+/g,'').replace(/litros?|lts?/ig,'l').replace(/gramos?|grs?/ig,'g').replace(/kilos?|kgs?/ig,'kg').replace(/cc|cm3|mililitros?/ig,'ml');
 }
+function isSameExactProduct(a,b){
+  if(!a||!b)return false;
+  const sA=nk(typeof a==='object'?(a.product||a.product_name||''):a);
+  const sB=nk(typeof b==='object'?(b.product||b.product_name||''):b);
+  if(!sA||!sB)return false;
+  if(sA===sB)return true;
+  const eq=checkEquiv(sA,sB);
+  if(eq==='different')return false;
+  if(eq==='same')return true;
+  const sizeRe=/(\d+(?:[.,]\d+)?)\s*(kg|g|gr|l|lt|litro|litros|ml|cc|cm3|u|unid|unidades)\b/ig;
+  const sizesA=(sA.match(sizeRe)||[]).map(normSizeStr);
+  const sizesB=(sB.match(sizeRe)||[]).map(normSizeStr);
+  if(sizesA.length&&sizesB.length&&sizesA[0]!==sizesB[0])return false;
+  if(sizesA.length!==sizesB.length)return false;
+  const variants=[
+    ['entera','descremada','deslactosada'],
+    ['blanco','negro','integral','salvado'],
+    ['clasica','light','cero','zero','diet'],
+    ['fino','grueso'],
+    ['con gas','sin gas']
+  ];
+  for(const grp of variants){
+    const hasA=grp.filter(v=>sA.includes(v));
+    const hasB=grp.filter(v=>sB.includes(v));
+    if(hasA.length&&hasB.length&&hasA[0]!==hasB[0])return false;
+  }
+  const ignoreWords=new Set(['con','sin','del','las','los','por','para','sabor']);
+  const wordsA=sA.split(' ').filter(w=>w.length>=2&&!ignoreWords.has(w));
+  const wordsB=sB.split(' ').filter(w=>w.length>=2&&!ignoreWords.has(w));
+  if(wordsA.length!==wordsB.length)return false;
+  return [...wordsA].sort().join(' ')===[...wordsB].sort().join(' ');
+}
 function getProductMatchConfidence(a,b){
   const kA=nk(a),kB=nk(b);
   if(kA===kB)return {level:'alta',reason:'Nombre exacto'};
@@ -898,6 +930,9 @@ async function computeReceiptInsights(r){
     for(const item of items){
       itemIdx++;
       const unitP=item.qty?item.total_price/item.qty:item.total_price;
+      const isKg=(item.qty%1!==0)||['verduras','frutas','carnes'].includes(item.category)||/\b(?:kg|kilo|kilos|gramos|gr)\b/i.test(item.name);
+      const unitSuffix=isKg?'/kg':'';
+      const qtyStr=isKg?`${item.qty} kg`:`${item.qty}`;
       const k=nk(item.name);
       const pcMatch=await matchPreciosClaros(item.name);
       let pcTag='';
@@ -913,7 +948,7 @@ async function computeReceiptInsights(r){
       }).filter(x=>x.conf.level!=='baja'&&x.conf.level!=='rechazado');
 
       if(!assessed.length){
-        cards.push(`<div style="background:#fff;border:1.5px solid var(--ln);border-radius:10px;padding:8px 10px;margin-bottom:6px"><div style="display:flex;justify-content:space-between;align-items:center"><b>${esc(item.name)}</b><span class="num">${money(unitP,r.cur)}</span></div>${pcTag||'<div class="mu" style="font-size:.76rem;margin-top:2px">🆕 Primer registro comunitario de este producto</div>'}</div>`);
+        cards.push(`<div style="background:#fff;border:1.5px solid var(--ln);border-radius:10px;padding:8px 10px;margin-bottom:6px"><div style="display:flex;justify-content:space-between;align-items:center"><span><b>${esc(item.name)}</b> <span class="mu">×${qtyStr}</span></span><span class="num">${money(unitP,r.cur)}${unitSuffix}</span></div>${pcTag||'<div class="mu" style="font-size:.76rem;margin-top:2px">🆕 Primer registro comunitario de este producto</div>'}</div>`);
         continue;
       }
       comparedCount++;
@@ -931,7 +966,7 @@ async function computeReceiptInsights(r){
         }
       }
 
-      const earlier=validPoints.filter(m=>m.purchased_at<(r.date||today())).sort((a,b)=>b.purchased_at.localeCompare(a.purchased_at));
+      const earlier=validPoints.filter(m=>m.purchased_at<(r.date||today())&&isSameExactProduct(item.name,m.product_name)).sort((a,b)=>b.purchased_at.localeCompare(a.purchased_at));
       const prev=earlier[0];
       let infTag='';
       if(prev&&+prev.unit_price>0){
@@ -940,7 +975,7 @@ async function computeReceiptInsights(r){
         const dtPrev=new Date(prev.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'});
         const icon=inf>0?'▲':inf<0?'▼':'=';
         const col=inf>0?'#b91c1c':inf<0?'#15803d':'#64748b';
-        infTag=`<div style="font-size:.78rem;color:${col};font-weight:600;margin-top:4px">${icon} ${inf>0?`+${inf}% de inflación`:`${inf}% más barato`} en ${dDays} días (antes ${money(+prev.unit_price,r.cur)} el ${dtPrev} en ${esc(prev.store)})</div>`;
+        infTag=`<div style="font-size:.78rem;color:${col};font-weight:600;margin-top:4px">${icon} ${inf>0?`+${inf}% de inflación`:`${inf}% más barato`} en ${dDays} días (antes ${money(+prev.unit_price,r.cur)}${unitSuffix} el ${dtPrev} en ${esc(prev.store)})</div>`;
       }
       const diffVsMin=Math.round(((unitP/minP)-1)*100);
       const dtMin=minPoint?new Date(minPoint.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'}):'';
@@ -971,7 +1006,7 @@ async function computeReceiptInsights(r){
         </div>`;
       }
 
-      cards.push(`<div style="background:#fff;border:1.5px solid var(--ln);border-radius:10px;padding:8px 10px;margin-bottom:6px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><span><b>${esc(item.name)}</b> <span class="mu">×${item.qty}</span></span><span class="num">${money(unitP,r.cur)}</span></div>${pcTag}<div style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0 2px;align-items:center">${tag}${certBadge}<span class="mu" style="font-size:.74rem">Ref. Promedio: ${money(avgP,r.cur)} · Mínimo: ${money(minP,r.cur)} (${esc(minPoint?.store||'')}, ${dtMin})</span></div>${infTag}${userValidationWidget}</div>`);
+      cards.push(`<div style="background:#fff;border:1.5px solid var(--ln);border-radius:10px;padding:8px 10px;margin-bottom:6px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><span><b>${esc(item.name)}</b> <span class="mu">×${qtyStr}</span></span><span class="num">${money(unitP,r.cur)}${unitSuffix}</span></div>${pcTag}<div style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0 2px;align-items:center">${tag}${certBadge}<span class="mu" style="font-size:.74rem">Ref. Promedio: ${money(avgP,r.cur)}${unitSuffix} · Mínimo: ${money(minP,r.cur)}${unitSuffix} (${esc(minPoint?.store||'')}, ${dtMin})</span></div>${infTag}${userValidationWidget}</div>`);
     }
     let summary='';
     if(comparedCount>0){
@@ -1829,19 +1864,42 @@ function pRender(q,r,useR){
   const avg=cand.length?Math.round(cand.reduce((a,b)=>a+b,0)/cand.length):0;
   const spread=min>0?Math.round(((max-min)/min)*100):0;
   
-  const byDate=[...rows].filter(x=>x._p!=null).sort((a,b)=>a.purchased_at.localeCompare(b.purchased_at));
+  // Calculate inflation ONLY for the EXACT same product (same brand, variant, package/size)
   let infHtml='';
-  if(byDate.length>=2){
-    const oldest=byDate[0],newest=byDate[byDate.length-1];
-    if(oldest.purchased_at!==newest.purchased_at&&oldest._p>0){
-      const inf=Math.round(((newest._p/oldest._p)-1)*100);
-      const dDays=Math.max(1,Math.round((new Date(newest.purchased_at)-new Date(oldest.purchased_at))/86400000));
-      const dtOld=new Date(oldest.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'});
-      const dtNew=new Date(newest.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'});
-      const col=inf>0?'#b91c1c':inf<0?'#15803d':'#64748b';
-      const icon=inf>0?'📈 ▲':inf<0?'📉 ▼':'=';
-      infHtml=`<div style="background:#fff;border:1px solid #fed7aa;border-radius:10px;padding:8px 10px;margin-top:8px"><div style="font-size:.82rem;font-weight:700;color:${col}">${icon} ${inf>0?`+${inf}% de aumento (inflación registrada)`:inf<0?`${inf}% de baja`: 'Precio estable'} en ${dDays} días</div><div class="mu" style="font-size:.74rem;margin-top:2px">De ${money(oldest._p,disp)} (${dtOld} en ${esc(oldest.store)}) a ${money(newest._p,disp)} (${dtNew} en ${esc(newest.store)})</div></div>`;
+  const exactCandidates=rows.filter(x=>x.is_exact&&x._p!=null&&x._p>0);
+  const exactGroups=[];
+  exactCandidates.forEach(x=>{
+    let grp=exactGroups.find(g=>isSameExactProduct(g.product,x.product));
+    if(!grp){
+      grp={product:x.product,items:[]};
+      exactGroups.push(grp);
     }
+    grp.items.push(x);
+  });
+
+  let bestInf=null;
+  for(const grp of exactGroups){
+    if(grp.items.length<2)continue;
+    grp.items.sort((a,b)=>a.purchased_at.localeCompare(b.purchased_at));
+    const oldest=grp.items[0];
+    const newest=grp.items[grp.items.length-1];
+    if(oldest.purchased_at!==newest.purchased_at&&oldest._p>0){
+      if(!bestInf||grp.items.length>bestInf.items.length){
+        bestInf={product:grp.product,oldest,newest,items:grp.items};
+      }
+    }
+  }
+
+  if(bestInf){
+    const {product:pName,oldest,newest}=bestInf;
+    const inf=Math.round(((newest._p/oldest._p)-1)*100);
+    const dDays=Math.max(1,Math.round((new Date(newest.purchased_at)-new Date(oldest.purchased_at))/86400000));
+    const dtOld=new Date(oldest.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'});
+    const dtNew=new Date(newest.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'});
+    const col=inf>0?'#b91c1c':inf<0?'#15803d':'#64748b';
+    const icon=inf>0?'📈 ▲':inf<0?'📉 ▼':'=';
+    const storeInfo=oldest.store===newest.store?`en ${esc(newest.store)}`:`de ${esc(oldest.store)} a ${esc(newest.store)}`;
+    infHtml=`<div style="background:#fff;border:1px solid #fed7aa;border-radius:10px;padding:8px 10px;margin-top:8px"><div style="font-size:.82rem;font-weight:700;color:${col}">${icon} ${inf>0?`+${inf}% de aumento (inflación)`:inf<0?`${inf}% de baja`:'Precio estable'} en ${dDays} días</div><div style="font-size:.76rem;color:#1e293b;font-weight:600;margin-top:2px">Mismo producto: <b>${esc(pName)}</b></div><div class="mu" style="font-size:.72rem;margin-top:2px">De ${money(oldest._p,disp)} (${dtOld}) a ${money(newest._p,disp)} (${dtNew}) ${storeInfo}</div></div>`;
   }
 
   const bestStore=(rows.find(x=>x._p===min)||{}).store||'';
