@@ -834,9 +834,11 @@ function isSameExactProduct(a,b){
   const eq=checkEquiv(sA,sB);
   if(eq==='different')return false;
   if(eq==='same')return true;
+  const normWeightS=s=>String(s||'').replace(/\b(?:x|por)\s*(kg|kilos?|kgs?)\b/gi,'1kg').replace(/\b(?:x|por)\s*(litros?|lts?|l)\b/gi,'1l').replace(/\b(?:x|por)\s*(unidad|unidades|u|unid)\b/gi,'1u');
+  const nwA=normWeightS(sA), nwB=normWeightS(sB);
   const sizeRe=/(\d+(?:[.,]\d+)?)\s*(kg|g|gr|l|lt|litro|litros|ml|cc|cm3|u|unid|unidades)\b/ig;
-  const sizesA=(sA.match(sizeRe)||[]).map(normSizeStr);
-  const sizesB=(sB.match(sizeRe)||[]).map(normSizeStr);
+  const sizesA=(nwA.match(sizeRe)||[]).map(normSizeStr);
+  const sizesB=(nwB.match(sizeRe)||[]).map(normSizeStr);
   if(sizesA.length&&sizesB.length&&sizesA[0]!==sizesB[0])return false;
   if(sizesA.length!==sizesB.length)return false;
   const variants=[
@@ -851,9 +853,9 @@ function isSameExactProduct(a,b){
     const hasB=grp.filter(v=>sB.includes(v));
     if(hasA.length&&hasB.length&&hasA[0]!==hasB[0])return false;
   }
-  const ignoreWords=new Set(['con','sin','del','las','los','por','para','sabor']);
-  const wordsA=sA.split(' ').filter(w=>w.length>=2&&!ignoreWords.has(w));
-  const wordsB=sB.split(' ').filter(w=>w.length>=2&&!ignoreWords.has(w));
+  const ignoreWords=new Set(['con','sin','del','las','los','por','para','sabor','de','en','x']);
+  const wordsA=nwA.split(' ').filter(w=>w.length>=2&&!ignoreWords.has(w));
+  const wordsB=nwB.split(' ').filter(w=>w.length>=2&&!ignoreWords.has(w));
   if(wordsA.length!==wordsB.length)return false;
   return [...wordsA].sort().join(' ')===[...wordsB].sort().join(' ');
 }
@@ -1046,8 +1048,9 @@ async function _save(){
   const items=draft.items.filter(i=>i.name.trim());
   const total=round2(items.reduce((s,i)=>s+(Number(i.total_price)||0),0)),edit=!!draft.id;
   if(draft.address.trim()&&draft.lat==null){const g=await geocodeAddr(draft.address);if(g){draft.lat=g.lat;draft.lng=g.lng}}
+  const cleanDesc=cleanFiscalText(draft.description);
   const rid=draft.id||draft.rid||(draft.rid=crypto.randomUUID());
-  const row={id:rid,store:draft.store.trim(),purchased_at:draft.date,description:draft.description.trim()||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,currency:draft.currency||'ARS',doc_type:draft.docType==='factura'?'factura':'ticket',doc_number:(draft.docNumber||'').trim()||null,store_tax_id:String(draft.taxId||'').replace(/[^0-9-]/g,'')||null,total};
+  const row={id:rid,store:draft.store.trim(),purchased_at:draft.date,description:cleanDesc||null,store_address:draft.address.trim()||null,store_lat:draft.lat,store_lng:draft.lng,currency:draft.currency||'ARS',doc_type:draft.docType==='factura'?'factura':'ticket',doc_number:(draft.docNumber||'').trim()||null,store_tax_id:String(draft.taxId||'').replace(/[^0-9-]/g,'')||null,total};
   const {error}=await sb.from('receipts').upsert(row);
   if(error)throw error;
   const oldI=((await sb.from('receipt_items').select('id').eq('receipt_id',rid)).data||[]).map(x=>x.id);
@@ -1057,7 +1060,7 @@ async function _save(){
   if(oldI.length)await sb.from('receipt_items').delete().in('id',oldI);
   let warn=null;
   if(localStorage.getItem('share')!=='0'){
-    const seenK=new Set(),pp=[];for(const i of items){const pk=nk(i.name);if(i.total_price>0&&pk&&!seenK.has(pk)){seenK.add(pk);pp.push({receipt_id:rid,currency:draft.currency||'ARS',store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:pk,category:i.category,subcategory:nk(i.subcategory)||null,description:draft.description.trim()||null,description_key:nk(draft.description)||null,qty:Math.max(0.001,Number(i.qty)||1),unit_price:round2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:round2(i.total_price),purchased_at:draft.date})}}
+    const seenK=new Set(),pp=[];for(const i of items){const pk=nk(i.name);if(i.total_price>0&&pk&&!seenK.has(pk)){seenK.add(pk);pp.push({receipt_id:rid,currency:draft.currency||'ARS',store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:pk,category:i.category,subcategory:nk(i.subcategory)||null,description:cleanDesc||null,description_key:cleanDesc?nk(cleanDesc):null,qty:Math.max(0.001,Number(i.qty)||1),unit_price:round2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:round2(i.total_price),purchased_at:draft.date})}}
     if(pp.length){const {error:e3}=await sb.from('price_points').insert(pp);if(e3)warn='La compra se guardó, pero no se pudieron compartir los precios.';else if(draft.lat==null)warn='Tus precios se compartieron sin la ubicación del local: no van a aparecer en búsquedas por zona hasta que lo ubiques en el mapa.'}
   }
   if(oldP.length)await sb.from('price_points').delete().in('id',oldP);
@@ -1647,6 +1650,25 @@ function cleanTicketAddress(raw){
 }
 const cleanAddr=cleanTicketAddress;
 
+function cleanFiscalText(s){
+  if(!s)return '';
+  let str=String(s).trim();
+  str=str.replace(/\b(?:original|duplicado|triplicado|copia)\s+a\s+consumidor\s+final\b/gi,' ');
+  str=str.replace(/\breg\.?\s*transparencia\s*fiscal(?:\s*al\s*consumidor)?(?:\s*ley\s*\d+)?\b/gi,' ');
+  str=str.replace(/\bley\s*27743\b/gi,' ');
+  str=str.replace(/\botros\s+impuestos\s+nacionales\s+indirectos\b/gi,' ');
+  str=str.replace(/\blos\s+impuestos\s+informados\s+son\s+a\s+nivel\s+nacional\b/gi,' ');
+  str=str.replace(/\bpor\s+informacion\s+referida\s+a\s+gastos\s+extra[^\n.]*/gi,' ');
+  str=str.replace(/\bseguros\s+o\s+adicionales\s+consulte\s+a\s+la\s+emisora[^\n.]*/gi,' ');
+  str=str.replace(/\bcae\s*[:#]?\s*\d+\b/gi,' ');
+  str=str.replace(/\bvto\.?\s*cae\s*[:#]?\s*\d{2}[/-]\d{2}[/-]\d{4}\b/gi,' ');
+  str=str.replace(/\b(?:p\.v\.?|pv|pto\s*vta|punto\s*de\s*venta)\s*[:#]?\s*\d+\b/gi,' ');
+  str=str.replace(/\b(?:cuit|cuil)[:\s]*\d{2}-?\d{8}-?\d\b/gi,' ');
+  str=str.replace(/\s+/g,' ').trim();
+  if(str.length<4||/^(?:original|consumidor|fiscal|ley|afip|arca|iva|cf|final)$/i.test(str))return '';
+  return str;
+}
+
 async function geocodeAddr(a){
   const q=cleanTicketAddress(a);
   if(q.length<4)return null;
@@ -1751,17 +1773,23 @@ const catOf=q=>{const w=q.split(' ');return w.length<=2?(w.map(x=>CATQ[x]).find(
 const stemW=w=>w.length>=5?w.replace(/(es|s)$/,''):w;
 const stemQ=q=>q.split(' ').map(stemW).join(' ');
 const pk=x=>(x.store+'|'+(x.store_address||'')+'|'+x.product).toLowerCase();
+const EXPAND_BLACKLIST=new Set(['original','clasica','clasico','comun','regular','tradicional','especial','premium','extra','fina','fino','blanco','negro','unidad','unidades','kilo','kilos','kg','gramo','gramos','gr','grs','litro','litros','lt','lts','ml','cc','bolsa','paquete','pack','lata','botella','caja','promo','lactea','lacteo','lacteos','pan','panaderia','mesa','comestible','alimento','producto','super','consumidor','final','ley','fiscal','transparencia','impuesto','precio','oferta','descuento']);
 async function expand(q){
-  const key=gemKey(),ck='exp2:'+q;
+  const key=gemKey(),ck='exp4:'+q;
   try{const c=localStorage.getItem(ck);if(c)return JSON.parse(c)}catch(e){}
-  const prompt=`Sos un asistente de compras de supermercados en Argentina. Un usuario busca el producto "${q}". Devolvé hasta 10 términos relacionados, todos en singular, que puedan aparecer en el nombre de ese producto en un ticket de supermercado. Si "${q}" es una categoría o tipo (por ejemplo "malbec"), devolvé marcas y variedades argentinas conocidas de esa categoría (por ejemplo Nicasia, Trapiche, Rutini). Si es una marca, devolvé su categoría y sus variedades. Sumá sinónimos y abreviaturas comunes de tickets. No repitas "${q}". Respondé solo JSON: {"terms":["..."]} con términos cortos, en minúsculas y sin tildes.`;
-  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(7000),body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:.2,thinkingConfig:{thinkingBudget:0}}})});
+  const prompt=`Sos un asistente de compras de supermercado en Argentina. Un usuario busca "${q}". Devolvé hasta 6 términos de marcas directas competidoras o sinónimos directos de este producto exacto (ej: para 'coca' -> ['coca cola', 'pepsi', 'gaseosa cola']; para 'leche' -> ['leche entera', 'leche descremada', 'serenisima', 'ilolay']).
+REGLAS ESTRICTAS:
+- NUNCA devuelvas adjetivos genéricos como 'original', 'clasica', 'comun', 'regular', 'tradicional'.
+- NUNCA devuelvas envases ni unidades como 'botella', 'lata', 'litro', 'kilo', 'gramos', 'bolsa'.
+- NUNCA devuelvas categorías amplias que abarquen productos distintos (para 'leche' NO devuelvas 'lactea' ni 'lacteo'; para 'carne' NO devuelvas 'alimento').
+Respondé solo JSON: {"terms":["..."]} con términos en minúsculas y sin tildes.`;
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(7000),body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:.1,thinkingConfig:{thinkingBudget:0}}})});
   const j=await r.json();if(!r.ok)throw Error(j.error?.message||'Error de Gemini');
   const c0=j.candidates&&j.candidates[0];
   const part=c0?.content?.parts?.find(p=>p.text&&!p.thought)||c0?.content?.parts?.[0];
   const tx=part?.text||'{}';
   const clean=tx.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
-  const t=[...new Set((JSON.parse(clean).terms||[]).map(nk).filter(x=>x.length>=2&&x!==q))].slice(0,10);
+  const t=[...new Set((JSON.parse(clean).terms||[]).map(nk).filter(x=>x.length>=3&&x!==q&&!EXPAND_BLACKLIST.has(x)))].slice(0,6);
   if(t.length)try{localStorage.setItem(ck,JSON.stringify(t))}catch(e){}
   return t;
 }
@@ -1823,14 +1851,54 @@ async function pGo(save){
   const {data,error}=await rpcQ(stemQ(q),cat);
   if(tok!==pTok)return;
   if(error){b.innerHTML=`<div class="card">No se pudo buscar: ${esc(error.message)}</div>`;return}
-  prRows=data||[];
+
+  const qNorm=nk(q);
+  const qWords=qNorm.split(' ').filter(w=>w.length>=2);
+  const rawRows=data||[];
+  const cleanRows=rawRows.filter(p=>{
+    const pName=nk(p.product||p.product_name||'');
+    const pSub=nk(p.subcategory||'');
+    const isTokenMatch=qWords.length>0&&qWords.every(qw=>pName.includes(qw)||pSub.includes(qw));
+    if(isTokenMatch){
+      p.is_exact=true;
+      return true;
+    }
+    if(p.desc_match)return false;
+    if(qNorm.length<5)return false;
+    if(cat&&p.category&&p.category!==cat)return false;
+    const nameWords=(pName+' '+pSub).split(' ').filter(w=>w.length>=4);
+    const hasCloseWord=qWords.some(qw=>nameWords.some(nw=>{
+      if(Math.abs(nw.length-qw.length)>1)return false;
+      let d=0;
+      for(let i=0;i<Math.min(nw.length,qw.length);i++){if(nw[i]!==qw[i])d++}
+      d+=Math.abs(nw.length-qw.length);
+      return d<=1;
+    }));
+    if(hasCloseWord){
+      p.is_exact=false;
+      return true;
+    }
+    return false;
+  });
+  prRows=cleanRows;
+
   if(save&&prRows.length)localStorage.setItem('rs',JSON.stringify([q,...recents().filter(x=>x!==q)].slice(0,6)));
   pRender(q,r,useR);
   if(!exP)return;
   const terms=await exP;
   if(tok!==pTok)return;
   if(!terms.length){prAI='done';pRender(q,r,useR);return}
-  const res=await Promise.all(terms.map(t=>rpcQ(stemQ(t)).then(x=>({t,rows:(x.data||[]).filter(y=>y.is_exact)}),()=>({t,rows:[]}))));
+  const res=await Promise.all(terms.map(t=>rpcQ(stemQ(t)).then(x=>{
+    const tNorm=nk(t);
+    const tWords=tNorm.split(' ').filter(w=>w.length>=3);
+    const valid=(x.data||[]).filter(y=>{
+      const pName=nk(y.product||y.product_name||'');
+      const pSub=nk(y.subcategory||'');
+      if(!pName)return false;
+      return tWords.length>0&&tWords.every(tw=>pName.includes(tw)||pSub.includes(tw));
+    });
+    return {t,rows:valid};
+  },()=>({t,rows:[]}))) );
   if(tok!==pTok)return;
   const seen=new Set(prRows.map(pk));
   res.forEach(({t,rows})=>{let hit=false;rows.forEach(x=>{const k=pk(x);if(seen.has(k))return;seen.add(k);hit=true;prRows.push({...x,is_exact:false,rel:t})});if(hit)prTerms.push(t)});
@@ -1850,9 +1918,13 @@ const prCard=(min,avg,anyExact)=>x=>{
   const avgBadge=canCompare?(diffAvg>5?`<span class="tag" style="background:#fee2e2;color:#991b1b">+${diffAvg}% vs promedio</span>`:diffAvg<-5?`<span class="tag" style="background:#e0f2fe;color:#0369a1">${Math.abs(diffAvg)}% bajo promedio</span>`:''):'';
   const bestBadge=best?'<span class="tag best">🏆 Más barato</span>':'';
   const diffBadge=canCompare&&!best&&diff>0?`<span class="tag">+${diff}% vs. el más barato</span>`:'';
-  return `<div class="card"><div class="row" style="border:0;align-items:flex-start;padding-top:0"><div><b>${esc(x.store)}</b><div class="mu">${esc(x.store_address||'Sin dirección')}</div></div><div class="pp"><div class="p2">${money(+x.unit_price,cu)}</div><div class="mu">${cu!==disp?(pv!=null?`≈ ${money(pv,disp)}`:'sin tipo de cambio'):'por unidad'}</div></div></div>
+  const cleanDesc=cleanFiscalText(x.description);
+  const descTag=(!isRelated&&x.desc_match&&cleanDesc)?`<span class="tag">📝 ${esc(cleanDesc)}</span>`:'';
+  const isKg=/\b(kg|kilo|kilos)\b/i.test(x.product)||['frutas','verduras','carnes'].includes(x.category);
+  const priceUnit=isKg?'por kilo':'por unidad';
+  return `<div class="card"><div class="row" style="border:0;align-items:flex-start;padding-top:0"><div><b>${esc(x.store)}</b><div class="mu">${esc(x.store_address||'Sin dirección')}</div></div><div class="pp"><div class="p2">${money(+x.unit_price,cu)}</div><div class="mu">${cu!==disp?(pv!=null?`≈ ${money(pv,disp)}`:'sin tipo de cambio'):priceUnit}</div></div></div>
   <div class="mu">${x.category&&CAT[x.category]?CAT[x.category]+' ':''}${esc(x.product)}${x.subcategory?` · ${esc(x.subcategory)}`:''}${x.rel?`<span class="sim" style="background:#e3f2e8">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim">similar</span>'}</div>
-  <div class="tags">${bestBadge}${diffBadge}${avgBadge}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">📅 ${dt} (${ago(x.purchased_at)})</span>${freshBadge}${x.desc_match&&x.description?`<span class="tag">📝 ${esc(x.description)}</span>`:''}</div>
+  <div class="tags">${bestBadge}${diffBadge}${avgBadge}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">📅 ${dt} (${ago(x.purchased_at)})</span>${freshBadge}${descTag}</div>
   <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener">Cómo llegar</a></div>`;
 };
 function pRender(q,r,useR){
@@ -1864,15 +1936,21 @@ function pRender(q,r,useR){
     return;
   }
   const disp=dispCur(),rows=[...prRows];rows.forEach(x=>{x._p=conv(+x.unit_price,x.currency||'ARS',disp)});
-  const ex=rows.some(x=>x.is_exact),cand=rows.filter(x=>(!ex||x.is_exact)&&x._p!=null).map(x=>x._p);
+  const nonRelatedRows=rows.filter(x=>!x.rel&&x.is_exact!==false&&x._p!=null);
+  const cand=(nonRelatedRows.length?nonRelatedRows:(rows.some(x=>x.is_exact)?rows.filter(x=>x.is_exact&&x._p!=null):rows.filter(x=>x._p!=null))).map(x=>x._p);
   const min=cand.length?Math.min(...cand):0;
   const max=cand.length?Math.max(...cand):0;
   const avg=cand.length?Math.round(cand.reduce((a,b)=>a+b,0)/cand.length):0;
   const spread=min>0?Math.round(((max-min)/min)*100):0;
   
-  // Calculate inflation ONLY for the EXACT same product (same brand, variant, package/size)
+  // Calculate inflation ONLY for the EXACT same product matching the user query q (same brand, variant, package/size)
   let infHtml='';
-  const exactCandidates=rows.filter(x=>x.is_exact&&x._p!=null&&x._p>0);
+  const qNorm=nk(q), qWords=qNorm.split(' ').filter(w=>w.length>=2);
+  const exactCandidates=rows.filter(x=>{
+    if(x.rel||x.is_exact===false||x._p==null||x._p<=0)return false;
+    const pName=nk(x.product||''), pSub=nk(x.subcategory||'');
+    return qWords.every(qw=>pName.includes(qw)||pSub.includes(qw));
+  });
   const exactGroups=[];
   exactCandidates.forEach(x=>{
     let grp=exactGroups.find(g=>isSameExactProduct(g.product,x.product));
@@ -1905,7 +1983,9 @@ function pRender(q,r,useR){
     const col=inf>0?'#b91c1c':inf<0?'#15803d':'#64748b';
     const icon=inf>0?'📈 ▲':inf<0?'📉 ▼':'=';
     const storeInfo=oldest.store===newest.store?`en ${esc(newest.store)}`:`de ${esc(oldest.store)} a ${esc(newest.store)}`;
-    infHtml=`<div style="background:#fff;border:1px solid #fed7aa;border-radius:10px;padding:8px 10px;margin-top:8px"><div style="font-size:.82rem;font-weight:700;color:${col}">${icon} ${inf>0?`+${inf}% de aumento (inflación)`:inf<0?`${inf}% de baja`:'Precio estable'} en ${dDays} días</div><div style="font-size:.76rem;color:#1e293b;font-weight:600;margin-top:2px">Mismo producto: <b>${esc(pName)}</b></div><div class="mu" style="font-size:.72rem;margin-top:2px">De ${money(oldest._p,disp)} (${dtOld}) a ${money(newest._p,disp)} (${dtNew}) ${storeInfo}</div></div>`;
+    const isPerKg=/\b(kg|kilo|kilos)\b/i.test(pName)||['frutas','verduras','carnes'].includes(oldest.category)||['frutas','verduras','carnes'].includes(newest.category);
+    const uLabel=isPerKg?'/kg':'';
+    infHtml=`<div style="background:#fff;border:1px solid #fed7aa;border-radius:10px;padding:8px 10px;margin-top:8px"><div style="font-size:.82rem;font-weight:700;color:${col}">${icon} ${inf>0?`+${inf}% de aumento (inflación)`:inf<0?`${inf}% de baja`:'Precio estable'} en ${dDays} días</div><div style="font-size:.76rem;color:#1e293b;font-weight:600;margin-top:2px">Mismo producto: <b>${esc(pName)}</b></div><div class="mu" style="font-size:.72rem;margin-top:2px">De ${money(oldest._p,disp)}${uLabel} (${dtOld}) a ${money(newest._p,disp)}${uLabel} (${dtNew}) ${storeInfo}${isPerKg?' (comparado por kilo)':''}</div></div>`;
   }
 
   const bestStore=(rows.find(x=>x._p===min)||{}).store||'';
