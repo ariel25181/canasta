@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-27T11:00">
+<meta name="app-version" content="2026-10-27T12:45">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -51,8 +51,8 @@ nav button.on{color:var(--g)}
 nav button.scan{background:var(--g);color:#fff;border-radius:50%;width:60px;height:60px;margin-top:-28px;font-size:1.6rem;justify-content:center;box-shadow:0 4px 12px rgba(62,142,90,.4)}
 .empty{text-align:center;padding:32px 8px;color:var(--mu)}
 #mapbox[hidden]{display:none !important}
-#mapbox{display:block;background:#fff;border:1.5px solid var(--ln);border-radius:16px;padding:12px;margin:8px 0 16px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
-#map{width:100%;height:190px;border-radius:12px;overflow:hidden;background:#e8e2d3}#map iframe{width:100%;height:100%;border:0}
+#mapbox{display:block;background:#fff;border:1.5px solid var(--ln);border-radius:16px;padding:12px;margin:6px 0 14px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+#map{width:100%;height:180px;border-radius:12px;overflow:hidden;background:#e8e2d3}#map iframe{width:100%;height:100%;border:0}
 .sb{position:sticky;top:0;background:var(--bg);padding:4px 0 8px;z-index:2}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}
 .chip{background:#fff;color:var(--tx);border:1.5px solid var(--ln);border-radius:999px;padding:7px 14px;font-weight:700;font-size:.9rem;white-space:nowrap}
@@ -65,9 +65,10 @@ nav button.scan{background:var(--g);color:#fff;border-radius:50%;width:60px;heig
 a.btn.sm{padding:8px 14px;font-size:.9rem;text-decoration:none}
 .opt{display:block;width:100%;text-align:left;background:#fff;color:var(--tx);border:1.5px solid var(--ln);border-radius:12px;padding:10px 12px;margin-bottom:6px;font-weight:400}
 .opt:hover{background:#eef6f0;color:var(--tx)}
-#mwrap{position:relative;margin:6px 0;height:190px;border-radius:12px;overflow:hidden;border:1px solid var(--ln)}#mwrap #map{height:100%;margin:0}
-#mpin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);pointer-events:none;z-index:1000;filter:drop-shadow(0 3px 4px rgba(0,0,0,.45))}
-#mgps{position:absolute;right:10px;bottom:10px;width:38px;height:38px;border-radius:50%;background:#fff;color:var(--tx);padding:0;box-shadow:0 3px 8px rgba(0,0,0,.3);font-size:1.15rem;z-index:1000;cursor:pointer;display:flex;align-items:center;justify-content:center;border:1px solid var(--ln)}
+#mwrap{position:relative;margin:6px 0;height:180px;border-radius:12px;overflow:hidden;border:1.5px solid var(--ln)}#mwrap #map{height:100%;margin:0;width:100%}
+#mpin{position:absolute;left:50%;top:50%;width:38px;height:48px;margin-left:-19px;margin-top:-48px;pointer-events:none;z-index:999999 !important;display:block !important;filter:drop-shadow(0 4px 6px rgba(0,0,0,.45))}
+#mpin svg{width:38px;height:48px;display:block}
+#mgps{position:absolute;right:8px;bottom:8px;width:38px;height:38px;border-radius:50%;background:#fff;color:var(--tx);padding:0;box-shadow:0 3px 8px rgba(0,0,0,.3);font-size:1.15rem;z-index:999999 !important;cursor:pointer;display:flex;align-items:center;justify-content:center;border:1px solid var(--ln)}
 #mmsg{margin-top:6px}
 .mhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}.mhead b{flex:1;font-size:1.02rem}.mgrp{margin:6px 0 2px}
 .it2{display:grid;grid-template-columns:1fr 1.3fr;gap:6px;margin:-2px 0 12px}.it2 select,.it2 input{font-size:.85rem;padding:7px 10px}
@@ -751,7 +752,7 @@ function form(){
   app(`<h1>${draft.id?'Editar compra':'Revisá el comprobante'}</h1>
   <div class="chips"><button type="button" class="chip ${draft.docType!=='factura'?'on':''}" onclick="draft.docType='ticket';form()">🧾 Ticket</button><button type="button" class="chip ${draft.docType==='factura'?'on':''}" onclick="draft.docType='factura';form()">📄 Factura</button></div>
   <div class="chips">${Object.keys(CUR).map(c=>`<button type="button" class="chip ${(draft.currency||'ARS')===c?'on':''}" onclick="draft.currency='${c}';form()">${CUR[c].flag} ${CUR[c].name}</button>`).join('')}</div>
-  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value">${draft.docType==='factura'?`<input placeholder="Nº de comprobante (ej: 0005-00012345)" value="${esc(draft.docNumber)}" oninput="draft.docNumber=this.value"><input placeholder="CUIT del local (opcional)" inputmode="numeric" value="${esc(draft.taxId)}" oninput="draft.taxId=this.value">`:''}<input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><button type="button" id="m-toggle-btn" class="btn" onclick="mapToggle()" style="background:#eef6f0;color:var(--g);border:1.5px solid var(--g);font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px 14px;border-radius:12px;margin:4px 0 8px">${mapShown ? '▲ Ocultar mapa' : (draft.lat!=null ? '📍 Ubicación fijada: '+esc(shortAddr(draft.address)||'En el mapa')+' ✓ (Cambiar)' : '📍 Elegir ubicación en el mapa')}</button><div id="mapbox" hidden><div class="mhead"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:1.15rem">📍</span><b>Ubicación del local</b></div><button class="x" type="button" onclick="mapClose()" aria-label="Cerrar mapa" style="font-size:1.1rem;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f3efe4;border:none;cursor:pointer">✕</button></div><div id="mtopbar" style="background:#f4fbf6;border:1.5px solid var(--g);border-radius:12px;padding:8px 10px;margin:6px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:8px"><div style="min-width:0;flex:1"><div class="mu" style="font-size:.72rem;font-weight:700;color:var(--g);text-transform:uppercase;letter-spacing:.5px">Dirección detectada</div><div id="maddr-txt" style="font-size:.88rem;font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2">${esc(draft.address || 'Mové el mapa para ubicar el local…')}</div></div><button type="button" id="mbtn-top" onclick="useFound()" style="flex:none;background:var(--g);color:#fff;font-weight:800;font-size:.85rem;padding:8px 12px;border-radius:10px;border:none;cursor:pointer;box-shadow:0 2px 6px rgba(62,142,90,.3);display:flex;align-items:center;gap:4px">📌 Fijar dirección</button></div><input id="msearch" type="search" placeholder="Buscá el local (ej: Coto, Día, Carrefour) o dirección" autocomplete="off" hidden style="margin-bottom:6px"><div id="msug"></div><div id="mchips"></div><div id="mwrap"><div id="map"></div><div id="mpin" aria-hidden="true" title="Arrastrá el mapa para mover este pin"><svg width="34" height="42" viewBox="0 0 38 48" fill="none" style="filter:drop-shadow(0 4px 6px rgba(0,0,0,.45))"><path d="M19 0C8.5 0 0 8.5 0 19c0 13.5 16.5 27.5 18.2 28.8.5.4 1.1.4 1.6 0C21.5 46.5 38 32.5 38 19 38 8.5 29.5 0 19 0z" fill="#E53935"/><circle cx="19" cy="18" r="7.5" fill="#FFFFFF"/><circle cx="19" cy="18" r="3.8" fill="#B71C1C"/></svg></div><button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button></div><div id="mmsg"></div></div></div>
+  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value">${draft.docType==='factura'?`<input placeholder="Nº de comprobante (ej: 0005-00012345)" value="${esc(draft.docNumber)}" oninput="draft.docNumber=this.value"><input placeholder="CUIT del local (opcional)" inputmode="numeric" value="${esc(draft.taxId)}" oninput="draft.taxId=this.value">`:''}<input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><button type="button" id="m-toggle-btn" class="btn" onclick="mapToggle()" style="background:#eef6f0 !important;color:#3E8E5A !important;-webkit-text-fill-color:#3E8E5A !important;border:1.5px solid #3E8E5A !important;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px 14px;border-radius:12px;margin:4px 0 8px;min-height:44px;font-size:.92rem"><span>📍</span> <span>${mapShown ? 'Ocultar mapa' : (draft.lat!=null ? 'Ubicación fijada ✓ (Cambiar)' : 'Elegir ubicación en el mapa')}</span></button><div id="mapbox" hidden style="background:#fff;border:1.5px solid var(--ln);border-radius:16px;padding:12px;margin:6px 0 14px;box-shadow:0 2px 10px rgba(0,0,0,.06)"><div class="mhead" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:1.15rem">📍</span><b style="font-size:1rem;color:var(--tx)">Ubicación en el mapa</b></div><button class="x" type="button" onclick="mapClose()" aria-label="Cerrar mapa" style="font-size:1.1rem;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f3efe4;border:none;cursor:pointer;padding:0">✕</button></div><input id="msearch" type="search" placeholder="Buscá el local (ej: Coto, Carrefour) o dirección" autocomplete="off" hidden style="margin-bottom:6px"><div id="msug"></div><div id="mchips"></div><div id="mwrap"><div id="map"></div><div id="mpin" aria-hidden="true" title="Arrastrá el mapa para mover este pin"><svg width="38" height="48" viewBox="0 0 38 48" fill="none"><path d="M19 0C8.5 0 0 8.5 0 19c0 13.5 16.5 27.5 18.2 28.8.5.4 1.1.4 1.6 0C21.5 46.5 38 32.5 38 19 38 8.5 29.5 0 19 0z" fill="#E53935"/><circle cx="19" cy="18" r="7.5" fill="#FFFFFF"/><circle cx="19" cy="18" r="3.8" fill="#B71C1C"/></svg></div><button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button></div><div id="mmsg"></div></div></div>
   <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
   ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>${subRow(i,k)}`).join('')}
   <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros',subcategory:''});form()">+ Agregar producto</button></p>
@@ -1343,7 +1344,7 @@ async function mapOpen(){
   const b=$('#mapbox');if(!b)return;
   b.hidden=false;
   const btn=$('#m-toggle-btn');
-  if(btn)btn.innerHTML='▲ Ocultar mapa';
+  if(btn)btn.innerHTML='<span>▲</span> <span>Ocultar mapa</span>';
   b.scrollIntoView({behavior:'smooth',block:'nearest'});
   if(draft.address&&draft.address.trim()&&draft.lat!=null){
     found={name:draft.store||'',addr:draft.address,loc:{lat:draft.lat,lng:draft.lng}};
@@ -1371,8 +1372,8 @@ function mapClose(){
   const btn=$('#m-toggle-btn');
   if(btn){
     btn.innerHTML=draft.lat!=null
-      ? `📍 Ubicación fijada: <b>${esc(shortAddr(draft.address)||'En el mapa')}</b> ✓ (Cambiar)`
-      : `📍 Elegir ubicación en el mapa`;
+      ? `<span>📍</span> <span>Ubicación fijada ✓ (Cambiar)</span>`
+      : `<span>📍</span> <span>Elegir ubicación en el mapa</span>`;
   }
 }
 
@@ -1531,7 +1532,11 @@ async function mapJs(key,c,q){
     if(start&&start.addr){found={name:'',addr:shortAddr(start.addr),loc:ll(start.loc)};lockUntil=Date.now()+2500;showFound()}
     const inp=$('#msearch');inp.hidden=false;inp.value=q||'';
     inp.oninput=()=>{clearTimeout(sugT);sugT=setTimeout(()=>suggest(inp.value),250)};
-    if(q&&!start)suggest(q);
+    const pin=$('#mpin');if(pin)pin.style.display='block';
+    const gps=$('#mgps');if(gps)gps.style.display='flex';
+    setTimeout(()=>{
+      if(gm&&window.google){google.maps.event.trigger(gm,'resize');gm.setCenter(center);}
+    },100);
     loadChips(c);mapReady=true;
   }catch(err){
     console.warn('Google Maps error, falling back to OpenStreetMap:',err);
@@ -1569,22 +1574,19 @@ function showFound(){
   const addrText=hasAddr?found.addr:(mapReady?'Mové el mapa para colocar el pin sobre el local…':'Leyendo dirección…');
   const storeName=found&&found.name?found.name:'';
 
-  const topTxt=$('#maddr-txt');
-  if(topTxt)topTxt.textContent=storeName?`${storeName} · ${addrText}`:addrText;
-  const topBtn=$('#mbtn-top');
-  if(topBtn)topBtn.disabled=!(hasAddr||found?.loc);
-
   const m=$('#mmsg');if(!m)return;
-  m.innerHTML=`<div style="background:#f8faf8;border:1.5px solid ${hasAddr?'var(--g)':'var(--ln)'};border-radius:12px;padding:8px 12px;margin-top:6px">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
-      <div class="mu" style="display:flex;align-items:center;gap:6px;font-size:.76rem">
+  m.innerHTML=`<div style="background:#f8faf8;border:1.5px solid ${hasAddr?'#3E8E5A':'var(--ln)'};border-radius:12px;padding:10px 12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px">
+      <div class="mu" style="display:flex;align-items:center;gap:6px;font-size:.76rem;color:#475569">
         <span style="display:inline-block;width:8px;height:8px;background:#e53935;border-radius:50%"></span>
-        ${storeName?'<b>'+esc(storeName)+'</b>':'Dirección bajo el pin rojo'}
+        <span>${storeName?'<b>'+esc(storeName)+'</b>':'Dirección bajo el pin rojo'}</span>
       </div>
-      ${found&&found.loc?`<span class="mu" style="font-size:.7rem">${found.loc.lat.toFixed(4)}, ${found.loc.lng.toFixed(4)}</span>`:''}
+      ${found&&found.loc?`<span class="mu" style="font-size:.7rem;color:#64748b">${found.loc.lat.toFixed(4)}, ${found.loc.lng.toFixed(4)}</span>`:''}
     </div>
-    <div style="font-size:.88rem;font-weight:700;margin:3px 0 6px;color:#1e293b;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(addrText)}</div>
-    <button type="button" onclick="useFound()" ${hasAddr||found?.loc?'':'disabled'} style="width:100%;font-size:.95rem;padding:8px;font-weight:700;border-radius:10px">📌 Fijar dirección</button>
+    <div style="font-size:.92rem;font-weight:700;margin:0 0 10px;color:#1e293b;line-height:1.25;word-break:break-word">${esc(addrText)}</div>
+    <button type="button" id="mbtn-save" onclick="useFound()" ${hasAddr||found?.loc?'':'disabled'} style="width:100%;font-size:1rem;font-weight:800;padding:10px 14px;background:#3E8E5A !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:none !important;border-radius:12px;box-shadow:0 3px 8px rgba(62,142,90,.35);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;min-height:46px">
+      <span>📌</span> <span>Fijar dirección</span>
+    </button>
   </div>`;
 }
 
@@ -2049,7 +2051,7 @@ async function detail(id,cur){
 async function editR(id){
   const [{data:r},{data:its=[]},{data:pp=[]}]=await Promise.all([sb.from('receipts').select('*').eq('id',id).single(),sb.from('receipt_items').select('*').eq('receipt_id',id),sb.from('price_points').select('lat,lng').eq('receipt_id',id).limit(1)]);
   if(!r)return toast('No se pudo cargar la compra');
-  mapShown=!!r.store_address;
+  mapShown=false;
   draft={id,currency:r.currency||'ARS',docType:r.doc_type==='factura'?'factura':'ticket',docNumber:r.doc_number||'',taxId:r.store_tax_id||'',store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros',subcategory:i.subcategory||''}))};
   form();
 }
