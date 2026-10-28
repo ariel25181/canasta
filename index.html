@@ -2,9 +2,9 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-27T12:45">
+<meta name="app-version" content="2026-10-28T05:40">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -17,6 +17,26 @@
 <script>
 // Garantía permanente: función global de redondeo de importes a 2 decimales
 window.r2 = function(n) { return Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100; };
+
+// Bloqueo estricto de zoom con los dedos (pinch-to-zoom) y gestos para evitar desenfoque
+document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
+document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
+document.addEventListener('gestureend', function(e) { e.preventDefault(); }, { passive: false });
+document.addEventListener('touchmove', function(e) {
+  if (e.touches && e.touches.length > 1 && !e.target.closest('#map')) {
+    e.preventDefault();
+  }
+}, { passive: false });
+let _lastTouchEnd = 0;
+document.addEventListener('touchend', function(e) {
+  const now = Date.now();
+  if (now - _lastTouchEnd < 300) {
+    if (!['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) {
+      e.preventDefault();
+    }
+  }
+  _lastTouchEnd = now;
+}, { passive: false });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -25,7 +45,7 @@ window.r2 = function(n) { return Math.round(((Number(n) || 0) + Number.EPSILON) 
 <style>
 :root{--bg:#FAF7F0;--card:#fff;--g:#3E8E5A;--gd:#2f7048;--r:#D9534F;--tx:#23312A;--mu:#6b7a70;--ln:#ebe5d6}
 *{box-sizing:border-box}
-html,body{margin:0}
+html,body{margin:0;touch-action:manipulation;-webkit-text-size-adjust:100%;overscroll-behavior-y:none}
 body{background:var(--bg);color:var(--tx);font:16px/1.4 Nunito,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 calc(84px + env(safe-area-inset-bottom))}
 main{max-width:640px;margin:0 auto;padding:16px}
 h1{font-size:1.6rem;margin:8px 0 16px;font-weight:800}
@@ -42,7 +62,7 @@ button:hover,.btn:hover{background:var(--gd)}
 button.ghost{background:transparent;color:var(--g);border:2px solid var(--g)}
 button.x{background:transparent;color:var(--r);padding:6px 10px}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #9fd3b0;outline-offset:2px}
-input,select,textarea{font:inherit;resize:vertical;width:100%;padding:10px 12px;border:1.5px solid var(--ln);border-radius:12px;background:#fff;color:var(--tx)}
+input,select,textarea{font:inherit;font-size:16px !important;resize:vertical;width:100%;padding:10px 12px;border:1.5px solid var(--ln);border-radius:12px;background:#fff;color:var(--tx)}
 .it{display:grid;grid-template-columns:1fr 56px 90px 36px;gap:6px;margin-bottom:6px}
 .fields{display:grid;gap:8px;margin-bottom:12px}
 nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--ln);display:flex;justify-content:space-around;align-items:center;padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
@@ -50,9 +70,10 @@ nav button{background:none;color:var(--mu);padding:6px 8px;font-size:.78rem;disp
 nav button.on{color:var(--g)}
 nav button.scan{background:var(--g);color:#fff;border-radius:50%;width:60px;height:60px;margin-top:-28px;font-size:1.6rem;justify-content:center;box-shadow:0 4px 12px rgba(62,142,90,.4)}
 .empty{text-align:center;padding:32px 8px;color:var(--mu)}
-#mapbox[hidden]{display:none !important}
-#mapbox{display:block;background:#fff;border:1.5px solid var(--ln);border-radius:16px;padding:12px;margin:6px 0 14px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
-#map{width:100%;height:180px;border-radius:12px;overflow:hidden;background:#e8e2d3}#map iframe{width:100%;height:100%;border:0}
+#map-modal{position:fixed;inset:0;background:rgba(20,30,25,.65);z-index:99999;display:none;flex-direction:column;justify-content:flex-end}
+#map-modal[hidden]{display:none !important}
+.m-sheet{background:#fff;border-radius:22px 22px 0 0;height:90dvh;max-height:90dvh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 -8px 32px rgba(0,0,0,.35)}
+#map{width:100%;height:100%;border-radius:0;overflow:hidden;background:#e8e2d3}#map iframe{width:100%;height:100%;border:0}
 .sb{position:sticky;top:0;background:var(--bg);padding:4px 0 8px;z-index:2}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}
 .chip{background:#fff;color:var(--tx);border:1.5px solid var(--ln);border-radius:999px;padding:7px 14px;font-weight:700;font-size:.9rem;white-space:nowrap}
@@ -65,13 +86,14 @@ nav button.scan{background:var(--g);color:#fff;border-radius:50%;width:60px;heig
 a.btn.sm{padding:8px 14px;font-size:.9rem;text-decoration:none}
 .opt{display:block;width:100%;text-align:left;background:#fff;color:var(--tx);border:1.5px solid var(--ln);border-radius:12px;padding:10px 12px;margin-bottom:6px;font-weight:400}
 .opt:hover{background:#eef6f0;color:var(--tx)}
-#mwrap{position:relative;margin:6px 0;height:180px;border-radius:12px;overflow:hidden;border:1.5px solid var(--ln)}#mwrap #map{height:100%;margin:0;width:100%}
+#mwrap{position:relative;margin:0 !important;flex:1;min-height:180px;height:auto !important;border:none !important;border-radius:0 !important;background:#e8e2d3;overflow:hidden}
+#mwrap #map{height:100%;margin:0;width:100%}
 #mpin{position:absolute;left:50%;top:50%;width:38px;height:48px;margin-left:-19px;margin-top:-48px;pointer-events:none;z-index:999999 !important;display:block !important;filter:drop-shadow(0 4px 6px rgba(0,0,0,.45))}
 #mpin svg{width:38px;height:48px;display:block}
-#mgps{position:absolute;right:8px;bottom:8px;width:38px;height:38px;border-radius:50%;background:#fff;color:var(--tx);padding:0;box-shadow:0 3px 8px rgba(0,0,0,.3);font-size:1.15rem;z-index:999999 !important;cursor:pointer;display:flex;align-items:center;justify-content:center;border:1px solid var(--ln)}
-#mmsg{margin-top:6px}
+#mgps{position:absolute;right:14px;bottom:14px;width:42px;height:42px;border-radius:50%;background:#fff;color:var(--tx);padding:0;box-shadow:0 3px 10px rgba(0,0,0,.3);font-size:1.25rem;z-index:999999 !important;cursor:pointer;display:flex;align-items:center;justify-content:center;border:1px solid var(--ln)}
+#mmsg{margin:0;flex-shrink:0}
 .mhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}.mhead b{flex:1;font-size:1.02rem}.mgrp{margin:6px 0 2px}
-.it2{display:grid;grid-template-columns:1fr 1.3fr;gap:6px;margin:-2px 0 12px}.it2 select,.it2 input{font-size:.85rem;padding:7px 10px}
+.it2{display:grid;grid-template-columns:1fr 1.3fr;gap:6px;margin:-2px 0 12px}.it2 select,.it2 input{font-size:16px !important;padding:7px 10px}
 #ov{position:fixed;inset:0;background:rgba(35,49,42,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}#ov[hidden]{display:none}
 .mdl{background:#fff;border-radius:22px;padding:24px 20px;max-width:380px;width:100%;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.25);max-height:90vh;overflow:auto}
 .mdl h2{margin:0 0 8px}.mdl p{margin:6px 0}
@@ -144,6 +166,34 @@ details.hq p,details.hq ul,details.hq ol{margin:8px 0 0;color:#3b4a41}details.hq
 <body>
 <div id="toast"></div>
 <div id="ov" hidden role="dialog" aria-modal="true"><div class="mdl" id="mdl"></div></div>
+<div id="map-modal" hidden role="dialog" aria-modal="true">
+  <div class="m-sheet">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--ln);flex-shrink:0;background:#fff">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:1.25rem">📍</span>
+        <b style="font-size:1.02rem;color:var(--tx)">Ubicación en el mapa</b>
+      </div>
+      <button type="button" onclick="mapModalClose()" aria-label="Cerrar" style="background:#f3efe4;border:none;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--tx);cursor:pointer;padding:0">✕</button>
+    </div>
+    <div style="padding:10px 14px 6px;flex-shrink:0;background:#fcfbf9;border-bottom:1px solid var(--ln)">
+      <input id="msearch" type="search" placeholder="Buscá el local (ej: Carrefour, Coto) o dirección" autocomplete="off" style="margin-bottom:6px;font-size:16px !important;padding:9px 12px;border-radius:10px;background:#fff">
+      <div id="msug"></div>
+      <div id="mchips" style="max-height:56px;overflow-y:auto"></div>
+    </div>
+    <div id="mwrap">
+      <div id="map"></div>
+      <div id="mpin" aria-hidden="true" title="Arrastrá el mapa para mover este pin">
+        <svg width="38" height="48" viewBox="0 0 38 48" fill="none">
+          <path d="M19 0C8.5 0 0 8.5 0 19c0 13.5 16.5 27.5 18.2 28.8.5.4 1.1.4 1.6 0C21.5 46.5 38 32.5 38 19 38 8.5 29.5 0 19 0z" fill="#E53935"/>
+          <circle cx="19" cy="18" r="7.5" fill="#FFFFFF"/>
+          <circle cx="19" cy="18" r="3.8" fill="#B71C1C"/>
+        </svg>
+      </div>
+      <button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button>
+    </div>
+    <div id="mmsg" style="padding:12px 16px calc(14px + env(safe-area-inset-bottom, 14px));background:#fff;border-top:1.5px solid var(--ln);flex-shrink:0"></div>
+  </div>
+</div>
 <main id="app"></main>
 <nav id="nav" hidden>
   <button data-v="home">🏠<span>Inicio</span></button>
@@ -752,21 +802,27 @@ function form(){
   app(`<h1>${draft.id?'Editar compra':'Revisá el comprobante'}</h1>
   <div class="chips"><button type="button" class="chip ${draft.docType!=='factura'?'on':''}" onclick="draft.docType='ticket';form()">🧾 Ticket</button><button type="button" class="chip ${draft.docType==='factura'?'on':''}" onclick="draft.docType='factura';form()">📄 Factura</button></div>
   <div class="chips">${Object.keys(CUR).map(c=>`<button type="button" class="chip ${(draft.currency||'ARS')===c?'on':''}" onclick="draft.currency='${c}';form()">${CUR[c].flag} ${CUR[c].name}</button>`).join('')}</div>
-  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value">${draft.docType==='factura'?`<input placeholder="Nº de comprobante (ej: 0005-00012345)" value="${esc(draft.docNumber)}" oninput="draft.docNumber=this.value"><input placeholder="CUIT del local (opcional)" inputmode="numeric" value="${esc(draft.taxId)}" oninput="draft.taxId=this.value">`:''}<input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><button type="button" id="m-toggle-btn" class="btn" onclick="mapToggle()" style="background:#eef6f0 !important;color:#3E8E5A !important;-webkit-text-fill-color:#3E8E5A !important;border:1.5px solid #3E8E5A !important;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px 14px;border-radius:12px;margin:4px 0 8px;min-height:44px;font-size:.92rem"><span>📍</span> <span>${mapShown ? 'Ocultar mapa' : (draft.lat!=null ? 'Ubicación fijada ✓ (Cambiar)' : 'Elegir ubicación en el mapa')}</span></button><div id="mapbox" hidden style="background:#fff;border:1.5px solid var(--ln);border-radius:16px;padding:12px;margin:6px 0 14px;box-shadow:0 2px 10px rgba(0,0,0,.06)"><div class="mhead" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:1.15rem">📍</span><b style="font-size:1rem;color:var(--tx)">Ubicación en el mapa</b></div><button class="x" type="button" onclick="mapClose()" aria-label="Cerrar mapa" style="font-size:1.1rem;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f3efe4;border:none;cursor:pointer;padding:0">✕</button></div><input id="msearch" type="search" placeholder="Buscá el local (ej: Coto, Carrefour) o dirección" autocomplete="off" hidden style="margin-bottom:6px"><div id="msug"></div><div id="mchips"></div><div id="mwrap"><div id="map"></div><div id="mpin" aria-hidden="true" title="Arrastrá el mapa para mover este pin"><svg width="38" height="48" viewBox="0 0 38 48" fill="none"><path d="M19 0C8.5 0 0 8.5 0 19c0 13.5 16.5 27.5 18.2 28.8.5.4 1.1.4 1.6 0C21.5 46.5 38 32.5 38 19 38 8.5 29.5 0 19 0z" fill="#E53935"/><circle cx="19" cy="18" r="7.5" fill="#FFFFFF"/><circle cx="19" cy="18" r="3.8" fill="#B71C1C"/></svg></div><button type="button" id="mgps" onclick="mapGps()" aria-label="Mi ubicación">🎯</button></div><div id="mmsg"></div></div></div>
+  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value">${draft.docType==='factura'?`<input placeholder="Nº de comprobante (ej: 0005-00012345)" value="${esc(draft.docNumber)}" oninput="draft.docNumber=this.value"><input placeholder="CUIT del local (opcional)" inputmode="numeric" value="${esc(draft.taxId)}" oninput="draft.taxId=this.value">`:''}<input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><button type="button" id="m-toggle-btn" class="btn" onclick="mapModalOpen()" style="background:#eef6f0 !important;color:#3E8E5A !important;-webkit-text-fill-color:#3E8E5A !important;border:1.5px solid #3E8E5A !important;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px 14px;border-radius:12px;margin:4px 0 8px;min-height:44px;font-size:.92rem"><span>📍</span> <span>${draft.lat!=null ? (draft.address ? esc(shortAddr(draft.address)) + ' ✓ (Cambiar)' : 'Ubicación fijada ✓ (Cambiar)') : 'Elegir ubicación en el mapa'}</span></button></div>
   <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
   ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>${subRow(i,k)}`).join('')}
   <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros',subcategory:''});form()">+ Agregar producto</button></p>
   <div class="card row"><b>Total</b><b class="num">${money(t,draft.currency)}</b></div>
   ${localStorage.getItem('share')!=='0'?`<p class="mu">🔒 Tus precios se comparten de forma anónima.${draft.lat!=null?'':' Elegí el local en el mapa para que aparezcan en búsquedas por zona.'} Podés cambiarlo en Ajustes.</p>`:''}
-  <button onclick="save()">${draft.id?'Guardar cambios':'Guardar compra'}</button>${draft.id?` <button class="ghost" onclick="clearBk();go('history')">Cancelar</button>`:''}`);
-  if(mapShown)mapOpen();
+  <button onclick="save()">${draft.id?'Guardar cambios':'Guardar compra'}</button>${draft.id?` <button class="ghost" onclick="clearBk();go('history')">Cancelar</button>`:''}
+  );
 }
 /* ---------- Ventanas (modales) ---------- */
 let ovLock=false;
 function modal(h,o={}){ovLock=!!o.lock;$('#mdl').innerHTML=h;$('#ov').hidden=false;const b=$('#mdl button');if(b)b.focus()}
 function closeModal(){$('#ov').hidden=true;$('#mdl').innerHTML='';ovLock=false}
 $('#ov').onclick=e=>{if(e.target.id==='ov'&&!ovLock)closeModal()};
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!ovLock&&!$('#ov').hidden)closeModal()});
+const _mapMdl=$('#map-modal');if(_mapMdl)_mapMdl.onclick=e=>{if(e.target.id==='map-modal')mapModalClose()};
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    if(!ovLock&&!$('#ov').hidden)closeModal();
+    if($('#map-modal')&&!$('#map-modal').hidden)mapModalClose();
+  }
+});
 const T=(p,ms)=>Promise.race([p,new Promise((_,no)=>setTimeout(()=>no(Error('timeout')),ms))]);
 
 /* ---------- Guardar ---------- */
@@ -1334,55 +1390,57 @@ const shortAddr=a=>String(a||'').split(',').map(x=>x.trim().replace(/^[A-Z]?\d{4
 const hav=(a,b)=>{const r=x=>x*Math.PI/180,h=Math.sin(r(b.lat-a.lat)/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(r(b.lng-a.lng)/2)**2;return 12742*Math.asin(Math.sqrt(h))};
 function getPos(){return new Promise(ok=>{if(pos||!navigator.geolocation)return ok(pos);navigator.geolocation.getCurrentPosition(p=>{pos={lat:p.coords.latitude,lng:p.coords.longitude};ok(pos)},()=>ok(null),{timeout:10000,maximumAge:600000})})}
 
-function mapToggle(){
-  if(mapShown)mapClose();
-  else mapOpen();
-}
-
-async function mapOpen(){
+function mapModalOpen(){
   mapShown=true;mapReady=false;
-  const b=$('#mapbox');if(!b)return;
-  b.hidden=false;
-  const btn=$('#m-toggle-btn');
-  if(btn)btn.innerHTML='<span>▲</span> <span>Ocultar mapa</span>';
-  b.scrollIntoView({behavior:'smooth',block:'nearest'});
+  const mdl=$('#map-modal');
+  if(!mdl)return;
+  mdl.hidden=false;
+  mdl.style.display='flex';
+  document.body.style.overflow='hidden';
   if(draft.address&&draft.address.trim()&&draft.lat!=null){
     found={name:draft.store||'',addr:draft.address,loc:{lat:draft.lat,lng:draft.lng}};
   }
   showFound();
   const pin=$('#mpin');if(pin)pin.style.display='block';
   const gps=$('#mgps');if(gps)gps.style.display='flex';
-  const c=await getPos(),q=(draft.store||'').trim();
-  const customKey=(localStorage.getItem('mk')||'').trim();
-  if(customKey&&customKey!==DEFAULT_MAPS_KEY){
-    try{
-      await mapJs(customKey,c,q);
-      return;
-    }catch(e){
-      console.warn('Google Maps unavailable, using Leaflet OpenStreetMap:',e);
+  setTimeout(async()=>{
+    const c=await getPos(),q=(draft.store||'').trim();
+    const customKey=(localStorage.getItem('mk')||'').trim();
+    if(customKey&&customKey!==DEFAULT_MAPS_KEY){
+      try{
+        await mapJs(customKey,c,q);
+        return;
+      }catch(e){
+        console.warn('Google Maps unavailable, using Leaflet OpenStreetMap:',e);
+      }
     }
-  }
-  mapOsm(c,q);
+    mapOsm(c,q);
+  },60);
 }
 
-function mapClose(){
+function mapModalClose(){
   mapShown=false;
-  const b=$('#mapbox');
-  if(b)b.hidden=true;
+  const mdl=$('#map-modal');
+  if(mdl){
+    mdl.hidden=true;
+    mdl.style.display='none';
+  }
+  document.body.style.overflow='';
+  updateToggleBtn();
+}
+
+function updateToggleBtn(){
   const btn=$('#m-toggle-btn');
   if(btn){
     btn.innerHTML=draft.lat!=null
-      ? `<span>📍</span> <span>Ubicación fijada ✓ (Cambiar)</span>`
+      ? `<span>📍</span> <span>${draft.address ? esc(shortAddr(draft.address)) : 'Ubicación fijada'} ✓ (Cambiar)</span>`
       : `<span>📍</span> <span>Elegir ubicación en el mapa</span>`;
   }
 }
 
-function mapFull(){
-  const on=$('#mapbox').classList.toggle('full');
-  $('#mfull').textContent=on?'✕':'⛶';
-  if(lfMap){setTimeout(()=>{lfMap.invalidateSize()},100)}
-  else if(gm&&window.google){lockUntil=Date.now()+1500;setTimeout(()=>{const c=gm.getCenter();google.maps.event.trigger(gm,'resize');gm.setCenter(c)},80)}
-}
+function mapOpen(){ mapModalOpen(); }
+function mapClose(){ mapModalClose(); }
+function mapToggle(){ if(mapShown) mapModalClose(); else mapModalOpen(); }
 
 async function mapGps(){
   pos=null;const c=await getPos();
@@ -1575,17 +1633,17 @@ function showFound(){
   const storeName=found&&found.name?found.name:'';
 
   const m=$('#mmsg');if(!m)return;
-  m.innerHTML=`<div style="background:#f8faf8;border:1.5px solid ${hasAddr?'#3E8E5A':'var(--ln)'};border-radius:12px;padding:10px 12px">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px">
-      <div class="mu" style="display:flex;align-items:center;gap:6px;font-size:.76rem;color:#475569">
+  m.innerHTML=`<div style="background:#f8faf8;border:1.5px solid ${hasAddr?'#3E8E5A':'var(--ln)'};border-radius:14px;padding:12px 14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px">
+      <div class="mu" style="display:flex;align-items:center;gap:6px;font-size:.78rem;color:#475569">
         <span style="display:inline-block;width:8px;height:8px;background:#e53935;border-radius:50%"></span>
         <span>${storeName?'<b>'+esc(storeName)+'</b>':'Dirección bajo el pin rojo'}</span>
       </div>
-      ${found&&found.loc?`<span class="mu" style="font-size:.7rem;color:#64748b">${found.loc.lat.toFixed(4)}, ${found.loc.lng.toFixed(4)}</span>`:''}
+      ${found&&found.loc?`<span class="mu" style="font-size:.72rem;color:#64748b">${found.loc.lat.toFixed(4)}, ${found.loc.lng.toFixed(4)}</span>`:''}
     </div>
-    <div style="font-size:.92rem;font-weight:700;margin:0 0 10px;color:#1e293b;line-height:1.25;word-break:break-word">${esc(addrText)}</div>
-    <button type="button" id="mbtn-save" onclick="useFound()" ${hasAddr||found?.loc?'':'disabled'} style="width:100%;font-size:1rem;font-weight:800;padding:10px 14px;background:#3E8E5A !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:none !important;border-radius:12px;box-shadow:0 3px 8px rgba(62,142,90,.35);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;min-height:46px">
-      <span>📌</span> <span>Fijar dirección</span>
+    <div style="font-size:.95rem;font-weight:700;margin:0 0 12px;color:#1e293b;line-height:1.3;word-break:break-word">${esc(addrText)}</div>
+    <button type="button" id="mbtn-save" onclick="useFound()" ${hasAddr||found?.loc?'':'disabled'} style="width:100%;font-size:1.02rem;font-weight:800;padding:12px 14px;background:#2e7d32 !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:none !important;border-radius:12px;box-shadow:0 3px 10px rgba(46,125,50,.35);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px">
+      <span style="font-size:1.15rem">📌</span> <span>Fijar dirección</span>
     </button>
   </div>`;
 }
