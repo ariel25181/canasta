@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-28T17:45">
+<meta name="app-version" content="2026-10-29T11:20">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -322,7 +322,7 @@ function fxStatusText(){
 }
 const CAT={lacteos:'🥛',carnes:'🥩',panaderia:'🍞',verduras:'🥬',frutas:'🍎',bebidas:'🥤',limpieza:'🧴',almacen:'🥫',otros:'🛒'};
 const today=()=>new Date().toISOString().slice(0,10);
-let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,found=null,lastH={},curH=null,prAI='off',prTerms=[],prCat=false,revTok=0,pendingReload=false,psort='price',pTok=0,prRows=[];
+let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,found=null,lastH={},curH=null,prAI='off',prTerms=[],prCat=false,revTok=0,pendingReload=false,psort='price',pTok=0,prRows=[],currentSepaMatch=null;
 
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
 function app(h){curH=null;$('#app').innerHTML=h}
@@ -920,24 +920,25 @@ function isSameExactProduct(a,b){
 }
 function getProductMatchConfidence(a,b){
   const kA=nk(a),kB=nk(b);
-  if(kA===kB)return {level:'alta',reason:'Nombre exacto'};
+  if(kA===kB)return {level:'alta',score:1.0,reason:'Nombre exacto'};
   const eq=checkEquiv(kA,kB);
-  if(eq==='same')return {level:'alta',reason:'Confirmado por la comunidad'};
-  if(eq==='different')return {level:'rechazado',reason:'Descartado por usuarios'};
+  if(eq==='same')return {level:'alta',score:0.95,reason:'Confirmado por la comunidad'};
+  if(eq==='different')return {level:'rechazado',score:0,reason:'Descartado por usuarios'};
   const sizeRe=/(\d+(?:[.,]\d+)?)\s*(kg|g|gr|l|lt|litro|litros|ml|cc|cm3)\b/ig;
   const sA=(kA.match(sizeRe)||[]).map(normSizeStr);
   const sB=(kB.match(sizeRe)||[]).map(normSizeStr);
   if(sA.length&&sB.length&&sA[0]!==sB[0]){
-    return {level:'baja',reason:`Difieren en tamaño: ${sA[0]} vs ${sB[0]}`};
+    return {level:'baja',score:0.1,reason:`Difieren en tamaño: ${sA[0]} vs ${sB[0]}`};
   }
-  const wA=kA.split(' ').filter(w=>w.length>=3&&!/^\d+$/.test(w));
-  const wB=kB.split(' ').filter(w=>w.length>=3&&!/^\d+$/.test(w));
-  const common=wA.filter(w=>wB.includes(w));
+  const matchWord=(w,bw)=>w===bw||(bw.startsWith(w)&&bw.length-w.length<=2)||(w.startsWith(bw)&&w.length-bw.length<=2);
+  const common=wA.filter(w=>wB.some(bw=>matchWord(w,bw)));
   const union=new Set([...wA,...wB]);
   const jaccard=union.size?common.length/union.size:0;
-  if(jaccard>=0.6)return {level:'alta',reason:'Alta coincidencia de palabras'};
-  if(jaccard>=0.28)return {level:'media',reason:'Coincidencia parcial (revisar)'};
-  return {level:'baja',reason:'Pocas palabras en común'};
+  const allMatched=wA.length>0&&wA.every(qw=>wB.some(bw=>matchWord(qw,bw)));
+  const score=allMatched?Math.max(jaccard,0.5+(wA.length/(wB.length+2))):jaccard;
+  if(score>=0.5)return {level:'alta',score,reason:allMatched?'Homologado por Precios Claros':'Alta coincidencia de palabras'};
+  if(score>=0.2)return {level:'media',score,reason:'Coincidencia parcial (revisar)'};
+  return {level:'baja',score,reason:'Pocas palabras en común'};
 }
 window.confirmEquiv=function(nameA,nameB,isSame,elId){
   setEquiv(nameA,nameB,isSame);
@@ -955,23 +956,46 @@ async function matchPreciosClaros(name){
   if(!name||name.trim().length<3)return null;
   const words=nk(name).split(' ').filter(w=>w.length>=3&&!/^\d+$/.test(w));
   if(!words.length)return null;
+
+  let data=[];
+  // 1. Try local server endpoint if available
   try{
-    const q1=words[0],q2=words[1]||'';
-    let filter=`brand.ilike.%${q1}%,product.ilike.%${q1}%`;
-    if(q2)filter+=`,brand.ilike.%${q2}%,product.ilike.%${q2}%`;
-    const {data=[]}=await sb.from('ean_catalog').select('ean,brand,product,variant,size_value,size_unit,confidence').or(filter).limit(15);
-    if(!data.length)return null;
-    let best=null,maxScore=0;
-    for(const item of data){
-      const full=`${item.brand||''} ${item.product||''} ${item.size_value||''}${item.size_unit||''}`;
-      const conf=getProductMatchConfidence(name,full);
-      if(conf.score>maxScore){
-        maxScore=conf.score;
-        best={item,conf};
-      }
+    const r=await fetch(`/api/canasta/sepa-match?q=${encodeURIComponent(name)}`,{signal:AbortSignal.timeout(3500)});
+    if(r.ok){
+      const j=await r.json();
+      if(Array.isArray(j.matches)&&j.matches.length)data=j.matches;
     }
-    return best&&maxScore>=0.25?best:null;
-  }catch(e){return null}
+  }catch(e){}
+
+  // 2. Fallback to Supabase direct query
+  if(!data.length){
+    try{
+      const orClauses=[];
+      words.slice(0,3).forEach(w=>{
+        orClauses.push(`brand.ilike.%${w}%`);
+        orClauses.push(`product.ilike.%${w}%`);
+      });
+      const res=await T(sb.from('ean_catalog').select('ean,brand,product,variant,size_value,size_unit,confidence').or(orClauses.join(',')).limit(25),4000);
+      if(Array.isArray(res.data))data=res.data;
+    }catch(e){}
+  }
+
+  if(!data.length)return null;
+
+  let best=null,maxScore=0;
+  const nNorm=nk(name);
+  for(const item of data){
+    const full=`${item.brand||''} ${item.product||''} ${item.variant||''} ${item.size_value||''}${item.size_unit||''}`;
+    const conf=getProductMatchConfidence(name,full);
+    let s=conf.score||0;
+    const pNorm=nk(item.product||''), bNorm=nk(item.brand||'');
+    if(pNorm.startsWith(nNorm)||bNorm.startsWith(nNorm)) s+=0.3;
+    if(s>maxScore){
+      maxScore=s;
+      best={item,conf};
+    }
+  }
+  return best&&maxScore>=0.2?best:null;
 }
 async function computeReceiptInsights(r){
   const box=$('#post-insights');if(!box)return;
@@ -1980,6 +2004,13 @@ async function pGo(save){
     });
     prRows=cleanRows;
 
+    try{
+      currentSepaMatch=await matchPreciosClaros(q);
+      if(!currentSepaMatch&&cleanRows.length>0){
+        currentSepaMatch=await matchPreciosClaros(cleanRows[0].product);
+      }
+    }catch(e){currentSepaMatch=null}
+
     if(save&&prRows.length)localStorage.setItem('rs',JSON.stringify([q,...recents().filter(x=>x!==q)].slice(0,6)));
     pRender(q,r,useR);
     if(!exP)return;
@@ -2024,9 +2055,21 @@ const prCard=(min,avg,anyExact)=>x=>{
   const descTag=(!isRelated&&x.desc_match&&cleanDesc)?`<span class="tag">📝 ${esc(cleanDesc)}</span>`:'';
   const isKg=/\b(kg|kilo|kilos)\b/i.test(x.product)||['frutas','verduras','carnes'].includes(x.category);
   const priceUnit=isKg?'por kilo':'por unidad';
+
+  let sepaBadge='';
+  if(currentSepaMatch&&currentSepaMatch.item){
+    const sItem=currentSepaMatch.item;
+    const sBrand=nk(sItem.brand||'');
+    const sProd=nk(sItem.product||'');
+    const xName=nk(x.product||'');
+    if((sBrand&&sBrand.length>=3&&xName.includes(sBrand))||(sProd&&sProd.length>=4&&xName.includes(sProd))){
+      sepaBadge=`<span class="tag" style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;font-size:.7rem;font-weight:600">🏛️ SEPA: ${esc(sItem.brand||'')} (EAN ${esc(sItem.ean||'')})</span>`;
+    }
+  }
+
   return `<div class="card"><div class="row" style="border:0;align-items:flex-start;padding-top:0"><div><b>${esc(x.store)}</b><div class="mu">${esc(x.store_address||'Sin dirección')}</div></div><div class="pp"><div class="p2">${money(+x.unit_price,cu)}</div><div class="mu">${cu!==disp?(pv!=null?`≈ ${money(pv,disp)}`:'sin tipo de cambio'):priceUnit}</div></div></div>
   <div class="mu">${x.category&&CAT[x.category]?CAT[x.category]+' ':''}${esc(x.product)}${x.subcategory?` · ${esc(x.subcategory)}`:''}${x.rel?`<span class="sim" style="background:#e3f2e8">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim">similar</span>'}</div>
-  <div class="tags">${bestBadge}${diffBadge}${avgBadge}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">📅 ${dt} (${ago(x.purchased_at)})</span>${freshBadge}${descTag}</div>
+  <div class="tags">${bestBadge}${diffBadge}${avgBadge}${sepaBadge}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">📅 ${dt} (${ago(x.purchased_at)})</span>${freshBadge}${descTag}</div>
   <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener">Cómo llegar</a></div>`;
 };
 function pRender(q,r,useR){
@@ -2034,7 +2077,13 @@ function pRender(q,r,useR){
   if(!prRows.length){
     if(prAI==='loading'){b.innerHTML='<p class="mu">✨ Buscando productos relacionados…</p>';return}
     const nx=r===0?null:RADS[RADS.indexOf(r)+1];
-    b.innerHTML=`<div class="empty">Todavía no hay precios de "${esc(q)}" ${useR?`a menos de ${r} km`:'registrados'}.<br><br>${nx!=null?`<button onclick="setRad(${nx})">Ampliar a ${nx?nx+' km':'todos los locales'}</button>`:'Podés ser el primero: escaneá un ticket con ese producto.'}</div>`;
+    let sepaEmptyNotice='';
+    if(currentSepaMatch&&currentSepaMatch.item){
+      const it=currentSepaMatch.item;
+      const sz=it.size_value?` (${it.size_value}${it.size_unit||''})`:'';
+      sepaEmptyNotice=`<div class="card" style="background:#f8fafc;border:1.5px solid #cbd5e1;padding:12px;margin-bottom:12px;text-align:left"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="font-size:1.1rem">🏛️</span><b style="font-size:.9rem;color:#1e3a8a">Producto reconocido en Catálogo Oficial SEPA (Precios Claros)</b></div><div style="font-size:.92rem;color:#0f172a;font-weight:700">${esc(it.brand||'')} ${esc(it.product||'')}${it.variant?' · '+esc(it.variant):''}${sz}</div><div class="mu" style="font-size:.76rem;margin-top:2px">Código de barras EAN: <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px;font-family:monospace">${esc(it.ean||'')}</code></div><div style="margin-top:8px;font-size:.8rem;color:#475569">Existe en la base oficial nacional, pero todavía no hay tickets cargados por usuarios en tu zona actual. ¡Sé el primero en escanear un ticket con este producto!</div></div>`;
+    }
+    b.innerHTML=`${sepaEmptyNotice}<div class="empty">Todavía no hay precios de "${esc(q)}" ${useR?`a menos de ${r} km`:'registrados'}.<br><br>${nx!=null?`<button onclick="setRad(${nx})">Ampliar a ${nx?nx+' km':'todos los locales'}</button>`:'Podés ser el primero: escaneá un ticket con ese producto.'}</div>`;
     return;
   }
   const disp=dispCur(),rows=[...prRows];rows.forEach(x=>{x._p=conv(+x.unit_price,x.currency||'ARS',disp)});
@@ -2092,7 +2141,21 @@ function pRender(q,r,useR){
   }
 
   const bestStore=(rows.find(x=>x._p===min)||{}).store||'';
-  const benchHtml=min>0?`<div class="card" style="background:#fcfbf8;border:1.5px solid var(--ln);padding:12px;margin:8px 0 12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:.92rem;color:#1e293b">📊 Precio de Referencia: "${esc(q)}"</b><span class="tag" style="background:#e8f5e9;color:#2e7d32;font-size:.7rem">Precios Claros / Comunidad</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;margin:6px 0"><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS BARATO</div><b style="color:#2e7d32;font-size:.98rem">${money(min,disp)}</b><div class="mu" style="font-size:.65rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(bestStore)}</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">PROMEDIO</div><b style="font-size:.98rem">${money(avg,disp)}</b><div class="mu" style="font-size:.65rem">${cand.length} registros</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS CARO</div><b style="color:#c62828;font-size:.98rem">${money(max,disp)}</b><div class="mu" style="font-size:.65rem">${spread>0?`+${spread}% brecha`:'único'}</div></div></div>${infHtml}</div>`:'';
+  let sepaBanner='';
+  if(currentSepaMatch&&currentSepaMatch.item){
+    const sItem=currentSepaMatch.item;
+    const sConf=currentSepaMatch.conf||{};
+    const sSize=sItem.size_value?` (${sItem.size_value}${sItem.size_unit||''})`:'';
+    const isHigh=sConf.level==='alta';
+    const badgeColor=isHigh?'#15803d':'#b45309';
+    const badgeBg=isHigh?'#dcfce7':'#fef3c7';
+    const badgeBorder=isHigh?'#86efac':'#fde68a';
+    const certText=isHigh?'🎯 Certeza Alta: Homologado SEPA':'⚠️ Certeza Media: Aproximado';
+
+    sepaBanner=`<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:10px 12px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap"><div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:1.05rem">🏛️</span><b style="font-size:.84rem;color:#166534;letter-spacing:.2px">Catálogo Oficial SEPA (Precios Claros)</b></div><div style="font-size:.92rem;color:#0f172a;font-weight:700;margin-top:2px">${esc(sItem.brand||'')} ${esc(sItem.product||'')}${sItem.variant?' · '+esc(sItem.variant):''}${sSize}</div><div class="mu" style="font-size:.73rem;margin-top:2px">Código de barras EAN: <code style="background:#e2e8f0;padding:1px 6px;border-radius:4px;font-family:monospace">${esc(sItem.ean||'')}</code></div></div><span class="tag" style="background:${badgeBg};color:${badgeColor};border:1px solid ${badgeBorder};font-size:.7rem;font-weight:700;white-space:nowrap">${certText}</span></div></div>`;
+  }
+
+  const benchHtml=(min>0||sepaBanner)?`<div class="card" style="background:#fcfbf8;border:1.5px solid var(--ln);padding:12px;margin:8px 0 12px">${sepaBanner}${min>0?`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:.92rem;color:#1e293b">📊 Precio de Referencia: "${esc(q)}"</b><span class="tag" style="background:#e8f5e9;color:#2e7d32;font-size:.7rem">Precios Claros / Comunidad</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;margin:6px 0"><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS BARATO</div><b style="color:#2e7d32;font-size:.98rem">${money(min,disp)}</b><div class="mu" style="font-size:.65rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(bestStore)}</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">PROMEDIO</div><b style="font-size:.98rem">${money(avg,disp)}</b><div class="mu" style="font-size:.65rem">${cand.length} registros</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS CARO</div><b style="color:#c62828;font-size:.98rem">${money(max,disp)}</b><div class="mu" style="font-size:.65rem">${spread>0?`+${spread}% brecha`:'único'}</div></div></div>${infHtml}`:''}</div>`:'';
 
   rows.sort({price:(a,c)=>(c.is_exact-a.is_exact)||((a._p??1e18)-(c._p??1e18)),near:(a,c)=>(a.distance_km??1e9)-(c.distance_km??1e9),recent:(a,c)=>c.purchased_at.localeCompare(a.purchased_at)}[psort]);
   const n=new Set(rows.map(x=>x.store.toLowerCase()+'|'+(x.store_address||''))).size;
