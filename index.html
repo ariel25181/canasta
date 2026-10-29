@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-29T11:20">
+<meta name="app-version" content="2026-10-29T16:50">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -954,20 +954,36 @@ window.confirmEquiv=function(nameA,nameB,isSame,elId){
 };
 async function matchPreciosClaros(name){
   if(!name||name.trim().length<3)return null;
+  const cleanQ=name.replace(/[^\w\s]/gi,' ').trim();
   const words=nk(name).split(' ').filter(w=>w.length>=3&&!/^\d+$/.test(w));
   if(!words.length)return null;
 
   let data=[];
-  // 1. Try local server endpoint if available
-  try{
-    const r=await fetch(`/api/canasta/sepa-match?q=${encodeURIComponent(name)}`,{signal:AbortSignal.timeout(3500)});
-    if(r.ok){
-      const j=await r.json();
-      if(Array.isArray(j.matches)&&j.matches.length)data=j.matches;
-    }
-  }catch(e){}
+  let serverRefPrice=null;
 
-  // 2. Fallback to Supabase direct query
+  // 1. Try local server endpoint or Cloud Run backend (with CORS)
+  const canastaApiOrigin=window.location.hostname.includes('github.io')
+    ? 'https://ais-dev-dnawz6iit4o5vfytkjn6mg-151039245127.us-east1.run.app'
+    : '';
+  const endpoints=[
+    `${canastaApiOrigin}/api/canasta/sepa-match?q=${encodeURIComponent(name)}`,
+    `/api/canasta/sepa-match?q=${encodeURIComponent(name)}`
+  ];
+  for(const ep of endpoints){
+    try{
+      const r=await fetch(ep,{signal:AbortSignal.timeout(3500)});
+      if(r.ok){
+        const j=await r.json();
+        if(Array.isArray(j.matches)&&j.matches.length){
+          data=j.matches;
+          if(j.refPriceData)serverRefPrice=j.refPriceData;
+          break;
+        }
+      }
+    }catch(e){}
+  }
+
+  // 2. Client-side fallback using standard public Supabase client
   if(!data.length){
     try{
       const orClauses=[];
@@ -976,7 +992,7 @@ async function matchPreciosClaros(name){
         orClauses.push(`product.ilike.%${w}%`);
       });
       const res=await T(sb.from('ean_catalog').select('ean,brand,product,variant,size_value,size_unit,confidence').or(orClauses.join(',')).limit(25),4000);
-      if(Array.isArray(res.data))data=res.data;
+      if(Array.isArray(res.data)&&res.data.length)data=res.data;
     }catch(e){}
   }
 
@@ -995,7 +1011,38 @@ async function matchPreciosClaros(name){
       best={item,conf};
     }
   }
-  return best&&maxScore>=0.2?best:null;
+
+  if(!best||maxScore<0.2)return null;
+
+  if(serverRefPrice){
+    Object.assign(best,serverRefPrice);
+  }
+
+  // Retrieve community benchmark prices if not already provided
+  if(!best.refPrice){
+    try{
+      let qb=sb.from('price_points').select('unit_price,store,purchased_at');
+      if(best.item.ean){
+        qb=qb.or(`ean.eq.${best.item.ean},product_key.ilike.%${cleanQ}%`);
+      }else{
+        qb=qb.or(`product_key.ilike.%${cleanQ}%,product_name.ilike.%${cleanQ}%`);
+      }
+      const {data:pj}=await T(qb.order('purchased_at',{ascending:false}).limit(25),3000);
+      if(Array.isArray(pj)&&pj.length){
+        const validP=pj.map(p=>+p.unit_price).filter(p=>p>0);
+        if(validP.length){
+          best.refPrice=Math.round(validP.reduce((a,b)=>a+b,0)/validP.length);
+          best.minPrice=Math.min(...validP);
+          best.maxPrice=Math.max(...validP);
+          best.priceCount=validP.length;
+          best.sampleStore=pj[0].store;
+          best.sampleDate=pj[0].purchased_at;
+        }
+      }
+    }catch(e){}
+  }
+
+  return best;
 }
 async function computeReceiptInsights(r){
   const box=$('#post-insights');if(!box)return;
@@ -2056,20 +2103,30 @@ const prCard=(min,avg,anyExact)=>x=>{
   const isKg=/\b(kg|kilo|kilos)\b/i.test(x.product)||['frutas','verduras','carnes'].includes(x.category);
   const priceUnit=isKg?'por kilo':'por unidad';
 
-  let sepaBadge='';
+  let sepaBadge='', sepaDiffBadge='';
   if(currentSepaMatch&&currentSepaMatch.item){
     const sItem=currentSepaMatch.item;
     const sBrand=nk(sItem.brand||'');
     const sProd=nk(sItem.product||'');
     const xName=nk(x.product||'');
-    if((sBrand&&sBrand.length>=3&&xName.includes(sBrand))||(sProd&&sProd.length>=4&&xName.includes(sProd))){
-      sepaBadge=`<span class="tag" style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;font-size:.7rem;font-weight:600">🏛️ SEPA: ${esc(sItem.brand||'')} (EAN ${esc(sItem.ean||'')})</span>`;
+    const isSepa=(sBrand&&sBrand.length>=3&&xName.includes(sBrand))||(sProd&&sProd.length>=4&&xName.includes(sProd));
+    if(isSepa){
+      sepaBadge=`<span class="tag" style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;font-size:.7rem;font-weight:700">🏛️ SEPA: ${esc(sItem.brand||'')} (EAN ${esc(sItem.ean||'')})</span>`;
+      const sRef=currentSepaMatch.refPrice;
+      if(sRef>0&&pv!=null&&pv>0){
+        const sDiff=Math.round((pv/sRef-1)*100);
+        if(sDiff<-3){
+          sepaDiffBadge=`<span class="tag" style="background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;font-size:.7rem;font-weight:700">🟢 ${Math.abs(sDiff)}% bajo ref. SEPA</span>`;
+        }else if(sDiff>3){
+          sepaDiffBadge=`<span class="tag" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;font-size:.7rem;font-weight:700">🔴 +${sDiff}% sobre ref. SEPA</span>`;
+        }
+      }
     }
   }
 
   return `<div class="card"><div class="row" style="border:0;align-items:flex-start;padding-top:0"><div><b>${esc(x.store)}</b><div class="mu">${esc(x.store_address||'Sin dirección')}</div></div><div class="pp"><div class="p2">${money(+x.unit_price,cu)}</div><div class="mu">${cu!==disp?(pv!=null?`≈ ${money(pv,disp)}`:'sin tipo de cambio'):priceUnit}</div></div></div>
   <div class="mu">${x.category&&CAT[x.category]?CAT[x.category]+' ':''}${esc(x.product)}${x.subcategory?` · ${esc(x.subcategory)}`:''}${x.rel?`<span class="sim" style="background:#e3f2e8">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim">similar</span>'}</div>
-  <div class="tags">${bestBadge}${diffBadge}${avgBadge}${sepaBadge}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">📅 ${dt} (${ago(x.purchased_at)})</span>${freshBadge}${descTag}</div>
+  <div class="tags">${bestBadge}${diffBadge}${avgBadge}${sepaBadge}${sepaDiffBadge}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">📅 ${dt} (${ago(x.purchased_at)})</span>${freshBadge}${descTag}</div>
   <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener">Cómo llegar</a></div>`;
 };
 function pRender(q,r,useR){
@@ -2081,7 +2138,11 @@ function pRender(q,r,useR){
     if(currentSepaMatch&&currentSepaMatch.item){
       const it=currentSepaMatch.item;
       const sz=it.size_value?` (${it.size_value}${it.size_unit||''})`:'';
-      sepaEmptyNotice=`<div class="card" style="background:#f8fafc;border:1.5px solid #cbd5e1;padding:12px;margin-bottom:12px;text-align:left"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="font-size:1.1rem">🏛️</span><b style="font-size:.9rem;color:#1e3a8a">Producto reconocido en Catálogo Oficial SEPA (Precios Claros)</b></div><div style="font-size:.92rem;color:#0f172a;font-weight:700">${esc(it.brand||'')} ${esc(it.product||'')}${it.variant?' · '+esc(it.variant):''}${sz}</div><div class="mu" style="font-size:.76rem;margin-top:2px">Código de barras EAN: <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px;font-family:monospace">${esc(it.ean||'')}</code></div><div style="margin-top:8px;font-size:.8rem;color:#475569">Existe en la base oficial nacional, pero todavía no hay tickets cargados por usuarios en tu zona actual. ¡Sé el primero en escanear un ticket con este producto!</div></div>`;
+      const refP=currentSepaMatch.refPrice;
+      const minP=currentSepaMatch.minPrice;
+      const disp=dispCur();
+      const sampleInfo=currentSepaMatch.sampleStore?`en ${esc(currentSepaMatch.sampleStore)} (${ago(currentSepaMatch.sampleDate||today())})`:'en la red comunitaria';
+      sepaEmptyNotice=`<div class="card" style="background:#f0fdf4;border:2px solid #22c55e;border-radius:12px;padding:12px 14px;margin-bottom:14px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap"><div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:1.15rem">🏛️</span><b style="font-size:.88rem;color:#166534">Catálogo Oficial SEPA (Precios Claros)</b></div><div style="font-size:.98rem;color:#0f172a;font-weight:800;margin-top:2px">${esc(it.brand||'')} ${esc(it.product||'')}${it.variant?' · '+esc(it.variant):''}${sz}</div><div class="mu" style="font-size:.74rem;margin-top:2px">Código EAN: <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px;font-family:monospace">${esc(it.ean||'')}</code></div></div><span class="tag" style="background:#dcfce7;color:#15803d;border:1px solid #86efac;font-size:.72rem;font-weight:700">🎯 Certeza Alta: Homologado SEPA</span></div>${refP>0?`<div style="background:#ffffff;border:1.5px solid #86efac;border-radius:8px;padding:10px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:.82rem;color:#166534">PRECIO DE REFERENCIA SEPA:</b><div class="mu" style="font-size:.72rem">Registrado ${sampleInfo}</div></div><div style="text-align:right"><b style="font-size:1.32rem;color:#15803d;font-weight:800">${money(refP,disp)}</b>${minP&&minP<refP?`<div style="font-size:.7rem;color:#166534">desde <b>${money(minP,disp)}</b></div>`:''}</div></div>`:''}<div style="margin-top:10px;font-size:.8rem;color:#475569">No hay tickets registrados a menos de <b>${r?r+' km':'esta distancia'}</b> de tu ubicación actual. Podés ampliar el radio de búsqueda arriba o ser el primero en cargar un ticket en tu zona.</div></div>`;
     }
     b.innerHTML=`${sepaEmptyNotice}<div class="empty">Todavía no hay precios de "${esc(q)}" ${useR?`a menos de ${r} km`:'registrados'}.<br><br>${nx!=null?`<button onclick="setRad(${nx})">Ampliar a ${nx?nx+' km':'todos los locales'}</button>`:'Podés ser el primero: escaneá un ticket con ese producto.'}</div>`;
     return;
@@ -2152,17 +2213,20 @@ function pRender(q,r,useR){
     const badgeBorder=isHigh?'#86efac':'#fde68a';
     const certText=isHigh?'🎯 Certeza Alta: Homologado SEPA':'⚠️ Certeza Media: Aproximado';
 
-    sepaBanner=`<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:10px 12px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap"><div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:1.05rem">🏛️</span><b style="font-size:.84rem;color:#166534;letter-spacing:.2px">Catálogo Oficial SEPA (Precios Claros)</b></div><div style="font-size:.92rem;color:#0f172a;font-weight:700;margin-top:2px">${esc(sItem.brand||'')} ${esc(sItem.product||'')}${sItem.variant?' · '+esc(sItem.variant):''}${sSize}</div><div class="mu" style="font-size:.73rem;margin-top:2px">Código de barras EAN: <code style="background:#e2e8f0;padding:1px 6px;border-radius:4px;font-family:monospace">${esc(sItem.ean||'')}</code></div></div><span class="tag" style="background:${badgeBg};color:${badgeColor};border:1px solid ${badgeBorder};font-size:.7rem;font-weight:700;white-space:nowrap">${certText}</span></div></div>`;
+    const sepaRefPrice=currentSepaMatch.refPrice||avg;
+    const sepaMinPrice=currentSepaMatch.minPrice||min;
+    const sampleInfo=currentSepaMatch.sampleStore?` · en ${esc(currentSepaMatch.sampleStore)} (${ago(currentSepaMatch.sampleDate||today())})`:'';
+
+    sepaBanner=`<div style="background:#f0fdf4;border:2px solid #22c55e;border-radius:12px;padding:12px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap"><div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:1.15rem">🏛️</span><b style="font-size:.88rem;color:#166534;letter-spacing:.2px">Catálogo Oficial SEPA (Precios Claros)</b></div><div style="font-size:.96rem;color:#0f172a;font-weight:800;margin-top:2px">${esc(sItem.brand||'')} ${esc(sItem.product||'')}${sItem.variant?' · '+esc(sItem.variant):''}${sSize}</div><div class="mu" style="font-size:.73rem;margin-top:2px">Código de barras EAN: <code style="background:#e2e8f0;padding:1px 6px;border-radius:4px;font-family:monospace">${esc(sItem.ean||'')}</code></div></div><span class="tag" style="background:${badgeBg};color:${badgeColor};border:1px solid ${badgeBorder};font-size:.72rem;font-weight:700;white-space:nowrap">${certText}</span></div>${sepaRefPrice>0?`<div style="background:#ffffff;border:1.5px solid #86efac;border-radius:8px;padding:8px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:.82rem;color:#166534">PRECIO DE REFERENCIA SEPA:</b><div class="mu" style="font-size:.72rem">Calculado para este producto homologado${sampleInfo}</div></div><div style="text-align:right"><b style="font-size:1.32rem;color:#15803d;font-weight:800">${money(sepaRefPrice,disp)}</b>${sepaMinPrice>0&&sepaMinPrice<sepaRefPrice?`<div style="font-size:.7rem;color:#166534">mínimo <b>${money(sepaMinPrice,disp)}</b></div>`:''}</div></div>`:''}</div>`;
   }
 
-  const benchHtml=(min>0||sepaBanner)?`<div class="card" style="background:#fcfbf8;border:1.5px solid var(--ln);padding:12px;margin:8px 0 12px">${sepaBanner}${min>0?`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:.92rem;color:#1e293b">📊 Precio de Referencia: "${esc(q)}"</b><span class="tag" style="background:#e8f5e9;color:#2e7d32;font-size:.7rem">Precios Claros / Comunidad</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;margin:6px 0"><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS BARATO</div><b style="color:#2e7d32;font-size:.98rem">${money(min,disp)}</b><div class="mu" style="font-size:.65rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(bestStore)}</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">PROMEDIO</div><b style="font-size:.98rem">${money(avg,disp)}</b><div class="mu" style="font-size:.65rem">${cand.length} registros</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS CARO</div><b style="color:#c62828;font-size:.98rem">${money(max,disp)}</b><div class="mu" style="font-size:.65rem">${spread>0?`+${spread}% brecha`:'único'}</div></div></div>${infHtml}`:''}</div>`:'';
+  const benchHtml=(min>0||sepaBanner)?`<div class="card" style="background:#fcfbf8;border:1.5px solid var(--ln);padding:12px;margin:8px 0 12px">${sepaBanner}${min>0?`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:.92rem;color:#1e293b">📊 Comparativa en tu zona: "${esc(q)}"</b><span class="tag" style="background:#e8f5e9;color:#2e7d32;font-size:.7rem">${cand.length} ticket${cand.length===1?'':'s'} reportados</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;margin:6px 0"><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS BARATO</div><b style="color:#2e7d32;font-size:.98rem">${money(min,disp)}</b><div class="mu" style="font-size:.65rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(bestStore)}</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">PROMEDIO ZONA</div><b style="font-size:.98rem">${money(avg,disp)}</b><div class="mu" style="font-size:.65rem">${cand.length} registros</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS CARO</div><b style="color:#c62828;font-size:.98rem">${money(max,disp)}</b><div class="mu" style="font-size:.65rem">${spread>0?`+${spread}% brecha`:'único'}</div></div></div>${infHtml}`:''}</div>`:'';
 
   rows.sort({price:(a,c)=>(c.is_exact-a.is_exact)||((a._p??1e18)-(c._p??1e18)),near:(a,c)=>(a.distance_km??1e9)-(c.distance_km??1e9),recent:(a,c)=>c.purchased_at.localeCompare(a.purchased_at)}[psort]);
   const n=new Set(rows.map(x=>x.store.toLowerCase()+'|'+(x.store_address||''))).size;
   b.innerHTML=`${benchHtml}<div class="mu" style="margin:4px 0 8px">${n} local${n===1?'':'es'}${useR?` a menos de ${r} km`:''} ${prCat||!min?'':` · desde <b class="num">${money(min,disp)}</b>`}</div>${prNote()}
   <div class="chips">${[['price','Más barato'],['near','Más cerca'],['recent','Más reciente']].map(([k,l])=>`<button class="chip ${psort===k?'on':''}" onclick="psort='${k}';pRender('${q}',${r},${useR})">${l}</button>`).join('')}</div>${rows.map(prCard(min,avg,ex)).join('')}`;
 }
-
 
 /* ---------- History ---------- */
 async function history(silent){
