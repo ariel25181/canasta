@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-28T07:59">
+<meta name="app-version" content="2026-10-28T17:45">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -1906,98 +1906,105 @@ async function pGo(save){
   const q=nk($('#pq').value),tok=++pTok,b=$('#pbody');
   if(q.length<2){b.innerHTML=prHome(recents());return}
   b.innerHTML='<p class="mu">Buscando…</p>';
-  await getPos();pLoc();
-  const r=rad(),useR=r>0&&!!pos;
-  const rpcQ=async(t,c)=>{
-    const res=await sb.rpc('search_prices',{q:t,user_lat:pos?pos.lat:null,user_lng:pos?pos.lng:null,radius_km:useR?r:null,cat:c||null});
-    if(!res.error)return res;
-    try{
-      let qb=sb.from('price_points').select('*');
-      if(c)qb=qb.eq('category',c);
-      else qb=qb.or(`product_key.ilike.%${t}%,subcategory.ilike.%${t}%,product_name.ilike.%${t}%`);
-      const {data:raw,error:err2}=await qb.order('unit_price',{ascending:true}).limit(80);
-      if(err2||!raw)return res;
-      let mapped=raw.map(p=>{
-        const dkm=(pos&&p.lat!=null)?hav(pos,{lat:p.lat,lng:p.lng}):null;
-        return {
-          product:p.product_name,
-          unit_price:p.unit_price,
-          currency:p.currency||'ARS',
-          store:p.store,
-          store_address:p.store_address,
-          lat:p.lat,
-          lng:p.lng,
-          category:p.category,
-          subcategory:p.subcategory,
-          description:p.description,
-          purchased_at:p.purchased_at,
-          is_exact:nk(p.product_key||p.product_name).includes(nk(t)),
-          distance_km:dkm
-        };
-      });
-      if(useR&&r>0)mapped=mapped.filter(x=>x.distance_km==null||x.distance_km<=r);
-      return {data:mapped,error:null};
-    }catch(e){return res;}
-  };
-  const cat=catOf(q),was=prCat;prCat=!!cat;if(prCat!==was)psort=prCat?(pos?'near':'recent'):'price';
-  const aiOn=!cat&&!!gemKey()&&localStorage.getItem('ai')!=='0';
-  prAI=aiOn?'loading':(cat||gemKey()?'off':'nokey');prTerms=[];
-  const exP=aiOn?expand(q).catch(()=>[]):null;
-  const {data,error}=await rpcQ(stemQ(q),cat);
-  if(tok!==pTok)return;
-  if(error){b.innerHTML=`<div class="card">No se pudo buscar: ${esc(error.message)}</div>`;return}
+  try{
+    await getPos();pLoc();
+    const r=rad(),useR=r>0&&!!pos;
+    const rpcQ=async(t,c)=>{
+      try{
+        const res=await T(sb.rpc('search_prices',{q:t,user_lat:pos?pos.lat:null,user_lng:pos?pos.lng:null,radius_km:useR?r:null,cat:c||null}),9000);
+        if(!res.error)return res;
+      }catch(e){}
+      try{
+        let qb=sb.from('price_points').select('*');
+        if(c)qb=qb.eq('category',c);
+        else qb=qb.or(`product_key.ilike.%${t}%,subcategory.ilike.%${t}%,product_name.ilike.%${t}%`);
+        const {data:raw,error:err2}=await T(qb.order('unit_price',{ascending:true}).limit(80),9000);
+        if(err2||!raw)return {data:[],error:null};
+        let mapped=raw.map(p=>{
+          const dkm=(pos&&p.lat!=null)?hav(pos,{lat:p.lat,lng:p.lng}):null;
+          return {
+            product:p.product_name,
+            unit_price:p.unit_price,
+            currency:p.currency||'ARS',
+            store:p.store,
+            store_address:p.store_address,
+            lat:p.lat,
+            lng:p.lng,
+            category:p.category,
+            subcategory:p.subcategory,
+            description:p.description,
+            purchased_at:p.purchased_at,
+            is_exact:nk(p.product_key||p.product_name).includes(nk(t)),
+            distance_km:dkm
+          };
+        });
+        if(useR&&r>0)mapped=mapped.filter(x=>x.distance_km==null||x.distance_km<=r);
+        return {data:mapped,error:null};
+      }catch(e){return {data:[],error:null};}
+    };
+    const cat=catOf(q),was=prCat;prCat=!!cat;if(prCat!==was)psort=prCat?(pos?'near':'recent'):'price';
+    const aiOn=!cat&&!!gemKey()&&localStorage.getItem('ai')!=='0';
+    prAI=aiOn?'loading':(cat||gemKey()?'off':'nokey');prTerms=[];
+    const exP=aiOn?expand(q).catch(()=>[]):null;
+    const {data,error}=await rpcQ(stemQ(q),cat);
+    if(tok!==pTok)return;
+    if(error){b.innerHTML=`<div class="card">No se pudo buscar: ${esc(error.message)}</div>`;return}
 
-  const qNorm=nk(q);
-  const qWords=qNorm.split(' ').filter(w=>w.length>=2);
-  const rawRows=data||[];
-  const cleanRows=rawRows.filter(p=>{
-    const pName=nk(p.product||p.product_name||'');
-    const pSub=nk(p.subcategory||'');
-    const isTokenMatch=qWords.length>0&&qWords.every(qw=>pName.includes(qw)||pSub.includes(qw));
-    if(isTokenMatch){
-      p.is_exact=true;
-      return true;
-    }
-    if(p.desc_match)return false;
-    if(qNorm.length<5)return false;
-    if(cat&&p.category&&p.category!==cat)return false;
-    const nameWords=(pName+' '+pSub).split(' ').filter(w=>w.length>=4);
-    const hasCloseWord=qWords.some(qw=>nameWords.some(nw=>{
-      if(Math.abs(nw.length-qw.length)>1)return false;
-      let d=0;
-      for(let i=0;i<Math.min(nw.length,qw.length);i++){if(nw[i]!==qw[i])d++}
-      d+=Math.abs(nw.length-qw.length);
-      return d<=1;
-    }));
-    if(hasCloseWord){
-      p.is_exact=false;
-      return true;
-    }
-    return false;
-  });
-  prRows=cleanRows;
-
-  if(save&&prRows.length)localStorage.setItem('rs',JSON.stringify([q,...recents().filter(x=>x!==q)].slice(0,6)));
-  pRender(q,r,useR);
-  if(!exP)return;
-  const terms=await exP;
-  if(tok!==pTok)return;
-  if(!terms.length){prAI='done';pRender(q,r,useR);return}
-  const res=await Promise.all(terms.map(t=>rpcQ(stemQ(t)).then(x=>{
-    const tNorm=nk(t);
-    const tWords=tNorm.split(' ').filter(w=>w.length>=3);
-    const valid=(x.data||[]).filter(y=>{
-      const pName=nk(y.product||y.product_name||'');
-      const pSub=nk(y.subcategory||'');
-      if(!pName)return false;
-      return tWords.length>0&&tWords.every(tw=>pName.includes(tw)||pSub.includes(tw));
+    const qNorm=nk(q);
+    const qWords=qNorm.split(' ').filter(w=>w.length>=2);
+    const rawRows=data||[];
+    const cleanRows=rawRows.filter(p=>{
+      const pName=nk(p.product||p.product_name||'');
+      const pSub=nk(p.subcategory||'');
+      const isTokenMatch=qWords.length>0&&qWords.every(qw=>pName.includes(qw)||pSub.includes(qw));
+      if(isTokenMatch){
+        p.is_exact=true;
+        return true;
+      }
+      if(p.desc_match)return false;
+      if(qNorm.length<5)return false;
+      if(cat&&p.category&&p.category!==cat)return false;
+      const nameWords=(pName+' '+pSub).split(' ').filter(w=>w.length>=4);
+      const hasCloseWord=qWords.some(qw=>nameWords.some(nw=>{
+        if(Math.abs(nw.length-qw.length)>1)return false;
+        let d=0;
+        for(let i=0;i<Math.min(nw.length,qw.length);i++){if(nw[i]!==qw[i])d++}
+        d+=Math.abs(nw.length-qw.length);
+        return d<=1;
+      }));
+      if(hasCloseWord){
+        p.is_exact=false;
+        return true;
+      }
+      return false;
     });
-    return {t,rows:valid};
-  },()=>({t,rows:[]}))) );
-  if(tok!==pTok)return;
-  const seen=new Set(prRows.map(pk));
-  res.forEach(({t,rows})=>{let hit=false;rows.forEach(x=>{const k=pk(x);if(seen.has(k))return;seen.add(k);hit=true;prRows.push({...x,is_exact:false,rel:t})});if(hit)prTerms.push(t)});
-  prAI='done';pRender(q,r,useR);
+    prRows=cleanRows;
+
+    if(save&&prRows.length)localStorage.setItem('rs',JSON.stringify([q,...recents().filter(x=>x!==q)].slice(0,6)));
+    pRender(q,r,useR);
+    if(!exP)return;
+    const terms=await exP;
+    if(tok!==pTok)return;
+    if(!terms.length){prAI='done';pRender(q,r,useR);return}
+    const res=await Promise.all(terms.map(t=>rpcQ(stemQ(t)).then(x=>{
+      const tNorm=nk(t);
+      const tWords=tNorm.split(' ').filter(w=>w.length>=3);
+      const valid=(x.data||[]).filter(y=>{
+        const pName=nk(y.product||y.product_name||'');
+        const pSub=nk(y.subcategory||'');
+        if(!pName)return false;
+        return tWords.length>0&&tWords.every(tw=>pName.includes(tw)||pSub.includes(tw));
+      });
+      return {t,rows:valid};
+    },()=>({t,rows:[]}))) );
+    if(tok!==pTok)return;
+    const seen=new Set(prRows.map(pk));
+    res.forEach(({t,rows})=>{let hit=false;rows.forEach(x=>{const k=pk(x);if(seen.has(k))return;seen.add(k);hit=true;prRows.push({...x,is_exact:false,rel:t})});if(hit)prTerms.push(t)});
+    prAI='done';pRender(q,r,useR);
+  }catch(err){
+    console.error('Error en búsqueda de precios:',err);
+    if(tok===pTok)b.innerHTML='<div class="empty">No se pudo completar la búsqueda. Probá de nuevo.</div>';
+  }
 }
 const prCard=(min,avg,anyExact)=>x=>{
   const disp=dispCur(),cu=x.currency||'ARS',pv=x._p;
@@ -2031,6 +2038,7 @@ function pRender(q,r,useR){
     return;
   }
   const disp=dispCur(),rows=[...prRows];rows.forEach(x=>{x._p=conv(+x.unit_price,x.currency||'ARS',disp)});
+  const ex=rows.some(x=>x.is_exact);
   const nonRelatedRows=rows.filter(x=>!x.rel&&x.is_exact!==false&&x._p!=null);
   const cand=(nonRelatedRows.length?nonRelatedRows:(rows.some(x=>x.is_exact)?rows.filter(x=>x.is_exact&&x._p!=null):rows.filter(x=>x._p!=null))).map(x=>x._p);
   const min=cand.length?Math.min(...cand):0;
