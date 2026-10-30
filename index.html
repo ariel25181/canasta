@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-29T16:50">
+<meta name="app-version" content="2026-10-30T11:45">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -930,6 +930,9 @@ function getProductMatchConfidence(a,b){
   if(sA.length&&sB.length&&sA[0]!==sB[0]){
     return {level:'baja',score:0.1,reason:`Difieren en tamaño: ${sA[0]} vs ${sB[0]}`};
   }
+  const ignoreWords=new Set(['con','sin','del','las','los','por','para','sabor','de','en','x','el','la','un','una']);
+  const wA=kA.split(/\s+/).filter(w=>w.length>=2&&!ignoreWords.has(w));
+  const wB=kB.split(/\s+/).filter(w=>w.length>=2&&!ignoreWords.has(w));
   const matchWord=(w,bw)=>w===bw||(bw.startsWith(w)&&bw.length-w.length<=2)||(w.startsWith(bw)&&w.length-bw.length<=2);
   const common=wA.filter(w=>wB.some(bw=>matchWord(w,bw)));
   const union=new Set([...wA,...wB]);
@@ -953,46 +956,68 @@ window.confirmEquiv=function(nameA,nameB,isSame,elId){
   }
 };
 async function matchPreciosClaros(name){
-  if(!name||name.trim().length<3)return null;
+  if(!name||name.trim().length<2)return null;
   const cleanQ=name.replace(/[^\w\s]/gi,' ').trim();
-  const words=nk(name).split(' ').filter(w=>w.length>=3&&!/^\d+$/.test(w));
+  const words=nk(name).split(/\s+/).filter(w=>w.length>=3&&!/^\d+$/.test(w));
   if(!words.length)return null;
 
   let data=[];
   let serverRefPrice=null;
 
-  // 1. Try local server endpoint or Cloud Run backend (with CORS)
-  const canastaApiOrigin=window.location.hostname.includes('github.io')
-    ? 'https://ais-dev-dnawz6iit4o5vfytkjn6mg-151039245127.us-east1.run.app'
-    : '';
-  const endpoints=[
-    `${canastaApiOrigin}/api/canasta/sepa-match?q=${encodeURIComponent(name)}`,
-    `/api/canasta/sepa-match?q=${encodeURIComponent(name)}`
-  ];
-  for(const ep of endpoints){
+  // 1. Try local server endpoint if on same origin or local dev
+  if(!window.location.hostname.includes('github.io')){
     try{
-      const r=await fetch(ep,{signal:AbortSignal.timeout(3500)});
+      const r=await fetch(`/api/canasta/sepa-match?q=${encodeURIComponent(name)}`,{signal:AbortSignal.timeout(2500)});
       if(r.ok){
         const j=await r.json();
         if(Array.isArray(j.matches)&&j.matches.length){
           data=j.matches;
           if(j.refPriceData)serverRefPrice=j.refPriceData;
-          break;
         }
       }
     }catch(e){}
   }
 
-  // 2. Client-side fallback using standard public Supabase client
+  // 2. Client-side query using Supabase client (works on GitHub Pages & local)
   if(!data.length){
     try{
-      const orClauses=[];
-      words.slice(0,3).forEach(w=>{
-        orClauses.push(`brand.ilike.%${w}%`);
-        orClauses.push(`product.ilike.%${w}%`);
-      });
-      const res=await T(sb.from('ean_catalog').select('ean,brand,product,variant,size_value,size_unit,confidence').or(orClauses.join(',')).limit(25),4000);
-      if(Array.isArray(res.data)&&res.data.length)data=res.data;
+      const pWord = words[0] || cleanQ;
+      const { data: prefData } = await T(
+        sb.from('ean_catalog')
+          .select('ean,brand,product,variant,size_value,size_unit,confidence')
+          .or(`product.ilike.${pWord}*,brand.ilike.${pWord}*`)
+          .limit(35),
+        2500
+      );
+      if(Array.isArray(prefData) && prefData.length){
+        data = prefData;
+      }
+
+      if(data.length < 5){
+        const orClauses=[];
+        if(words.length>=2){
+          const [w0,w1]=words;
+          orClauses.push(`product.ilike.*${w0}*${w1}*`);
+          orClauses.push(`product.ilike.*${w1}*${w0}*`);
+          orClauses.push(`and(brand.ilike.*${w0}*,product.ilike.*${w1}*)`);
+          orClauses.push(`and(brand.ilike.*${w1}*,product.ilike.*${w0}*)`);
+          orClauses.push(`brand.ilike.*${cleanQ}*`);
+        }
+        words.slice(0,3).forEach(w=>{
+          orClauses.push(`product.ilike.*${w}*`);
+          orClauses.push(`brand.ilike.*${w}*`);
+        });
+        const res=await T(sb.from('ean_catalog').select('ean,brand,product,variant,size_value,size_unit,confidence').or(orClauses.join(',')).limit(40),3000);
+        if(Array.isArray(res.data)&&res.data.length){
+          const seen = new Set(data.map(x => x.ean));
+          res.data.forEach(item => {
+            if(!seen.has(item.ean)){
+              seen.add(item.ean);
+              data.push(item);
+            }
+          });
+        }
+      }
     }catch(e){}
   }
 
@@ -1005,10 +1030,16 @@ async function matchPreciosClaros(name){
     const conf=getProductMatchConfidence(name,full);
     let s=conf.score||0;
     const pNorm=nk(item.product||''), bNorm=nk(item.brand||'');
-    if(pNorm.startsWith(nNorm)||bNorm.startsWith(nNorm)) s+=0.3;
+    if(pNorm.startsWith(nNorm)||bNorm.startsWith(nNorm)) s+=0.35;
+    if(words.length>0&&pNorm.startsWith(words[0])) s+=0.25;
+    if(words.includes('leche')&&!nNorm.includes('dulce')&&!nNorm.includes('chocolate')&&!nNorm.includes('alfajor')){
+      if(pNorm.includes('dulce')||pNorm.includes('alfajor')||pNorm.includes('chocolate')||pNorm.includes('shampoo')||pNorm.includes('micelar')||pNorm.includes('acondicionador')||pNorm.includes('tonico')){
+        s-=0.6;
+      }
+    }
     if(s>maxScore){
       maxScore=s;
-      best={item,conf};
+      best={item,conf,score:s};
     }
   }
 
@@ -1023,9 +1054,9 @@ async function matchPreciosClaros(name){
     try{
       let qb=sb.from('price_points').select('unit_price,store,purchased_at');
       if(best.item.ean){
-        qb=qb.or(`ean.eq.${best.item.ean},product_key.ilike.%${cleanQ}%`);
+        qb=qb.or(`ean.eq.${best.item.ean},product_key.ilike.*${cleanQ}*`);
       }else{
-        qb=qb.or(`product_key.ilike.%${cleanQ}%,product_name.ilike.%${cleanQ}%`);
+        qb=qb.or(`product_key.ilike.*${cleanQ}*,product_name.ilike.*${cleanQ}*`);
       }
       const {data:pj}=await T(qb.order('purchased_at',{ascending:false}).limit(25),3000);
       if(Array.isArray(pj)&&pj.length){
@@ -1050,7 +1081,7 @@ async function computeReceiptInsights(r){
     const items=(r.items||[]).filter(i=>i.name&&i.name.trim()&&i.total_price>0);
     if(!items.length){box.innerHTML='';return}
     const names=items.map(i=>i.name.trim().toLowerCase());
-    const orFilter=names.slice(0,8).map(n=>`product_name.ilike.%${n.split(' ').slice(0,2).join(' ')}%`).join(',');
+    const orFilter=names.slice(0,8).map(n=>`product_name.ilike.*${n.split(' ').slice(0,2).join(' ')}*`).join(',');
     let allPoints=[];
     try{
       const {data}=await sb.from('price_points').select('product_name,product_key,store,unit_price,purchased_at,receipt_id,currency').neq('receipt_id',r.rid||'').or(orFilter).order('purchased_at',{ascending:false}).limit(80);
@@ -1988,7 +2019,7 @@ async function pGo(save){
       try{
         let qb=sb.from('price_points').select('*');
         if(c)qb=qb.eq('category',c);
-        else qb=qb.or(`product_key.ilike.%${t}%,subcategory.ilike.%${t}%,product_name.ilike.%${t}%`);
+        else qb=qb.or(`product_key.ilike.*${t}*,subcategory.ilike.*${t}*,product_name.ilike.*${t}*`);
         const {data:raw,error:err2}=await T(qb.order('unit_price',{ascending:true}).limit(80),9000);
         if(err2||!raw)return {data:[],error:null};
         let mapped=raw.map(p=>{
@@ -2053,8 +2084,14 @@ async function pGo(save){
 
     try{
       currentSepaMatch=await matchPreciosClaros(q);
-      if(!currentSepaMatch&&cleanRows.length>0){
-        currentSepaMatch=await matchPreciosClaros(cleanRows[0].product);
+      if((!currentSepaMatch||(currentSepaMatch.score||0)<0.45)&&cleanRows.length>0){
+        for(const row of cleanRows.slice(0,3)){
+          const rowMatch=await matchPreciosClaros(row.product);
+          if(rowMatch&&(rowMatch.score||0)>(currentSepaMatch?.score||0)){
+            currentSepaMatch=rowMatch;
+            break;
+          }
+        }
       }
     }catch(e){currentSepaMatch=null}
 
@@ -2109,8 +2146,8 @@ const prCard=(min,avg,anyExact)=>x=>{
     const sBrand=nk(sItem.brand||'');
     const sProd=nk(sItem.product||'');
     const xName=nk(x.product||'');
-    const isSepa=(sBrand&&sBrand.length>=3&&xName.includes(sBrand))||(sProd&&sProd.length>=4&&xName.includes(sProd));
-    if(isSepa){
+    const isSepa=(sBrand&&sBrand.length>=3&&xName.includes(sBrand))||(sProd&&sProd.length>=4&&xName.includes(sProd))||isSameExactProduct(x.product,`${sItem.brand||''} ${sItem.product||''}`);
+    if(isSepa||(currentSepaMatch.score||0)>=0.4){
       sepaBadge=`<span class="tag" style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;font-size:.7rem;font-weight:700">🏛️ SEPA: ${esc(sItem.brand||'')} (EAN ${esc(sItem.ean||'')})</span>`;
       const sRef=currentSepaMatch.refPrice;
       if(sRef>0&&pv!=null&&pv>0){
