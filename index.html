@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-30T11:45">
+<meta name="app-version" content="2026-10-30T13:30">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -154,9 +154,21 @@ details.hq p,details.hq ul,details.hq ol{margin:8px 0 0;color:#3b4a41}details.hq
 #edb i{position:absolute;width:30px;height:30px;border:4px solid var(--g);background:transparent}
 #edb i[data-h=tl]{left:-6px;top:-6px;border-right:0;border-bottom:0}#edb i[data-h=tr]{right:-6px;top:-6px;border-left:0;border-bottom:0}
 #edb i[data-h=bl]{left:-6px;bottom:-6px;border-right:0;border-top:0}#edb i[data-h=br]{right:-6px;bottom:-6px;border-left:0;border-top:0}
-.edt,.eda{display:flex;gap:8px;padding:10px 0;flex-wrap:wrap}.edt button,.eda button{flex:1;min-width:0;padding:12px 8px}
-.edt .ghost{color:#fff;border-color:rgba(255,255,255,.7)}.edt .ghost:hover{background:rgba(255,255,255,.12);color:#fff}.edt .ghost.on{background:var(--g);border-color:var(--g)}
-.eda .ghost{color:#fff;border-color:rgba(255,255,255,.7)}.eda .ghost:hover{background:rgba(255,255,255,.12);color:#fff}
+#edb i[data-h=t]{left:50%;top:-9px;transform:translateX(-50%);width:46px;height:18px;background:var(--g);border:2px solid #fff;border-radius:4px;cursor:ns-resize}
+#edb i[data-h=b]{left:50%;bottom:-9px;transform:translateX(-50%);width:46px;height:18px;background:var(--g);border:2px solid #fff;border-radius:4px;cursor:ns-resize}
+#edb i[data-h=l]{top:50%;left:-9px;transform:translateY(-50%);width:18px;height:46px;background:var(--g);border:2px solid #fff;border-radius:4px;cursor:ew-resize}
+#edb i[data-h=r]{top:50%;right:-9px;transform:translateY(-50%);width:18px;height:46px;background:var(--g);border:2px solid #fff;border-radius:4px;cursor:ew-resize}
+.edt,.eda{display:flex;gap:8px;padding:10px 0;flex-wrap:wrap}.edt button,.eda button{flex:1;min-width:0;padding:12px 8px;font-weight:700;border-radius:10px;font-size:.88rem}
+.edt button{background:#ffffff !important;color:#14201a !important;border:1.5px solid #ffffff !important;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.edt button:hover{background:#eef6f0 !important}
+.edt button.on{background:var(--g) !important;color:#fff !important;border-color:var(--g) !important}
+.eda button.ghost{background:#ffffff !important;color:#14201a !important;border:1.5px solid #ffffff !important;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.eda button.ghost:hover{background:#eef6f0 !important}
+.eda button:not(.ghost){background:var(--g) !important;color:#fff !important;font-weight:800;border:1.5px solid var(--g) !important;box-shadow:0 2px 8px rgba(62,142,90,.5)}
+#ed-filters{display:flex;gap:6px;padding:4px 0 8px;flex-wrap:wrap;justify-content:center}
+#ed-filters .chip{background:#ffffff !important;color:#14201a !important;border:1.5px solid #ffffff !important;font-size:.78rem;font-weight:700;padding:6px 10px;border-radius:999px;box-shadow:0 2px 5px rgba(0,0,0,.3);cursor:pointer}
+#ed-filters .chip:hover{background:#eef6f0 !important}
+#ed-filters .chip.on{background:var(--g) !important;color:#ffffff !important;border-color:var(--g) !important;box-shadow:0 2px 6px rgba(62,142,90,.6)}
 .th .ed{position:absolute;right:2px;bottom:2px;background:rgba(255,255,255,.92);border-radius:50%;width:26px;height:26px;padding:0;font-size:.8rem;line-height:1}
 .th img{cursor:pointer}
 #toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%}
@@ -320,8 +332,32 @@ function fxStatusText(){
   const tipo=f.src==='manual'?'Manual':`Automática (${f.typeName||FX_TYPES[f.type]?.label||'Oficial'})`;
   return `Última actualización: ${fecha} · Origen: ${tipo}. Podés ajustar cualquier valor a mano y guardar.`;
 }
-const CAT={lacteos:'🥛',carnes:'🥩',panaderia:'🍞',verduras:'🥬',frutas:'🍎',bebidas:'🥤',limpieza:'🧴',almacen:'🥫',otros:'🛒'};
+const CAT={lacteos:'🥛',carnes:'🥩',panaderia:'🍞',verduras:'🥬',frutas:'🍎',bebidas:'🥤',limpieza:'🧴',almacen:'🥫',descuentos:'🏷️',otros:'🛒'};
 const today=()=>new Date().toISOString().slice(0,10);
+function fmtDateDMY(dStr){
+  if(!dStr)return '';
+  const parts=String(dStr).split('T')[0].split('-');
+  if(parts.length===3){
+    const [y,m,d]=parts;
+    const shortY=y.length===4?y.slice(2):y;
+    return `${d}/${m}/${shortY}`;
+  }
+  return dStr;
+}
+function parseDateDMY(s){
+  if(!s)return today();
+  const clean=String(s).trim();
+  const m=clean.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if(m){
+    let [_,d,mo,y]=m;
+    if(y.length===2) y='20'+y;
+    d=d.padStart(2,'0');
+    mo=mo.padStart(2,'0');
+    return `${y}-${mo}-${d}`;
+  }
+  if(/^\d{4}-\d{2}-\d{2}$/.test(clean))return clean;
+  return today();
+}
 let user=null,view='home',draft=null,pendB64='',pendData=null,mapShown=false,pos=null,found=null,lastH={},curH=null,prAI='off',prTerms=[],prCat=false,revTok=0,pendingReload=false,psort='price',pTok=0,prRows=[],currentSepaMatch=null;
 
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
@@ -717,7 +753,7 @@ function readPages(){
   if(pages.reduce((t,x)=>t+x.b64.length,0)>18e6)return toast('Los archivos pesan demasiado juntos: sacá menos fotos o usá un PDF más liviano.');
   run(pages);
 }
-function manual(){mapShown=false;draft={store:'',date:today(),currency:'ARS',docType:'ticket',docNumber:'',taxId:'',description:'',address:'',lat:null,lng:null,items:[{name:'',qty:1,total_price:0,category:'otros',subcategory:''}]};form()}
+function manual(){mapShown=false;draft={store:'',date:today(),currency:'ARS',docType:'ticket',docNumber:'',taxId:'',description:'',address:'',candidateAddresses:[],lat:null,lng:null,items:[{name:'',qty:1,total_price:0,category:'otros',subcategory:''}]};renderReceiptForm()}
 function quality(i){
   const k=Math.min(1,1000/Math.max(i.width,i.height)),w=Math.round(i.width*k),h=Math.round(i.height*k),c=document.createElement('canvas');
   c.width=w;c.height=h;const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(i,0,0,w,h);
@@ -737,7 +773,7 @@ function localTips(q){
 }
 let pendParts=[];
 function retake(tips,mode){
-  const use=mode==='data'?'pages=[];draft=norm(pendData);form()':'';
+  const use=mode==='data'?'pages=[];draft=norm(pendData);renderReceiptForm()':'';
   app(`<h1>Gemini no pudo leer bien las fotos</h1><div class="card"><div class="ic warn" style="margin-top:0">🔍</div><p><b>Qué encontró:</b></p><ul style="text-align:left">${tips.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>
   <p class="mu">Probá de nuevo: a veces la lectura falla de casualidad. Si sigue igual, editá las fotos (recortar, girar o mejorar el contraste) o sacalas otra vez: ticket plano, bien encuadrado, con buena luz y sin flash. Si es muy largo, sacalo en partes.</p></div>
   <div class="mact"><button onclick="run(pendParts)">🔁 Reintentar lectura</button><button class="ghost" onclick="scanUI()">✏️ Revisar o editar las fotos</button>${use?`<button class="ghost" onclick="${use}">Usar igual</button>`:''}<button class="ghost" onclick="manual()">Cargar a mano</button></div>`);
@@ -746,14 +782,25 @@ async function run(parts){
   pendParts=parts;
   app(`<h1>Nuevo comprobante</h1><div class="card" style="text-align:center"><div class="spin"></div><p>Leyendo ${parts.length>1?parts.length+' fotos':'el comprobante'}…</p><p class="mu">Puede tardar unos segundos.</p></div>`);
   try{
-    const d=await extract(parts),n=(d.items||[]).length,bad=d.quality&&d.quality.legible===false;
-    if(bad||!n){pendData=d;const tips=((d.quality&&d.quality.issues)||[]).filter(Boolean);return retake(tips.length?tips:['No pude identificar productos en el archivo.'],n?'data':'')}
-    draft=norm(d);pages=[];form();
+    const d=await extract(parts),n=(d.items||[]).length;
+    // Si absolutamente no se encontró nada (sin productos, sin nombre de local y sin total), se ofrece reintentar
+    if(!n && !d.store && !d.total){
+      pendData=d;const tips=((d.quality&&d.quality.issues)||[]).filter(Boolean);
+      return retake(tips.length?tips:['No pude identificar productos ni datos en el archivo.'],'');
+    }
+    // Si hay baja visibilidad o confianza no alta, se continúa igual marcando los campos en rojo
+    draft=norm(d);pages=[];renderReceiptForm();
     if(draft.address){
-      geocodeAddr(draft.address).then(c=>{
-        if(c&&draft&&draft.lat==null){
-          draft.lat=c.lat;draft.lng=c.lng;
-          if(mapShown&&lfMap){lfMap.setView([c.lat,c.lng],17);revGeoOSM(c)}
+      geocodeAddr(draft.address, true).then(cList=>{
+        if(Array.isArray(cList)&&cList.length){
+          if(cList.length>1&&(!draft.candidateAddresses||!draft.candidateAddresses.length)){
+            draft.candidateAddresses=cList;
+            renderReceiptForm();
+          }
+          if(draft&&draft.lat==null){
+            draft.lat=cList[0].lat;draft.lng=cList[0].lng;
+            if(mapShown&&lfMap){lfMap.setView([cList[0].lat,cList[0].lng],17);revGeoOSM(cList[0])}
+          }
         }
       });
     }
@@ -773,7 +820,7 @@ const resize=f=>new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(
 async function extract(parts){
   const key=gemKey();
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
-  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"description":string,"quality":{"legible":boolean,"issues":[string]},"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|otros","subcategory":string}]}. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. En productos pesables o vendidos al peso (frutas, verduras, carnes, fiambres, etc.), en qty poné el peso en kilogramos con decimales (por ejemplo 1.845 para 1,845 kg) y en total_price el importe total de ese renglón, para que el precio unitario sea exactamente el precio por kilo. Ignorá subtotales, descuentos globales y medios de pago. En description poné, como texto libre, los comentarios, notas, leyendas, promociones o anotaciones manuscritas que aparezcan en el ticket (no los productos); si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español, en frases cortas, qué problema tiene la foto y cómo mejorarla. En store_address poné la dirección del local tal como figura impresa en el ticket (calle, número y localidad); si no aparece, dejalo vacío. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante (por ejemplo 0005-00012345). store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
+  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"candidate_addresses":[string],"total":number,"description":string,"quality":{"legible":boolean,"issues":[string]},"uncertain_fields":[string],"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|descuentos|otros","subcategory":string,"confidence":"alta|baja"}]}. total es el importe total general final del ticket. En items, extraé los productos con su precio de lista. Si el ticket tiene renglones de descuentos, rebajas o promociones de supermercado o farmacia (por ejemplo 'DESC. COMUNIDAD', '2DA UNIDAD 70%', 'DESC. OSDE', 'PROMO BANCO', 'BONIF.'), extraelos también en items con category 'descuentos' y total_price negativo (ej: -450), para que el precio de lista original no se altere y el descuento quede registrado por separado. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. En productos pesables o vendidos al peso (frutas, verduras, carnes, fiambres, etc.), en qty poné el peso en kilogramos con decimales (por ejemplo 1.845 para 1,845 kg) y en total_price el importe total de ese renglón, para que el precio unitario sea exactamente el precio por kilo. En description poné, como texto libre, los comentarios, notas, leyendas o anotaciones manuscritas que aparezcan en el ticket; si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español qué problema tiene la foto. IMPORTANTE: Si partes del comprobante no están muy visibles o la confianza de detección no es alta, CONTINUÁ IGUAL extrayendo todo lo que alcances a leer; NO te detengas. Listá los campos con dudas o baja visibilidad en uncertain_fields (ej: 'store', 'date', 'address', 'total'). Para cada producto en items, si el nombre o el precio no se distinguen bien asigná confidence: 'baja'; si se leen bien, 'alta'. En store_address poné la dirección del local principal tal como figura impresa en el ticket (calle, número y localidad); si en el ticket figuran varias sucursales o direcciones, incluilas en candidate_addresses. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante. store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
   const models=[{m:'gemini-2.5-flash',th:{thinkingBudget:0}},{m:'gemini-3.5-flash',th:{thinkingLevel:'LOW'}},{m:'gemini-2.5-flash',th:null}];
   let lastErr=null;
   for(const model of models){
@@ -792,25 +839,135 @@ async function extract(parts){
   }
   throw lastErr||Error('No se pudo leer el comprobante con Gemini.');
 }
-const norm=d=>({currency:CUR[d.currency]?d.currency:'ARS',docType:d.doc_type==='factura'?'factura':'ticket',docNumber:String(d.doc_number||'').trim(),taxId:String(d.store_tax_id||'').trim(),lat:null,lng:null,address:String(d.store_address||'').trim(),description:String(d.description||'').trim(),store:d.store||'',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),items:(d.items||[]).map(i=>({name:i.name||'',qty:Number(i.qty)||1,total_price:Number(i.total_price)||0,category:CAT[i.category]?i.category:'otros',subcategory:nk(i.subcategory||'')}))});
+const norm=d=>{
+  const uFields=new Set(Array.isArray(d.uncertain_fields)?d.uncertain_fields:[]);
+  const st=String(d.store||'').trim();
+  if(!st) uFields.add('store');
+  if(!d.date||!/^\d{4}-\d{2}-\d{2}$/.test(d.date)) uFields.add('date');
+  if(d.quality&&d.quality.legible===false){
+    const iss=((d.quality.issues||[]).join(' ')).toLowerCase();
+    if(/local|super|comercio/i.test(iss)) uFields.add('store');
+    if(/fecha/i.test(iss)) uFields.add('date');
+    if(/total|precio/i.test(iss)) uFields.add('total');
+  }
+  const items=(d.items||[]).map(i=>{
+    const name=String(i.name||'').trim();
+    const isUncertain=i.confidence==='baja'||!name||Number(i.total_price)===0;
+    return {
+      name,
+      qty:Number(i.qty)||1,
+      total_price:Number(i.total_price)||0,
+      category:CAT[i.category]?i.category:(/desc|promo|bonif|ahorro/i.test(name)?'descuentos':'otros'),
+      subcategory:nk(i.subcategory||''),
+      uncertain:isUncertain
+    };
+  });
+  return {
+    currency:CUR[d.currency]?d.currency:'ARS',
+    docType:d.doc_type==='factura'?'factura':'ticket',
+    docNumber:String(d.doc_number||'').trim(),
+    taxId:String(d.store_tax_id||'').trim(),
+    lat:null,
+    lng:null,
+    address:String(d.store_address||'').trim(),
+    candidateAddresses:Array.isArray(d.candidate_addresses)&&d.candidate_addresses.length>1?d.candidate_addresses.map(a=>({name:String(a).trim()})):[],
+    scannedTotal:d.total!=null&&!isNaN(+d.total)&&+d.total>0?+d.total:null,
+    description:String(d.description||'').trim(),
+    store:st,
+    date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),
+    uncertainFields:Array.from(uFields),
+    hasLowConfidence:(d.quality&&d.quality.legible===false)||uFields.size>0||items.some(x=>x.uncertain),
+    items
+  };
+};
 
 function subRow(i,k){
   return `<div class="it2"><select onchange="draft.items[${k}].category=this.value" aria-label="Categoría">${Object.keys(CAT).map(c=>`<option value="${c}"${i.category===c?' selected':''}>${CAT[c]} ${c}</option>`).join('')}</select><input placeholder="Subcategoría (ej: cítrico)" value="${esc(i.subcategory||'')}" oninput="draft.items[${k}].subcategory=this.value" aria-label="Subcategoría"></div>`;
 }
-function form(){
-  const t=draft.items.reduce((s,i)=>s+i.total_price,0);
+
+function pickCandidateAddr(idx){
+  if(!draft||!draft.candidateAddresses)return;
+  const c=draft.candidateAddresses[idx];
+  if(!c)return;
+  draft.address=c.name;
+  if(c.lat!=null){draft.lat=c.lat;draft.lng=c.lng;}
+  renderReceiptForm();
+  toast('Dirección elegida: '+c.name);
+}
+window.pickCandidateAddr=pickCandidateAddr;
+
+function delItem(k){
+  if(!draft||!draft.items)return;
+  draft.items.splice(k,1);
+  renderReceiptForm();
+}
+window.delItem=delItem;
+
+function addItem(){
+  if(!draft)return;
+  if(!draft.items)draft.items=[];
+  draft.items.push({name:'',qty:1,total_price:0,category:'otros',subcategory:''});
+  renderReceiptForm();
+}
+window.addItem=addItem;
+
+function renderReceiptForm(){
+  const round2 = n => (typeof r2 === 'function' ? r2(n) : Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100);
+  const sumItems = round2(draft.items.reduce((s,i)=>s+(Number(i.total_price)||0),0));
+  const hasDiff = draft.scannedTotal != null && Math.abs(sumItems - draft.scannedTotal) > 1;
+
+  let diffWarn = '';
+  if(hasDiff){
+    diffWarn = `<div style="background:#fffbeb;border:1.5px solid #fde047;border-radius:12px;padding:10px 12px;margin:8px 0;font-size:.82rem;color:#854d0e">
+      <div style="font-weight:700;display:flex;align-items:center;gap:6px"><span>⚠️</span> <span>Diferencia en la suma de productos</span></div>
+      <div style="margin-top:3px">La suma de los productos da <b>${money(sumItems,draft.currency)}</b>, pero el total del ticket es <b>${money(draft.scannedTotal,draft.currency)}</b> (diferencia: ${money(Math.abs(sumItems - draft.scannedTotal),draft.currency)}). Podés guardar igual o ajustar el total con un toque.</div>
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+        <button type="button" class="chip" onclick="draft.scannedTotal=${sumItems};renderReceiptForm()" style="font-size:.76rem;background:#fff;border-color:#fde047;color:#854d0e">Ajustar total a ${money(sumItems,draft.currency)}</button>
+      </div>
+    </div>`;
+  }
+
+  let candAddrHtml = '';
+  if(draft.candidateAddresses && draft.candidateAddresses.length > 1){
+    candAddrHtml = `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:10px 12px;margin:8px 0">
+      <div style="font-size:.82rem;font-weight:700;color:#166534;margin-bottom:6px">📍 Encontramos ${draft.candidateAddresses.length} direcciones posibles en este ticket. Tocá cuál es la posta:</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${draft.candidateAddresses.map((cand,idx)=>{
+          const isSel = draft.address === cand.name || (cand.lat != null && draft.lat === cand.lat);
+          return `<button type="button" class="opt" style="padding:8px 10px;font-size:.83rem;margin:0;border:1.5px solid ${isSel?'var(--g)':'var(--ln)'};background:${isSel?'#eef6f0':'#fff'};border-radius:8px" onclick="pickCandidateAddr(${idx})">
+            <b>${esc(cand.name)}</b>${cand.details?`<div class="mu" style="font-size:.72rem">${esc(cand.details)}</div>`:''}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
   app(`<h1>${draft.id?'Editar compra':'Revisá el comprobante'}</h1>
-  <div class="chips"><button type="button" class="chip ${draft.docType!=='factura'?'on':''}" onclick="draft.docType='ticket';form()">🧾 Ticket</button><button type="button" class="chip ${draft.docType==='factura'?'on':''}" onclick="draft.docType='factura';form()">📄 Factura</button></div>
-  <div class="chips">${Object.keys(CUR).map(c=>`<button type="button" class="chip ${(draft.currency||'ARS')===c?'on':''}" onclick="draft.currency='${c}';form()">${CUR[c].flag} ${CUR[c].name}</button>`).join('')}</div>
-  <div class="fields"><input id="store" placeholder="Supermercado" value="${esc(draft.store)}" oninput="draft.store=this.value">${draft.docType==='factura'?`<input placeholder="Nº de comprobante (ej: 0005-00012345)" value="${esc(draft.docNumber)}" oninput="draft.docNumber=this.value"><input placeholder="CUIT del local (opcional)" inputmode="numeric" value="${esc(draft.taxId)}" oninput="draft.taxId=this.value">`:''}<input type="date" value="${draft.date}" oninput="draft.date=this.value"><textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea><input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)"><button type="button" id="m-toggle-btn" class="btn" onclick="mapModalOpen()" style="background:#eef6f0 !important;color:#3E8E5A !important;-webkit-text-fill-color:#3E8E5A !important;border:1.5px solid #3E8E5A !important;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px 14px;border-radius:12px;margin:4px 0 8px;min-height:44px;font-size:.92rem"><span>📍</span> <span>${draft.lat!=null ? (draft.address ? esc(shortAddr(draft.address)) + ' ✓ (Cambiar)' : 'Ubicación fijada ✓ (Cambiar)') : 'Elegir ubicación en el mapa'}</span></button></div>
+  <div class="chips"><button type="button" class="chip ${draft.docType!=='factura'?'on':''}" onclick="draft.docType='ticket';renderReceiptForm()">🧾 Ticket</button><button type="button" class="chip ${draft.docType==='factura'?'on':''}" onclick="draft.docType='factura';renderReceiptForm()">📄 Factura</button></div>
+  <div class="chips">${Object.keys(CUR).map(c=>`<button type="button" class="chip ${(draft.currency||'ARS')===c?'on':''}" onclick="draft.currency='${c}';renderReceiptForm()">${CUR[c].flag} ${CUR[c].name}</button>`).join('')}</div>
+  <div class="fields">
+    <input id="store" placeholder="Supermercado o comercio" value="${esc(draft.store)}" oninput="draft.store=this.value">
+    ${draft.docType==='factura'?`<input placeholder="Nº de comprobante (ej: 0005-00012345)" value="${esc(draft.docNumber)}" oninput="draft.docNumber=this.value"><input placeholder="CUIT del local (opcional)" inputmode="numeric" value="${esc(draft.taxId)}" oninput="draft.taxId=this.value">`:''}
+    <div style="display:flex;gap:6px;align-items:center">
+      <input id="receipt-date-txt" placeholder="Fecha (dd/mm/aa)" value="${fmtDateDMY(draft.date)}" oninput="draft.date=parseDateDMY(this.value);if($('#receipt-date-pk'))$('#receipt-date-pk').value=draft.date" onchange="draft.date=parseDateDMY(this.value);if($('#receipt-date-pk'))$('#receipt-date-pk').value=draft.date" aria-label="Fecha dd/mm/aa" style="flex:1">
+      <input id="receipt-date-pk" type="date" value="${draft.date}" onchange="draft.date=this.value;if($('#receipt-date-txt'))$('#receipt-date-txt').value=fmtDateDMY(this.value)" style="width:52px;padding:8px 4px;text-align:center" title="Elegir del calendario">
+    </div>
+    <textarea rows="2" placeholder="Descripción (opcional): ocasión, notas, promo…" oninput="draft.description=this.value">${esc(draft.description)}</textarea>
+    <input id="addr" placeholder="Dirección del local" value="${esc(draft.address)}" oninput="addrTyped(this.value)">
+    ${candAddrHtml}
+    <button type="button" id="m-toggle-btn" class="btn" onclick="mapModalOpen()" style="background:#eef6f0 !important;color:#3E8E5A !important;-webkit-text-fill-color:#3E8E5A !important;border:1.5px solid #3E8E5A !important;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px 14px;border-radius:12px;margin:4px 0 8px;min-height:44px;font-size:.92rem"><span>📍</span> <span>${draft.lat!=null ? (draft.address ? esc(shortAddr(draft.address)) + ' ✓ (Cambiar)' : 'Ubicación fijada ✓ (Cambiar)') : 'Elegir ubicación en el mapa'}</span></button>
+  </div>
   <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
-  ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;form()" aria-label="Total"><button class="x" onclick="draft.items.splice(${k},1);form()" aria-label="Quitar">✕</button></div>${subRow(i,k)}`).join('')}
-  <p><button class="ghost" onclick="draft.items.push({name:'',qty:1,total_price:0,category:'otros',subcategory:''});form()">+ Agregar producto</button></p>
-  <div class="card row"><b>Total</b><b class="num">${money(t,draft.currency)}</b></div>
+  ${draft.items.map((i,k)=>`<div class="it"><input value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Producto"><input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value" aria-label="Cantidad"><input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;renderReceiptForm()" aria-label="Total"><button type="button" class="x" onclick="delItem(${k})" aria-label="Quitar">✕</button></div>${subRow(i,k)}`).join('')}
+  <p><button type="button" class="ghost" onclick="addItem()">+ Agregar producto</button></p>
+  ${diffWarn}
+  <div class="card row"><b>Total</b><b class="num">${money(draft.scannedTotal!=null?draft.scannedTotal:sumItems,draft.currency)}</b></div>
   ${localStorage.getItem('share')!=='0'?`<p class="mu">🔒 Tus precios se comparten de forma anónima.${draft.lat!=null?'':' Elegí el local en el mapa para que aparezcan en búsquedas por zona.'} Podés cambiarlo en Ajustes.</p>`:''}
-  <button onclick="save()">${draft.id?'Guardar cambios':'Guardar compra'}</button>${draft.id?` <button class="ghost" onclick="clearBk();go('history')">Cancelar</button>`:''}
+  <button type="button" onclick="save()">${draft.id?'Guardar cambios':'Guardar compra'}</button>${draft.id?` <button type="button" class="ghost" onclick="clearBk();go('history')">Cancelar</button>`:''}
   `);
 }
+window.renderReceiptForm=renderReceiptForm;
+window.form=renderReceiptForm;
 /* ---------- Ventanas (modales) ---------- */
 let ovLock=false;
 function modal(h,o={}){ovLock=!!o.lock;$('#mdl').innerHTML=h;$('#ov').hidden=false;const b=$('#mdl button');if(b)b.focus()}
@@ -1207,7 +1364,9 @@ async function save(){
 async function _save(){
   const round2 = n => (typeof r2 === 'function' ? r2(n) : Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100);
   const items=draft.items.filter(i=>i.name.trim());
-  const total=round2(items.reduce((s,i)=>s+(Number(i.total_price)||0),0)),edit=!!draft.id;
+  const sumI=round2(items.reduce((s,i)=>s+(Number(i.total_price)||0),0));
+  const total=(draft.scannedTotal!=null&&!isNaN(+draft.scannedTotal)&&+draft.scannedTotal>0)?round2(draft.scannedTotal):sumI;
+  const edit=!!draft.id;
   if(draft.address.trim()&&draft.lat==null){const g=await geocodeAddr(draft.address);if(g){draft.lat=g.lat;draft.lng=g.lng}}
   const cleanDesc=cleanFiscalText(draft.description);
   const rid=draft.id||draft.rid||(draft.rid=crypto.randomUUID());
@@ -1221,7 +1380,7 @@ async function _save(){
   if(oldI.length)await sb.from('receipt_items').delete().in('id',oldI);
   let warn=null;
   if(localStorage.getItem('share')!=='0'){
-    const seenK=new Set(),pp=[];for(const i of items){const pk=nk(i.name);if(i.total_price>0&&pk&&!seenK.has(pk)){seenK.add(pk);pp.push({receipt_id:rid,currency:draft.currency||'ARS',store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:pk,category:i.category,subcategory:nk(i.subcategory)||null,description:cleanDesc||null,description_key:cleanDesc?nk(cleanDesc):null,qty:Math.max(0.001,Number(i.qty)||1),unit_price:round2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:round2(i.total_price),purchased_at:draft.date})}}
+    const seenK=new Set(),pp=[];for(const i of items){const pk=nk(i.name);if(i.total_price>0&&i.category!=='descuentos'&&pk&&!seenK.has(pk)){seenK.add(pk);pp.push({receipt_id:rid,currency:draft.currency||'ARS',store:draft.store.trim(),store_address:draft.address.trim()||null,lat:draft.lat,lng:draft.lng,product_name:i.name.trim(),product_key:pk,category:i.category,subcategory:nk(i.subcategory)||null,description:cleanDesc||null,description_key:cleanDesc?nk(cleanDesc):null,qty:Math.max(0.001,Number(i.qty)||1),unit_price:round2(i.total_price/Math.max(0.001,Number(i.qty)||1)),total_price:round2(i.total_price),purchased_at:draft.date})}}
     if(pp.length){const {error:e3}=await sb.from('price_points').insert(pp);if(e3)warn='La compra se guardó, pero no se pudieron compartir los precios.';else if(draft.lat==null)warn='Tus precios se compartieron sin la ubicación del local: no van a aparecer en búsquedas por zona hasta que lo ubiques en el mapa.'}
   }
   if(oldP.length)await sb.from('price_points').delete().in('id',oldP);
@@ -1260,7 +1419,7 @@ function offerRestore(){
   const n=(b.draft.items||[]).filter(i=>i.name).length;
   modal(`<div class="ic warn">📝</div><h2>Tenés un ticket sin guardar</h2><p>${b.draft.store?'<b>'+esc(b.draft.store)+'</b><br>':''}${n} producto${n===1?'':'s'} · guardado ${ago(new Date(b.t).toISOString().slice(0,10))}</p><div class="mact"><button onclick="restoreBk()">Recuperar ticket</button><button class="ghost" onclick="clearBk();closeModal()">Descartar</button></div>`,{lock:true});
 }
-function restoreBk(){const b=readBk();closeModal();if(!b)return;go('scan');draft=b.draft;mapShown=false;form()}
+function restoreBk(){const b=readBk();closeModal();if(!b)return;go('scan');draft=b.draft;mapShown=false;renderReceiptForm()}
 
 /* ---------- Recorrido guiado ---------- */
 const TOUR=[
@@ -1371,10 +1530,10 @@ function edOpen(b64,o){
   img.onload=()=>{
     E={img,rot:0,enh:false,crop:{x:0,y:0,w:1,h:1},o,dw:0,dh:0};
     const r=document.createElement('div');r.id='ed';r.setAttribute('role','dialog');r.setAttribute('aria-modal','true');r.setAttribute('aria-label','Editar foto');
-    r.innerHTML=`<div class="edh"><b>Editar foto</b><span class="mu">Arrastrá las esquinas para recortar</span></div>
-    <div class="edv"><div id="edw"><canvas id="edc"></canvas><div id="edb"><i data-h="tl"></i><i data-h="tr"></i><i data-h="bl"></i><i data-h="br"></i></div></div></div>
-    <div class="edt"><button class="ghost" onclick="edRot(-90)">↺ Izq.</button><button class="ghost" onclick="edRot(90)">↻ Der.</button><button class="ghost" id="edenh" onclick="edEnh()">🌓 Mejorar</button><button class="ghost" onclick="edReset()">⟲ Reiniciar</button></div>
-    <div class="eda"><button class="ghost" onclick="edClose(false)">${o.fresh?'Descartar':'Cancelar'}</button><button onclick="edClose(true)">✓ Usar foto</button></div>`;
+    r.innerHTML=`<div class="edh"><b>Editar foto</b><span class="mu">Arrastrá cualquier borde o esquina para recortar</span></div>
+    <div class="edv"><div id="edw"><canvas id="edc"></canvas><div id="edb"><i data-h="tl"></i><i data-h="tr"></i><i data-h="bl"></i><i data-h="br"></i><i data-h="t"></i><i data-h="b"></i><i data-h="l"></i><i data-h="r"></i></div></div></div>
+    <div class="edt"><button type="button" onclick="edRot(-90)">↺ Izq.</button><button type="button" onclick="edRot(90)">↻ Der.</button><button type="button" id="edenh" onclick="edEnh()">🌓 Mejorar</button><button type="button" onclick="edReset()">⟲ Reiniciar</button></div>
+    <div class="eda"><button type="button" class="ghost" onclick="edClose(false)">${o.fresh?'Descartar':'Cancelar'}</button><button type="button" onclick="edClose(true)">✓ Usar foto</button></div>`;
     document.body.appendChild(r);
     const box=$('#edb');let drag=null;
     box.onpointerdown=e=>{drag={h:e.target.dataset.h||'move',sx:e.clientX,sy:e.clientY,c:{...E.crop}};try{box.setPointerCapture(e.pointerId)}catch(x){}e.preventDefault()};
@@ -1866,32 +2025,41 @@ function cleanFiscalText(s){
   return str;
 }
 
-async function geocodeAddr(a){
+async function geocodeAddr(a, multi=false){
   const q=cleanTicketAddress(a);
-  if(q.length<4)return null;
+  if(q.length<4)return multi?[]:null;
+  const candidates=[];
   try{
     const pCoords=(typeof pos!=='undefined'&&pos)?pos:{lat:-34.6037,lng:-58.3816};
-    const r=await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${pCoords.lat}&lon=${pCoords.lng}&limit=1`,{signal:AbortSignal.timeout(5000)});
+    const r=await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${pCoords.lat}&lon=${pCoords.lng}&limit=4`,{signal:AbortSignal.timeout(5000)});
     if(r.ok){
       const data=await r.json();
-      const f=(data.features||[])[0];
-      if(f&&f.geometry&&f.geometry.coordinates){
-        const [lng,lat]=f.geometry.coordinates;
-        const p=f.properties||{};
-        const name=[p.street,p.housenumber].filter(Boolean).join(' ')||p.name||q;
-        return {lat,lng,name};
+      for(const f of (data.features||[])){
+        if(f&&f.geometry&&f.geometry.coordinates){
+          const [lng,lat]=f.geometry.coordinates;
+          const p=f.properties||{};
+          const name=[p.street,p.housenumber].filter(Boolean).join(' ')||p.name||q;
+          const details=[p.city,p.state].filter(Boolean).join(', ');
+          if(!candidates.some(c=>c.name===name||(Math.abs(c.lat-lat)<0.001&&Math.abs(c.lng-lng)<0.001))){
+            candidates.push({lat,lng,name,details});
+          }
+        }
       }
     }
   }catch(e){}
-  try{
-    const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=ar&accept-language=es&q='+encodeURIComponent(q),{signal:AbortSignal.timeout(6000)});
-    if(r.ok){
-      const list=await r.json();
-      const x=list&&list[0];
-      if(x)return {lat:+x.lat,lng:+x.lon,name:x.display_name};
-    }
-  }catch(e){}
-  return null;
+  if(!candidates.length){
+    try{
+      const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&countrycodes=ar&accept-language=es&q='+encodeURIComponent(q),{signal:AbortSignal.timeout(6000)});
+      if(r.ok){
+        const list=await r.json();
+        for(const x of (list||[])){
+          candidates.push({lat:+x.lat,lng:+x.lon,name:x.display_name,details:''});
+        }
+      }
+    }catch(e){}
+  }
+  if(multi)return candidates;
+  return candidates[0]||null;
 }
 let fixingS=false;
 async function fixSubcats(){
@@ -1943,9 +2111,14 @@ function addrTyped(v){
 async function mapFromText(v){
   v=String(v||'').trim();const my=++addrTok;
   if(v.length<5)return;
-  const c=await geocodeAddr(v);
-  if(my!==addrTok||!c)return;
+  const cList=await geocodeAddr(v,true);
+  if(my!==addrTok||!cList||!cList.length)return;
+  const c=cList[0];
   draft.lat=c.lat;draft.lng=c.lng;
+  if(cList.length>1){
+    draft.candidateAddresses=cList;
+    renderReceiptForm();
+  }
   if(c.name&&c.name.length>4&&!draft.address){draft.address=c.name;const aEl=$('#addr');if(aEl)aEl.value=c.name}
   if(mapShown){
     lockUntil=Date.now()+1500;
@@ -2130,7 +2303,7 @@ const prCard=(min,avg,anyExact)=>x=>{
   const diffAvg=canCompare&&avg>0?Math.round((pv/avg-1)*100):0;
   const dest=x.lat!=null?`${x.lat},${x.lng}`:encodeURIComponent(x.store_address||x.store);
   const dDiff=days(x.purchased_at);
-  const dt=new Date(x.purchased_at+'T00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'});
+  const dt=fmtDateDMY(x.purchased_at);
   const freshBadge=dDiff<=7?'<span class="tag" style="background:#e8f5e9;color:#2e7d32">🟢 Reciente</span>':dDiff>30?'<span class="tag" style="background:#fff3e0;color:#e65100">⚠️ Puede haber variado</span>':'';
   const avgBadge=canCompare?(diffAvg>5?`<span class="tag" style="background:#fee2e2;color:#991b1b">+${diffAvg}% vs promedio</span>`:diffAvg<-5?`<span class="tag" style="background:#e0f2fe;color:#0369a1">${Math.abs(diffAvg)}% bajo promedio</span>`:''):'';
   const bestBadge=best?'<span class="tag best">🏆 Más barato</span>':'';
@@ -2270,7 +2443,7 @@ async function history(silent){
   if(!silent){if(lastH.history){app(lastH.history);curH=lastH.history}else app('<p class="mu">Cargando…</p>')}
   const {data:rs=[],error}=await sb.from('receipts').select('*').order('purchased_at',{ascending:false}).limit(100);
   if(error)return silent?0:app(`<div class="card">${esc(error.message)}</div>`);
-  show('history',`<h1>Mis compras</h1>${rs.length?rs.map(r=>`<div class="card" id="r${r.id}"><div class="row" style="border:0;cursor:pointer" onclick="detail('${r.id}','${r.currency||'ARS'}')"><span><b>${esc(r.store)}</b>${r.doc_type==='factura'?` <span class="tag">📄 Factura${r.doc_number?' '+esc(r.doc_number):''}</span>`:''}${r.store_address?`<br><span class="mu">${esc(r.store_address)}</span>`:''}<br><span class="mu">${r.purchased_at}</span>${r.description?`<br><span class="mu">${esc(r.description)}</span>`:''}</span><span style="display:flex;align-items:center;gap:6px"><a href="https://www.google.com/maps/search/?api=1&query=${(r.store_lat!=null?r.store_lat+','+r.store_lng:encodeURIComponent(r.store_address?r.store+' '+r.store_address:r.store))}" target="_blank" rel="noopener" onclick="event.stopPropagation()" aria-label="Ver ubicación en Google Maps" title="Ver en Google Maps" style="font-size:1.4rem;text-decoration:none;padding:4px">📍</a><b class="num">${money(r.total,r.currency)}</b></span></div><div id="d${r.id}"></div></div>`).join(''):'<div class="empty">Acá van a aparecer tus compras.</div>'}`,silent);
+  show('history',`<h1>Mis compras</h1>${rs.length?rs.map(r=>`<div class="card" id="r${r.id}"><div class="row" style="border:0;cursor:pointer" onclick="detail('${r.id}','${r.currency||'ARS'}')"><span><b>${esc(r.store)}</b>${r.doc_type==='factura'?` <span class="tag">📄 Factura${r.doc_number?' '+esc(r.doc_number):''}</span>`:''}${r.store_address?`<br><span class="mu">${esc(r.store_address)}</span>`:''}<br><span class="mu">${fmtDateDMY(r.purchased_at)} · ${ago(r.purchased_at)}</span>${r.description?`<br><span class="mu">${esc(r.description)}</span>`:''}</span><span style="display:flex;align-items:center;gap:6px"><a href="https://www.google.com/maps/search/?api=1&query=${(r.store_lat!=null?r.store_lat+','+r.store_lng:encodeURIComponent(r.store_address?r.store+' '+r.store_address:r.store))}" target="_blank" rel="noopener" onclick="event.stopPropagation()" aria-label="Ver ubicación en Google Maps" title="Ver en Google Maps" style="font-size:1.4rem;text-decoration:none;padding:4px">📍</a><b class="num">${money(r.total,r.currency)}</b></span></div><div id="d${r.id}"></div></div>`).join(''):'<div class="empty">Acá van a aparecer tus compras.</div>'}`,silent);
 }
 async function detail(id,cur){
   const box=$('#d'+id);
@@ -2283,10 +2456,12 @@ async function editR(id){
   if(!r)return toast('No se pudo cargar la compra');
   mapShown=false;
   draft={id,currency:r.currency||'ARS',docType:r.doc_type==='factura'?'factura':'ticket',docNumber:r.doc_number||'',taxId:r.store_tax_id||'',store:r.store,date:r.purchased_at,description:r.description||'',address:r.store_address||'',lat:r.store_lat!=null?r.store_lat:(pp[0]?pp[0].lat:null),lng:r.store_lat!=null?r.store_lng:(pp[0]?pp[0].lng:null),items:its.map(i=>({name:i.name,qty:Number(i.qty),total_price:Number(i.total_price),category:i.category||'otros',subcategory:i.subcategory||''}))};
-  form();
+  renderReceiptForm();
 }
 async function del(id){
   if(!confirm('¿Eliminar esta compra?'))return;
+  try{await sb.from('price_points').delete().eq('receipt_id',id)}catch(_){}
+  try{await sb.from('receipt_items').delete().eq('receipt_id',id)}catch(_){}
   const {error}=await sb.from('receipts').delete().eq('id',id);
   if(error)return toast(error.message);
   lastH.home=lastH.history=null;history();
