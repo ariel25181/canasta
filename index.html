@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-10-31T10:15">
+<meta name="app-version" content="2026-11-01T06:40">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -41,6 +41,7 @@ document.addEventListener('touchend', function(e) {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="html2canvas.min.js"></script>
 <script defer src="https://cloud.umami.is/script.js" data-website-id="7510cabf-2500-42fc-9344-525dd0eb789a"></script>
 <style>
 :root{--bg:#FAF7F0;--card:#fff;--g:#3E8E5A;--gd:#2f7048;--r:#D9534F;--tx:#23312A;--mu:#6b7a70;--ln:#ebe5d6}
@@ -176,6 +177,9 @@ details.hq p,details.hq ul,details.hq ol{margin:8px 0 0;color:#3b4a41}details.hq
 .th img{cursor:pointer}
 #toast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);background:var(--tx);color:#fff;padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%}
 @media(min-width:900px){nav{max-width:420px;left:50%;transform:translateX(-50%);border-radius:20px 20px 0 0}}
+#fab-feedback{position:fixed;bottom:calc(76px + env(safe-area-inset-bottom, 12px));right:max(14px, calc(50% - 200px));width:46px;height:46px;border-radius:50%;background:#ffffff;color:#1e293b;border:1.5px solid #cbd5e1;box-shadow:0 4px 14px rgba(0,0,0,.16);display:flex;align-items:center;justify-content:center;font-size:1.32rem;cursor:pointer;z-index:1000000;transition:transform .15s ease,box-shadow .15s ease;user-select:none;-webkit-tap-highlight-color:transparent}
+#fab-feedback:active{transform:scale(.92)}
+#fab-feedback:hover{background:#f8fafc;box-shadow:0 6px 18px rgba(0,0,0,.22)}
 </style>
 </head>
 <body>
@@ -217,6 +221,7 @@ details.hq p,details.hq ul,details.hq ol{margin:8px 0 0;color:#3b4a41}details.hq
   <button data-v="history">🧾<span>Compras</span></button>
   <button data-v="settings">⚙️<span>Ajustes</span></button>
 </nav>
+<button id="fab-feedback" type="button" onclick="triggerFeedbackSnapshot()" aria-label="Reportar problema o sugerir mejora con captura de pantalla" title="Reportar bug o mejora (captura la pantalla)">🔧</button>
 <script>
 // 1) Pegá acá los datos de tu proyecto de Supabase (Settings > API)
 const SB_URL='https://ddzklkweeftwqqbaozty.supabase.co', SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkemtsa3dlZWZ0d3FxYmFvenR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzMjA0OTEsImV4cCI6MjEwNjg5NjQ5MX0.Ma79cMLtflb7cA2nCbj_NwwFDmLR2QC-2ElunLy9D6E';
@@ -2174,32 +2179,127 @@ function editPage(i,fresh){
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&E)edClose(false)});
 
 /* ---------- Comentarios y tickets ---------- */
-let fbS={type:'comentario',rating:0,msg:'',diag:true,sending:false},lastErr='';
+let fbS={type:'comentario',rating:0,msg:'',diag:true,sending:false,screenshot:null},lastErr='';
 addEventListener('error',e=>{lastErr=String(e.message||'').slice(0,300)});
 addEventListener('unhandledrejection',e=>{lastErr=String((e.reason&&e.reason.message)||e.reason||'').slice(0,300)});
-const FBT={comentario:'💬 Comentario',mejora:'💡 Mejora',bug:'🐞 Bug'};
+const FBT={bug:'🐞 Bug',mejora:'💡 Mejora',comentario:'💬 Comentario'};
 const fbSync=()=>{const t=$('#fbm');if(t)fbS.msg=t.value};
-function openFeedback(type,pre){fbS={type:type||'comentario',rating:0,msg:pre||'',diag:true,sending:false};fbRender()}
+
+function openFeedback(type,pre,shotB64){
+  fbS={type:type||(shotB64?'bug':'comentario'),rating:0,msg:pre||'',diag:true,sending:false,screenshot:shotB64||null};
+  fbRender();
+}
+
+async function captureScreenToJpeg(){
+  if(typeof window.html2canvas==='function'){
+    try{
+      const canvas=await window.html2canvas(document.body,{
+        useCORS:true,
+        allowTaint:true,
+        logging:false,
+        scale:Math.min(window.devicePixelRatio||1,1.5)
+      });
+      if(canvas){
+        const maxW=800;
+        let finalCanvas=canvas;
+        if(canvas.width>maxW){
+          const sc=maxW/canvas.width;
+          const sw=Math.round(canvas.width*sc);
+          const sh=Math.round(canvas.height*sc);
+          const down=document.createElement('canvas');
+          down.width=sw;down.height=sh;
+          const ctx=down.getContext('2d');
+          if(ctx){
+            ctx.drawImage(canvas,0,0,sw,sh);
+            finalCanvas=down;
+          }
+        }
+        return finalCanvas.toDataURL('image/jpeg',0.70);
+      }
+    }catch(err){
+      console.warn('html2canvas error, fallback canvas',err);
+    }
+  }
+  try{
+    const fbC=document.createElement('canvas');
+    fbC.width=400;fbC.height=700;
+    const ctx=fbC.getContext('2d');
+    if(ctx){
+      ctx.fillStyle='#f5f3ef';ctx.fillRect(0,0,400,700);
+      ctx.fillStyle='#2c3e50';ctx.font='bold 20px sans-serif';ctx.fillText('Canasta App',24,50);
+      ctx.font='14px sans-serif';ctx.fillStyle='#555';
+      ctx.fillText('Pantalla: '+(view||'app'),24,90);
+      ctx.fillText('Fecha: '+(new Date()).toLocaleString('es-AR'),24,120);
+      ctx.fillText('Resolución: '+(window.innerWidth||0)+'x'+(window.innerHeight||0),24,150);
+      return fbC.toDataURL('image/jpeg',0.70);
+    }
+  }catch(_){}
+  return null;
+}
+
+async function triggerFeedbackSnapshot(){
+  const fab=$('#fab-feedback');
+  if(fab)fab.style.display='none';
+  toast('Capturando pantalla…');
+  try{
+    await new Promise(r=>setTimeout(r,60));
+    const shot=await captureScreenToJpeg();
+    if(fab)fab.style.display='';
+    openFeedback('bug','',shot);
+  }catch(e){
+    if(fab)fab.style.display='';
+    openFeedback('bug','',null);
+  }
+}
+
+function viewScreenshotPreview(){
+  if(!fbS.screenshot)return;
+  modal(`<h2>Captura de pantalla adjunta</h2>
+  <div style="max-height:60vh;overflow:auto;margin:10px 0;border-radius:8px;border:1px solid var(--ln);background:#000;display:flex;justify-content:center">
+    <img src="${fbS.screenshot}" alt="Captura de pantalla" style="max-width:100%;height:auto;display:block">
+  </div>
+  <div class="mact">
+    <button onclick="fbRender()">Volver al formulario</button>
+  </div>`);
+}
+
 function fbRender(note){
   const x=fbS;
-  modal(`<h2>Enviar comentarios</h2><p class="mu">Contanos qué pasó o qué mejorarías. Te damos un número de ticket para seguirlo.</p>
+  const shotHtml=x.screenshot?`
+    <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:10px;padding:8px 10px;margin-top:8px;text-align:left;display:flex;align-items:center;gap:10px">
+      <img src="${x.screenshot}" alt="Captura" onclick="viewScreenshotPreview()" style="width:52px;height:70px;object-fit:cover;border-radius:6px;border:1px solid #94a3b8;cursor:pointer;flex-shrink:0" title="Toca para ampliar">
+      <div style="flex:1;min-width:0">
+        <b style="font-size:.84rem;color:#1e293b;display:block">📸 Captura de pantalla adjunta</b>
+        <span style="font-size:.76rem;color:#64748b">Se enviará junto a tu reporte para resolverlo rápido.</span>
+        <div style="margin-top:4px;display:flex;gap:8px">
+          <button type="button" class="ghost" style="padding:2px 8px;font-size:.75rem;height:auto" onclick="viewScreenshotPreview()">Ver captura</button>
+          <button type="button" class="ghost" style="padding:2px 8px;font-size:.75rem;height:auto;color:var(--r,#d9534f)" onclick="fbS.screenshot=null;fbRender()">Quitar</button>
+        </div>
+      </div>
+    </div>`:''
+  ;
+
+  modal(`<h2>${x.type==='bug'?'Reportar un problema':x.type==='mejora'?'Sugerir una mejora':'Enviar comentarios'}</h2>
+  <p class="mu">${x.type==='bug'?'Contanos qué falló y usaremos la captura adjunta para solucionarlo.':x.type==='mejora'?'Contanos tu idea o mejora para la app.':'Contanos qué te parece la app o tus sugerencias.'}</p>
   <div class="chips" style="justify-content:center;flex-wrap:wrap">${Object.keys(FBT).map(k=>`<button type="button" class="chip ${x.type===k?'on':''}" onclick="fbSync();fbS.type='${k}';fbRender()">${FBT[k]}</button>`).join('')}</div>
-  <div class="stars" role="group" aria-label="Calificación">${[1,2,3,4,5].map(n=>`<button type="button" class="${x.rating>=n?'on':''}" onclick="fbSync();fbS.rating=${n===x.rating?0:n};fbRender()" aria-label="${n} estrellas">⭐</button>`).join('')}</div>
-  <textarea id="fbm" rows="5" maxlength="2000" placeholder="${x.type==='bug'?'¿Qué estabas haciendo y qué salió mal?':x.type==='mejora'?'¿Qué te gustaría que haga la app?':'¿Qué te parece la app?'}" style="text-align:left" oninput="fbS.msg=this.value">${esc(x.msg)}</textarea>
-  <label style="display:flex;gap:8px;align-items:flex-start;text-align:left;margin-top:8px;font-size:.85rem"><input type="checkbox" style="width:auto;margin-top:3px" ${x.diag?'checked':''} onchange="fbS.diag=this.checked"><span>Incluir datos técnicos (pantalla, versión de la app y dispositivo) para ayudar a resolverlo.</span></label>
-  ${note?`<p style="color:var(--r)">${esc(note)}</p>`:''}
-  <div class="mact"><button onclick="fbSend()">Enviar</button><button class="ghost" onclick="closeModal()">Cancelar</button></div>`);
+  ${x.type==='comentario'?`<div class="stars" role="group" aria-label="Calificación">${[1,2,3,4,5].map(n=>`<button type="button" class="${x.rating>=n?'on':''}" onclick="fbSync();fbS.rating=${n===x.rating?0:n};fbRender()" aria-label="${n} estrellas">⭐</button>`).join('')}</div>`:''}
+  ${shotHtml}
+  <textarea id="fbm" rows="4" maxlength="2000" placeholder="${x.type==='bug'?'Describí qué estabas haciendo y qué salió mal…':x.type==='mejora'?'¿Qué nueva función o cambio te gustaría tener?…':'¿Qué te parece la app?…'}" style="text-align:left;margin-top:10px" oninput="fbS.msg=this.value">${esc(x.msg)}</textarea>
+  <label style="display:flex;gap:8px;align-items:flex-start;text-align:left;margin-top:8px;font-size:.82rem"><input type="checkbox" style="width:auto;margin-top:3px" ${x.diag?'checked':''} onchange="fbS.diag=this.checked"><span>Incluir datos técnicos (pantalla, dispositivo y captura) para facilitar la resolución.</span></label>
+  ${note?`<p style="color:var(--r);font-size:.85rem;margin-top:6px">${esc(note)}</p>`:''}
+  <div class="mact"><button onclick="fbSend()">Enviar reporte</button><button class="ghost" onclick="closeModal()">Cancelar</button></div>`);
 }
+
 async function fbSend(){
   fbSync();const x=fbS;
   if(x.sending)return;
   const m=x.msg.trim();
   if(m.length<5)return fbRender('Escribí al menos unas palabras (mínimo 5 caracteres).');
   x.sending=true;
-  modal('<div class="spin"></div><h2>Enviando…</h2><p class="mu">Un momento.</p>',{lock:true});
-  const diag=x.diag?{view,ver:APP_VER,ua:navigator.userAgent,vp:innerWidth+'x'+innerHeight,online:navigator.onLine,err:lastErr||null,disp:dispCur()}:null;
+  modal('<div class="spin"></div><h2>Enviando reporte…</h2><p class="mu">Un momento.</p>',{lock:true});
+  const diag=x.diag?{view,ver:APP_VER,ua:navigator.userAgent,vp:innerWidth+'x'+innerHeight,online:navigator.onLine,err:lastErr||null,disp:dispCur(),screenshot:x.screenshot||null}:{screenshot:x.screenshot||null};
   try{
-    const {data,error}=await T(sb.from('feedback').insert({type:x.type,rating:x.rating||null,message:m,screen:view,app_version:APP_VER,diagnostics:diag}).select('ticket').single(),20000);
+    const {data,error}=await T(sb.from('feedback').insert({type:x.type,rating:x.rating||null,message:m,screen:view,app_version:APP_VER,diagnostics:diag}).select('ticket').single(),25000);
     if(error)throw error;
     x.sending=false;fbDone(data.ticket,x.type);
   }catch(e){
@@ -2209,6 +2309,9 @@ async function fbSend(){
     modal(`<div class="ic bad">⚠️</div><h2>No se pudo enviar</h2><p>${esc(msg)}</p><p class="mu">Tu mensaje no se perdió.</p><div class="mact"><button onclick="fbRender()">Volver a intentar</button><button class="ghost" onclick="closeModal()">Cerrar</button></div>`);
   }
 }
+window.triggerFeedbackSnapshot=triggerFeedbackSnapshot;
+window.openFeedback=openFeedback;
+window.viewScreenshotPreview=viewScreenshotPreview;
 function fbDone(t,type){
   modal(`<div class="ic ok">🎫</div><h2>¡Gracias por tu ${type==='bug'?'reporte':'comentario'}!</h2><p>Tu número de ticket es:</p><div class="tk">${esc(t)}</div><p class="mu">Guardalo: con ese número podés consultar el estado en Ajustes → Comentarios.</p><div class="mact"><button onclick="copyTk('${esc(t)}')">Copiar número</button><button class="ghost" onclick="closeModal()">Listo</button></div>`);
   if(view==='settings')fbList();
