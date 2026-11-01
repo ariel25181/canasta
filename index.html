@@ -812,7 +812,7 @@ async function home(silent){
   const un=Object.entries(unconv);
   const h=`<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div><div class="mu">${hoy}</div><h1 style="margin-top:2px">Tu resumen</h1></div><button class="chip" onclick="go('help')" aria-label="Ayuda" style="width:40px;height:40px;padding:0;border-radius:50%;font-size:1.1rem">?</button></div>
   <div class="mnav"><button onclick="hmGo(-1)" aria-label="Mes anterior">‹</button><b>${mLabel}</b><button onclick="hmGo(1)" aria-label="Mes siguiente" ${hm===0?'disabled':''}>›</button></div>
-  <div class="hero"><div class="l">Gastaste en el súper</div><div class="v">${money(c,disp)}</div><div class="hr">${d===null?'':`<span class="pill">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1).replace('.',',')}% vs. mes anterior</span>`}<span>${cur.length} compra${cur.length===1?'':'s'}</span></div>
+  <div class="hero"><div class="l">Lo que gastaste en el mes</div><div class="v">${money(c,disp)}</div><div class="hr">${d===null?'':`<span class="pill">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1).replace('.',',')}% vs. mes anterior</span>`}<span>${cur.length} compra${cur.length===1?'':'s'}</span></div>
   ${hasConv?'<div style="margin-top:8px;font-size:.82rem;opacity:.9">Incluye compras en otras monedas, convertidas al tipo de cambio de Ajustes.</div>':''}
   ${un.length?`<div style="margin-top:8px;font-size:.85rem">+ ${un.map(([k,v])=>money(v,k)).join(' · ')} sin convertir: cargá los tipos de cambio en Ajustes.</div>`:''}</div>
   ${cur.length?`<div class="mini"><div><b>${cur.length}</b><span>Compras</span></div><div><b>${nConv?money(c/nConv,disp):'-'}</b><span>Ticket promedio</span></div><div><b>${fav?esc(fav[0]):'-'}</b><span>Más visitado</span></div></div>
@@ -2825,6 +2825,89 @@ const stemW=w=>w.length>=5?w.replace(/(es|s)$/,''):w;
 const stemQ=q=>q.split(' ').map(stemW).join(' ');
 const pk=x=>(x.store+'|'+(x.store_address||'')+'|'+x.product).toLowerCase();
 const EXPAND_BLACKLIST=new Set(['original','clasica','clasico','comun','regular','tradicional','especial','premium','extra','fina','fino','blanco','negro','unidad','unidades','kilo','kilos','kg','gramo','gramos','gr','grs','litro','litros','lt','lts','ml','cc','bolsa','paquete','pack','lata','botella','caja','promo','lactea','lacteo','lacteos','pan','panaderia','mesa','comestible','alimento','producto','super','consumidor','final','ley','fiscal','transparencia','impuesto','precio','oferta','descuento']);
+
+const UNRELATED_TERM_EXCLUSIONS={
+  leche:['nugaton','alfajor','chocolate','chocolatada','galletita','galletitas','oblea','obleas','barrita','dulce de leche','crema de leche','shampoo','acondicionador','jabon','crema','locion','bano de crema','postre','flan'],
+  pan:['rallado','dulce','panqueque','panera','panko'],
+  arroz:['con leche','inflado','galleta','galletas','tostadas'],
+  queso:['rallado','crema','untable','azul','roquefort','brie','camembert'],
+  cafe:['torrado','instantaneo','capsulas','en grano','molido'],
+  aceite:['oliva','girasol','maiz','mezcla','en aerosol','corporal','esencial'],
+  yerba:['compuesta','con palo','sin palo','saborizada'],
+  fideos:['guiseros','largos','tallarines','spaghetti','tirabuzon','mostachol','sopas']
+};
+
+const CANONICAL_DISAMBIGUATION={
+  leche:[
+    {label:'🥛 Leche entera 1L', kw:['entera'], match:(p)=>nk(p).includes('entera')&&!nk(p).includes('descremada')},
+    {label:'🥛 Leche descremada 1L', kw:['descremada'], match:(p)=>nk(p).includes('descremada')},
+    {label:'🥛 Leche larga vida (cartón)', kw:['larga vida','uht','tetra'], match:(p)=>nk(p).includes('larga vida')||nk(p).includes('uht')||nk(p).includes('carton')},
+    {label:'🥛 Leche en polvo', kw:['polvo'], match:(p)=>nk(p).includes('polvo')},
+    {label:'🥛 Leche sin lactosa / deslactosada', kw:['deslactosada','sin lactosa','reduc'], match:(p)=>nk(p).includes('deslactosada')||nk(p).includes('lactosa')||nk(p).includes('reduc')},
+    {label:'🥛 Todas las leches', kw:[], match:()=>true}
+  ],
+  aceite:[
+    {label:'🌻 Aceite de girasol', kw:['girasol'], match:(p)=>nk(p).includes('girasol')},
+    {label:'🫒 Aceite de oliva', kw:['oliva'], match:(p)=>nk(p).includes('oliva')},
+    {label:'🌽 Aceite de maíz', kw:['maiz'], match:(p)=>nk(p).includes('maiz')},
+    {label:'🌻 Todos los aceites', kw:[], match:()=>true}
+  ],
+  yerba:[
+    {label:'🧉 Yerba con palo 1kg', kw:['1kg','1 kg','kilo'], match:(p)=>(nk(p).includes('1kg')||nk(p).includes('1 kg')||nk(p).includes('kilo'))&&!nk(p).includes('500')},
+    {label:'🧉 Yerba con palo 500g', kw:['500'], match:(p)=>nk(p).includes('500')},
+    {label:'🧉 Yerba suave / sin palo', kw:['suave','sin palo','despalada'], match:(p)=>nk(p).includes('suave')||nk(p).includes('sin palo')||nk(p).includes('despalada')},
+    {label:'🧉 Todas las yerbas', kw:[], match:()=>true}
+  ],
+  arroz:[
+    {label:'🍚 Arroz blanco largo fino', kw:['largo fino','blanco'], match:(p)=>nk(p).includes('largo')||nk(p).includes('blanco')},
+    {label:'🍚 Arroz parboil / no se pasa', kw:['parboil','oro'], match:(p)=>nk(p).includes('parboil')||nk(p).includes('oro')},
+    {label:'🍚 Arroz integral', kw:['integral'], match:(p)=>nk(p).includes('integral')},
+    {label:'🍚 Todos los arroces', kw:[], match:()=>true}
+  ],
+  fideos:[
+    {label:'🍝 Fideos guiseros (tirabuzón/mostachol)', kw:['tirabuzon','mostachol','guisero','penne'], match:(p)=>nk(p).includes('tirabuzon')||nk(p).includes('mostachol')||nk(p).includes('guisero')||nk(p).includes('penne')},
+    {label:'🍝 Fideos largos (tallarines/spaghetti)', kw:['tallarin','spaghetti','largo'], match:(p)=>nk(p).includes('tallarin')||nk(p).includes('spaghetti')||nk(p).includes('largo')},
+    {label:'🍝 Fideos para sopa', kw:['sopa','municion','cabello'], match:(p)=>nk(p).includes('sopa')||nk(p).includes('municion')||nk(p).includes('cabello')},
+    {label:'🍝 Todos los fideos', kw:[], match:()=>true}
+  ]
+};
+
+let prActiveFilter=null;
+let prCurrentQ='';
+function setPrFilter(label){
+  prActiveFilter=label;
+  const r=rad(),useR=r>0&&!!pos;
+  pRender(prCurrentQ,r,useR);
+}
+function clearPrFilter(){
+  prActiveFilter=null;
+  const r=rad(),useR=r>0&&!!pos;
+  pRender(prCurrentQ,r,useR);
+}
+window.setPrFilter=setPrFilter;
+window.clearPrFilter=clearPrFilter;
+
+function shouldExcludeUnrelated(qNorm,p){
+  const pName=nk(p.product||p.product_name||'');
+  const pCat=nk(p.category||'');
+  const pSub=nk(p.subcategory||'');
+  const qWords=qNorm.split(/\s+/).filter(w=>w.length>=2);
+  for(const w of qWords){
+    const excList=UNRELATED_TERM_EXCLUSIONS[w];
+    if(excList){
+      for(const exc of excList){
+        if(!qNorm.includes(exc)){
+          if(pName.includes(exc)||pSub.includes(exc))return true;
+        }
+      }
+      if(w==='leche'&&!qNorm.includes('golosina')&&!qNorm.includes('chocolate')){
+        if(pCat==='golosinas'||pCat==='limpieza'||pName.includes('golosina')||pName.includes('wafer')||pName.includes('turron')||pName.includes('biscuit')||pName.includes('shampoo')||pName.includes('nugaton'))return true;
+      }
+    }
+  }
+  return false;
+}
+
 async function expand(q){
   const key=gemKey(),ck='exp5:'+q;
   try{const c=localStorage.getItem(ck);if(c){const parsed=JSON.parse(c);if(Array.isArray(parsed))return parsed.filter(x=>!EXPAND_BLACKLIST.has(x))}}catch(e){}
@@ -2861,6 +2944,8 @@ function setRad(r){localStorage.setItem('rad',r);document.querySelectorAll('#pra
 async function pGo(save){
   const q=nk($('#pq').value),tok=++pTok,b=$('#pbody');
   if(q.length<2){b.innerHTML=prHome(recents());return}
+  prCurrentQ=q;
+  prActiveFilter=null;
   b.innerHTML='<p class="mu">Buscando…</p>';
   try{
     await getPos();pLoc();
@@ -2910,6 +2995,7 @@ async function pGo(save){
     const qWords=qNorm.split(' ').filter(w=>w.length>=2);
     const rawRows=data||[];
     const cleanRows=rawRows.filter(p=>{
+      if(shouldExcludeUnrelated(qNorm,p))return false;
       const pName=nk(p.product||p.product_name||'');
       const pSub=nk(p.subcategory||'');
       const isTokenMatch=qWords.length>0&&qWords.every(qw=>pName.includes(qw)||pSub.includes(qw));
@@ -2959,6 +3045,7 @@ async function pGo(save){
       const tNorm=nk(t);
       const tWords=tNorm.split(' ').filter(w=>w.length>=3);
       const valid=(x.data||[]).filter(y=>{
+        if(shouldExcludeUnrelated(tNorm,y))return false;
         const pName=nk(y.product||y.product_name||'');
         const pSub=nk(y.subcategory||'');
         if(!pName)return false;
@@ -2975,11 +3062,12 @@ async function pGo(save){
     if(tok===pTok)b.innerHTML='<div class="empty">No se pudo completar la búsqueda. Probá de nuevo.</div>';
   }
 }
-const prCard=(min,avg,anyExact)=>x=>{
+
+const prCard=(min,avg,anyExact,rank)=>x=>{
   const disp=dispCur(),cu=x.currency||'ARS',pv=x._p;
   const isRelated=!!x.rel||x.is_exact===false;
   const canCompare=!prCat&&!isRelated&&pv!=null;
-  const best=canCompare&&pv===min&&(x.is_exact||!anyExact);
+  const isRankBest=rank===1;
   const diff=canCompare&&min>0?Math.round((pv/min-1)*100):0;
   const diffAvg=canCompare&&avg>0?Math.round((pv/avg-1)*100):0;
   const dest=x.lat!=null?`${x.lat},${x.lng}`:encodeURIComponent(x.store_address||x.store);
@@ -2987,12 +3075,12 @@ const prCard=(min,avg,anyExact)=>x=>{
   const dt=fmtDateDMY(x.purchased_at);
   const freshBadge=dDiff<=7?'<span class="tag" style="background:#e8f5e9;color:#2e7d32">🟢 Reciente</span>':dDiff>30?'<span class="tag" style="background:#fff3e0;color:#e65100">⚠️ Puede haber variado</span>':'';
   const avgBadge=canCompare?(diffAvg>5?`<span class="tag" style="background:#fee2e2;color:#991b1b">+${diffAvg}% vs promedio</span>`:diffAvg<-5?`<span class="tag" style="background:#e0f2fe;color:#0369a1">${Math.abs(diffAvg)}% bajo promedio</span>`:''):'';
-  const bestBadge=best?'<span class="tag best">🏆 Más barato</span>':'';
-  const diffBadge=canCompare&&!best&&diff>0?`<span class="tag">+${diff}% vs. el más barato</span>`:'';
+  
+  const rankBadge=rank?`<span class="tag" style="background:${isRankBest?'#dcfce7':'#f1f5f9'};color:${isRankBest?'#15803d':'#334155'};border:1px solid ${isRankBest?'#86efac':'#cbd5e1'};font-weight:800;font-size:.76rem">#${rank} ${isRankBest?'🏆 Más barato':diff>0?`(+${diff}% vs más barato)`:''}</span>`:'';
   const cleanDesc=cleanFiscalText(x.description);
   const descTag=(!isRelated&&x.desc_match&&cleanDesc)?`<span class="tag">📝 ${esc(cleanDesc)}</span>`:'';
   const isKg=/\b(kg|kilo|kilos)\b/i.test(x.product)||['frutas','verduras','carnes'].includes(x.category);
-  const priceUnit=isKg?'por kilo':'por unidad';
+  const priceUnit=isKg?'por kilo':/\b(1l|1 litro|litro|1000ml)\b/i.test(x.product)?'por litro':'por unidad';
 
   let sepaBadge='', sepaDiffBadge='';
   if(currentSepaMatch&&currentSepaMatch.item){
@@ -3015,15 +3103,76 @@ const prCard=(min,avg,anyExact)=>x=>{
     }
   }
 
-  return `<div class="card"><div class="row" style="border:0;align-items:flex-start;padding-top:0"><div><b>${esc(x.store)}</b><div class="mu">${esc(x.store_address||'Sin dirección')}</div></div><div class="pp"><div class="p2">${money(+x.unit_price,cu)}</div><div class="mu">${cu!==disp?(pv!=null?`≈ ${money(pv,disp)}`:'sin tipo de cambio'):priceUnit}</div></div></div>
-  <div class="mu">${x.category&&CAT[x.category]?CAT[x.category]+' ':''}${esc(x.product)}${x.subcategory?` · ${esc(x.subcategory)}`:''}${x.rel?`<span class="sim" style="background:#e3f2e8">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim">similar</span>'}</div>
-  <div class="tags">${bestBadge}${diffBadge}${avgBadge}${sepaBadge}${sepaDiffBadge}${x.distance_km!=null?`<span class="tag">📍 ${fmtD(x.distance_km)}</span>`:''}<span class="tag">📅 ${dt} (${ago(x.purchased_at)})</span>${freshBadge}${descTag}</div>
-  <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener">Cómo llegar</a></div>`;
+  return `<div class="card" style="text-align:left;border:1.5px solid ${isRankBest?'#86efac':'var(--ln)'};${isRankBest?'box-shadow:0 2px 8px rgba(34,197,94,.12);':''}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          ${rankBadge}
+          <b style="font-size:1.02rem;color:#0f172a">${esc(x.store)}</b>
+        </div>
+        <div style="font-size:.82rem;color:#475569;margin-top:4px">
+          📍 ${esc(x.store_address||'Dirección no registrada')}${x.distance_km!=null?` · <b>${fmtD(x.distance_km)}</b>`:''}
+        </div>
+        <div style="font-size:.78rem;color:#64748b;margin-top:2px">
+          📅 Fecha de compra: <b>${dt}</b> (${ago(x.purchased_at)}) ${freshBadge}
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="p2" style="font-size:1.32rem;font-weight:800;color:${isRankBest?'#15803d':'#0f172a'}">${money(+x.unit_price,cu)}</div>
+        <div class="mu" style="font-size:.72rem">${cu!==disp?(pv!=null?`≈ ${money(pv,disp)}`:'sin tipo de cambio'):priceUnit}</div>
+      </div>
+    </div>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;margin:8px 0 6px;font-size:.84rem;color:#1e293b">
+      <b>${esc(x.product)}</b>${x.subcategory?` <span class="mu">· ${esc(x.subcategory)}</span>`:''}${x.rel?`<span class="sim" style="background:#e3f2e8;margin-left:6px">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim" style="margin-left:6px">similar</span>'}
+    </div>
+    <div class="tags" style="margin-bottom:6px">${avgBadge}${sepaBadge}${sepaDiffBadge}${descTag}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+      <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none">🗺️ Cómo llegar</a>
+    </div>
+  </div>`;
 };
+
 function pRender(q,r,useR){
   const b=$('#pbody');
-  if(!prRows.length){
-    if(prAI==='loading'){b.innerHTML='<p class="mu">✨ Buscando productos relacionados…</p>';return}
+  if(!b)return;
+  const qNorm=nk(q);
+
+  // Disambiguation definitions
+  const disambigOpts=CANONICAL_DISAMBIGUATION[qNorm]||[];
+  let rows=[...prRows];
+  let activeOpt=null;
+  if(prActiveFilter&&disambigOpts.length){
+    activeOpt=disambigOpts.find(o=>o.label===prActiveFilter);
+    if(activeOpt&&activeOpt.match){
+      rows=rows.filter(x=>activeOpt.match(x.product));
+    }
+  }
+
+  // Disambiguation UI Box
+  let disambigHtml='';
+  if(disambigOpts.length){
+    disambigHtml=`
+      <div class="card" style="background:#f0f7ff;border:1.5px solid #93c5fd;border-radius:12px;padding:12px;margin-bottom:12px;text-align:left">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:1.15rem">🔍</span>
+            <b style="font-size:.88rem;color:#1e40af">¿Qué producto bajo "${esc(q)}" estás buscando?</b>
+          </div>
+          ${prActiveFilter?`<button type="button" class="ghost" onclick="clearPrFilter()" style="font-size:.74rem;padding:2px 8px;height:auto">✕ Ver todos</button>`:''}
+        </div>
+        <p class="mu" style="font-size:.76rem;margin:0 0 8px">Elegí una opción para acotar la búsqueda y comparar modelos exactos:</p>
+        <div class="chips" style="flex-wrap:wrap;gap:6px">
+          ${disambigOpts.map(opt=>{
+            const isSel=prActiveFilter===opt.label||(!prActiveFilter&&opt.label.includes('Todas'));
+            return `<button type="button" class="chip ${isSel?'on':''}" onclick="setPrFilter('${opt.label}')" style="font-size:.8rem;padding:5px 10px">${opt.label}</button>`;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  if(!rows.length){
+    if(prAI==='loading'){b.innerHTML=`${disambigHtml}<p class="mu">✨ Buscando productos relacionados…</p>`;return}
     const nx=r===0?null:RADS[RADS.indexOf(r)+1];
     let sepaEmptyNotice='';
     if(currentSepaMatch&&currentSepaMatch.item){
@@ -3035,10 +3184,12 @@ function pRender(q,r,useR){
       const sampleInfo=currentSepaMatch.sampleStore?`en ${esc(currentSepaMatch.sampleStore)} (${ago(currentSepaMatch.sampleDate||today())})`:'en la red comunitaria';
       sepaEmptyNotice=`<div class="card" style="background:#f0fdf4;border:2px solid #22c55e;border-radius:12px;padding:12px 14px;margin-bottom:14px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap"><div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:1.15rem">🏛️</span><b style="font-size:.88rem;color:#166534">Catálogo Oficial SEPA (Precios Claros)</b></div><div style="font-size:.98rem;color:#0f172a;font-weight:800;margin-top:2px">${esc(it.brand||'')} ${esc(it.product||'')}${it.variant?' · '+esc(it.variant):''}${sz}</div><div class="mu" style="font-size:.74rem;margin-top:2px">Código EAN: <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px;font-family:monospace">${esc(it.ean||'')}</code></div></div><span class="tag" style="background:#dcfce7;color:#15803d;border:1px solid #86efac;font-size:.72rem;font-weight:700">🎯 Certeza Alta: Homologado SEPA</span></div>${refP>0?`<div style="background:#ffffff;border:1.5px solid #86efac;border-radius:8px;padding:10px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:.82rem;color:#166534">PRECIO DE REFERENCIA SEPA:</b><div class="mu" style="font-size:.72rem">Registrado ${sampleInfo}</div></div><div style="text-align:right"><b style="font-size:1.32rem;color:#15803d;font-weight:800">${money(refP,disp)}</b>${minP&&minP<refP?`<div style="font-size:.7rem;color:#166534">desde <b>${money(minP,disp)}</b></div>`:''}</div></div>`:''}<div style="margin-top:10px;font-size:.8rem;color:#475569">No hay tickets registrados a menos de <b>${r?r+' km':'esta distancia'}</b> de tu ubicación actual. Podés ampliar el radio de búsqueda arriba o ser el primero en cargar un ticket en tu zona.</div></div>`;
     }
-    b.innerHTML=`${sepaEmptyNotice}<div class="empty">Todavía no hay precios de "${esc(q)}" ${useR?`a menos de ${r} km`:'registrados'}.<br><br>${nx!=null?`<button onclick="setRad(${nx})">Ampliar a ${nx?nx+' km':'todos los locales'}</button>`:'Podés ser el primero: escaneá un ticket con ese producto.'}</div>`;
+    b.innerHTML=`${disambigHtml}${sepaEmptyNotice}<div class="empty">Todavía no hay precios de "${esc(prActiveFilter||q)}" ${useR?`a menos de ${r} km`:'registrados'}.<br><br>${prActiveFilter?`<button onclick="clearPrFilter()">Ver todas las opciones de ${esc(q)}</button><br><br>`:''}${nx!=null?`<button onclick="setRad(${nx})">Ampliar a ${nx?nx+' km':'todos los locales'}</button>`:'Podés ser el primero: escaneá un ticket con ese producto.'}</div>`;
     return;
   }
-  const disp=dispCur(),rows=[...prRows];rows.forEach(x=>{x._p=conv(+x.unit_price,x.currency||'ARS',disp)});
+
+  const disp=dispCur();
+  rows.forEach(x=>{x._p=conv(+x.unit_price,x.currency||'ARS',disp)});
   const ex=rows.some(x=>x.is_exact);
   const nonRelatedRows=rows.filter(x=>!x.rel&&x.is_exact!==false&&x._p!=null);
   const cand=(nonRelatedRows.length?nonRelatedRows:(rows.some(x=>x.is_exact)?rows.filter(x=>x.is_exact&&x._p!=null):rows.filter(x=>x._p!=null))).map(x=>x._p);
@@ -3047,9 +3198,9 @@ function pRender(q,r,useR){
   const avg=cand.length?Math.round(cand.reduce((a,b)=>a+b,0)/cand.length):0;
   const spread=min>0?Math.round(((max-min)/min)*100):0;
   
-  // Calculate inflation ONLY for the EXACT same product matching the user query q (same brand, variant, package/size)
+  // Calculate inflation ONLY for the EXACT same product matching the user query
   let infHtml='';
-  const qNorm=nk(q), qWords=qNorm.split(' ').filter(w=>w.length>=2);
+  const qWords=qNorm.split(' ').filter(w=>w.length>=2);
   const exactCandidates=rows.filter(x=>{
     if(x.rel||x.is_exact===false||x._p==null||x._p<=0)return false;
     const pName=nk(x.product||''), pSub=nk(x.subcategory||'');
@@ -3111,12 +3262,33 @@ function pRender(q,r,useR){
     sepaBanner=`<div style="background:#f0fdf4;border:2px solid #22c55e;border-radius:12px;padding:12px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap"><div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:1.15rem">🏛️</span><b style="font-size:.88rem;color:#166534;letter-spacing:.2px">Catálogo Oficial SEPA (Precios Claros)</b></div><div style="font-size:.96rem;color:#0f172a;font-weight:800;margin-top:2px">${esc(sItem.brand||'')} ${esc(sItem.product||'')}${sItem.variant?' · '+esc(sItem.variant):''}${sSize}</div><div class="mu" style="font-size:.73rem;margin-top:2px">Código de barras EAN: <code style="background:#e2e8f0;padding:1px 6px;border-radius:4px;font-family:monospace">${esc(sItem.ean||'')}</code></div></div><span class="tag" style="background:${badgeBg};color:${badgeColor};border:1px solid ${badgeBorder};font-size:.72rem;font-weight:700;white-space:nowrap">${certText}</span></div>${sepaRefPrice>0?`<div style="background:#ffffff;border:1.5px solid #86efac;border-radius:8px;padding:8px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:.82rem;color:#166534">PRECIO DE REFERENCIA SEPA:</b><div class="mu" style="font-size:.72rem">Calculado para este producto homologado${sampleInfo}</div></div><div style="text-align:right"><b style="font-size:1.32rem;color:#15803d;font-weight:800">${money(sepaRefPrice,disp)}</b>${sepaMinPrice>0&&sepaMinPrice<sepaRefPrice?`<div style="font-size:.7rem;color:#166534">mínimo <b>${money(sepaMinPrice,disp)}</b></div>`:''}</div></div>`:''}</div>`;
   }
 
-  const benchHtml=(min>0||sepaBanner)?`<div class="card" style="background:#fcfbf8;border:1.5px solid var(--ln);padding:12px;margin:8px 0 12px">${sepaBanner}${min>0?`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:.92rem;color:#1e293b">📊 Comparativa en tu zona: "${esc(q)}"</b><span class="tag" style="background:#e8f5e9;color:#2e7d32;font-size:.7rem">${cand.length} ticket${cand.length===1?'':'s'} reportados</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;margin:6px 0"><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS BARATO</div><b style="color:#2e7d32;font-size:.98rem">${money(min,disp)}</b><div class="mu" style="font-size:.65rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(bestStore)}</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">PROMEDIO ZONA</div><b style="font-size:.98rem">${money(avg,disp)}</b><div class="mu" style="font-size:.65rem">${cand.length} registros</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS CARO</div><b style="color:#c62828;font-size:.98rem">${money(max,disp)}</b><div class="mu" style="font-size:.65rem">${spread>0?`+${spread}% brecha`:'único'}</div></div></div>${infHtml}`:''}</div>`:'';
+  const benchHtml=(min>0||sepaBanner)?`<div class="card" style="background:#fcfbf8;border:1.5px solid var(--ln);padding:12px;margin:8px 0 12px">${sepaBanner}${min>0?`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:.92rem;color:#1e293b">📊 Comparativa en tu zona: "${esc(prActiveFilter||q)}"</b><span class="tag" style="background:#e8f5e9;color:#2e7d32;font-size:.7rem">${cand.length} ticket${cand.length===1?'':'s'} reportados</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;margin:6px 0"><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS BARATO</div><b style="color:#2e7d32;font-size:.98rem">${money(min,disp)}</b><div class="mu" style="font-size:.65rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(bestStore)}</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">PROMEDIO ZONA</div><b style="font-size:.98rem">${money(avg,disp)}</b><div class="mu" style="font-size:.65rem">${cand.length} registros</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS CARO</div><b style="color:#c62828;font-size:.98rem">${money(max,disp)}</b><div class="mu" style="font-size:.65rem">${spread>0?`+${spread}% brecha`:'único'}</div></div></div>${infHtml}`:''}</div>`:'';
 
-  rows.sort({price:(a,c)=>(c.is_exact-a.is_exact)||((a._p??1e18)-(c._p??1e18)),near:(a,c)=>(a.distance_km??1e9)-(c.distance_km??1e9),recent:(a,c)=>c.purchased_at.localeCompare(a.purchased_at)}[psort]);
+  // Sort rows based on active view mode
+  if(psort==='near'){
+    rows.sort((a,c)=>(a.distance_km??1e9)-(c.distance_km??1e9));
+  }else if(psort==='recent'){
+    rows.sort((a,c)=>c.purchased_at.localeCompare(a.purchased_at));
+  }else{
+    rows.sort((a,c)=>(c.is_exact-a.is_exact)||((a._p??1e18)-(c._p??1e18)));
+  }
+
   const n=new Set(rows.map(x=>x.store.toLowerCase()+'|'+(x.store_address||''))).size;
-  b.innerHTML=`${benchHtml}<div class="mu" style="margin:4px 0 8px">${n} local${n===1?'':'es'}${useR?` a menos de ${r} km`:''} ${prCat||!min?'':` · desde <b class="num">${money(min,disp)}</b>`}</div>${prNote()}
-  <div class="chips">${[['price','Más barato'],['near','Más cerca'],['recent','Más reciente']].map(([k,l])=>`<button class="chip ${psort===k?'on':''}" onclick="psort='${k}';pRender('${q}',${r},${useR})">${l}</button>`).join('')}</div>${rows.map(prCard(min,avg,ex)).join('')}`;
+  const cardsHtml=rows.map((x,idx)=>prCard(min,avg,ex,psort==='price'||!psort?idx+1:null)(x)).join('');
+
+  b.innerHTML=`
+    ${disambigHtml}
+    ${benchHtml}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 6px">
+      <div class="mu" style="font-size:.82rem">
+        <b>${n} local${n===1?'':'es'}</b>${useR?` a menos de ${r} km`:''} ${prCat||!min?'':` · desde <b class="num" style="color:#15803d">${money(min,disp)}</b>`}
+      </div>
+      <div style="font-size:.76rem;color:#475569;font-weight:700">🏆 Ranking de precios</div>
+    </div>
+    ${prNote()}
+    <div class="chips">${[['price','Más barato'],['near','Más cerca'],['recent','Más reciente']].map(([k,l])=>`<button class="chip ${psort===k?'on':''}" onclick="psort='${k}';pRender('${q}',${r},${useR})">${l}</button>`).join('')}</div>
+    ${cardsHtml}
+  `;
 }
 
 /* ---------- History ---------- */
