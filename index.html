@@ -760,7 +760,8 @@ async function boot(){
   const {data}=await sb.auth.getSession();
   user=data.session?.user||null;
   if(!user)return login();
-  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;go(g||'home');fixCoords();fixSubcats();autoFx();offerRestore();setTimeout(tourAuto,900);
+  if(user?.user_metadata?.tour_off){try{localStorage.setItem('tourOff','1')}catch(_){}}
+  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;go(g||'home');fixCoords();fixSubcats();autoFx();offerRestore();setTimeout(tourAuto,900);setTimeout(()=>{if(!tourOpen)checkNovedadesAuto()},1400);
 }
 
 /* ---------- Navigation ---------- */
@@ -1325,6 +1326,16 @@ function checkEquiv(keyA,keyB){
 function normSizeStr(s){
   return String(s||'').replace(/\s+/g,'').replace(/litros?|lts?/ig,'l').replace(/gramos?|grs?/ig,'g').replace(/kilos?|kgs?/ig,'kg').replace(/cc|cm3|mililitros?/ig,'ml');
 }
+const PRODUCT_EXCLUSIVE_VARIANTS=[
+  ['entera','descremada','deslactosada','sin lactosa'],
+  ['salvado','integral','lacteado','mesa','blanco','negro','frances','arabe','hamburguesa','pancho','baguette','centeno'],
+  ['clasica','regular','light','cero','zero','diet'],
+  ['fino','grueso','entrefina'],
+  ['con gas','sin gas'],
+  ['girasol','oliva','maiz','mezcla'],
+  ['con palo','sin palo','despalada','compuesta','saborizada']
+];
+
 function isSameExactProduct(a,b){
   if(!a||!b)return false;
   const sA=nk(typeof a==='object'?(a.product||a.product_name||''):a);
@@ -1341,14 +1352,7 @@ function isSameExactProduct(a,b){
   const sizesB=(nwB.match(sizeRe)||[]).map(normSizeStr);
   if(sizesA.length&&sizesB.length&&sizesA[0]!==sizesB[0])return false;
   if(sizesA.length!==sizesB.length)return false;
-  const variants=[
-    ['entera','descremada','deslactosada'],
-    ['blanco','negro','integral','salvado'],
-    ['clasica','light','cero','zero','diet'],
-    ['fino','grueso'],
-    ['con gas','sin gas']
-  ];
-  for(const grp of variants){
+  for(const grp of PRODUCT_EXCLUSIVE_VARIANTS){
     const hasA=grp.filter(v=>sA.includes(v));
     const hasB=grp.filter(v=>sB.includes(v));
     if(hasA.length&&hasB.length&&hasA[0]!==hasB[0])return false;
@@ -1365,6 +1369,13 @@ function getProductMatchConfidence(a,b){
   const eq=checkEquiv(kA,kB);
   if(eq==='same')return {level:'alta',score:0.95,reason:'Confirmado por la comunidad'};
   if(eq==='different')return {level:'rechazado',score:0,reason:'Descartado por usuarios'};
+  for(const grp of PRODUCT_EXCLUSIVE_VARIANTS){
+    const hasA=grp.filter(v=>kA.includes(v));
+    const hasB=grp.filter(v=>kB.includes(v));
+    if(hasA.length&&hasB.length&&hasA[0]!==hasB[0]){
+      return {level:'rechazado',score:0,reason:`Difieren en tipo: ${hasA[0]} vs ${hasB[0]}`};
+    }
+  }
   const sizeRe=/(\d+(?:[.,]\d+)?)\s*(kg|g|gr|l|lt|litro|litros|ml|cc|cm3)\b/ig;
   const sA=(kA.match(sizeRe)||[]).map(normSizeStr);
   const sB=(kB.match(sizeRe)||[]).map(normSizeStr);
@@ -1850,9 +1861,28 @@ const TOUR=[
   {icon:'🚀',t:'¡Listo para empezar!',d:'Primer paso: cargá tu clave de Gemini en Ajustes. Después sacale una foto a tu primer ticket. Podés repetir este recorrido o abrir la guía desde Ajustes → Ayuda.',last:true}
 ];
 let tourI=0,tourOpen=false,tourNo=false,tourTouched=false;
+function isTourOff(){
+  if(localStorage.getItem('tourOff')==='1')return true;
+  if(user?.user_metadata?.tour_off){
+    try{localStorage.setItem('tourOff','1')}catch(_){}
+    return true;
+  }
+  return false;
+}
+function setTourOffPreference(off){
+  tourNo=!!off;tourTouched=true;
+  try{localStorage.setItem('tourOff',off?'1':'0')}catch(_){}
+  if(off&&user&&sb&&sb.auth&&typeof sb.auth.updateUser==='function'){
+    sb.auth.updateUser({data:{tour_off:true}}).catch(()=>{});
+  }
+}
+window.setTourOffPreference=setTourOffPreference;
+window.isTourOff=isTourOff;
+
 function tourStart(manual){
   if(tourOpen)return;
-  closeModal();tourOpen=true;tourI=0;tourTouched=false;tourNo=localStorage.getItem('tourOff')==='1'&&!manual;
+  if(isTourOff()&&!manual)return;
+  closeModal();tourOpen=true;tourI=0;tourTouched=false;tourNo=isTourOff()&&!manual;
   const r=document.createElement('div');r.id='tour';r.setAttribute('role','dialog');r.setAttribute('aria-modal','true');r.setAttribute('aria-label','Recorrido guiado');
   r.innerHTML='<div class="back"></div><div id="tspot"></div><div id="tcard"></div>';
   document.body.appendChild(r);tourShow();
@@ -1870,7 +1900,7 @@ function tourShow(){
   <div class="mu" style="font-size:.8rem">${tourI+1} de ${TOUR.length}</div>
   <div class="tnav">${first?'':'<button class="ghost" onclick="tourGo(-1)">Atrás</button>'}<button id="tnext" onclick="${last?'tourEnd()':'tourGo(1)'}">${first?'Comenzar':last?'¡Empezar!':'Siguiente'}</button></div>
   ${last?'<div class="tnav"><button class="ghost" onclick="tourEnd(\'settings\')">Ir a Ajustes</button><button class="ghost" onclick="tourEnd(\'help\')">Ver la guía</button></div>':''}
-  <label class="tchk"><input type="checkbox" id="tnoshow" ${tourNo?'checked':''} onchange="tourNo=this.checked;tourTouched=true;localStorage.setItem('tourOff',this.checked?'1':'0');"> No volver a mostrar al iniciar la app</label>
+  <label class="tchk" style="cursor:pointer" onclick="event.stopPropagation()"><input type="checkbox" id="tnoshow" ${tourNo?'checked':''} onchange="setTourOffPreference(this.checked)" onclick="setTourOffPreference(this.checked)"> No volver a mostrar al iniciar la app</label>
   ${last?'':'<button class="tskip" onclick="tourEnd()">Omitir recorrido</button>'}`;
   if(tgt){
     const b=tgt.getBoundingClientRect(),sp=$('#tspot'),pad=6,round=tgt.classList.contains('scan');
@@ -1882,28 +1912,138 @@ function tourShow(){
 function tourGo(d){tourI=Math.max(0,Math.min(TOUR.length-1,tourI+d));if(d>0&&tourI===TOUR.length-1&&!tourTouched)tourNo=true;tourShow()}
 function tourEnd(dest){
   const chk=$('#tnoshow');
-  if(chk&&chk.checked){tourNo=true;tourTouched=true;}
+  if(chk&&chk.checked){setTourOffPreference(true);}
   const finished=tourI===TOUR.length-1;
   const r=$('#tour');if(r)r.remove();tourOpen=false;
   if(tourTouched||tourNo||finished){
-    localStorage.setItem('tourOff',tourNo?'1':'0');
+    setTourOffPreference(tourNo||finished);
   }
   go(dest||'home');
+  if(localStorage.getItem('seen_novedades_ver')!=='2026-11-04'){
+    setTimeout(checkNovedadesAuto,600);
+  }
 }
 function tourAuto(){
-  if(localStorage.getItem('tourOff')==='1'||!user||draft||window._exp||tourOpen)return;
+  if(isTourOff()||!user||draft||window._exp||tourOpen)return;
   const ov=$('#ov');if(ov&&!ov.hidden)return;
   tourStart();
 }
 addEventListener('resize',()=>{if(tourOpen)tourShow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
 
+/* ---------- Novedades y Agradecimientos (Guided Tour Popup) ---------- */
+const NOVEDADES_VER='2026-11-04';
+let novedadesStep=0;
+
+const NOVEDADES_SLIDES=[
+  {
+    icon:'🎉',
+    tag:'Agradecimiento a Usuarios',
+    title:'¡Bugs resueltos gracias a Solana!',
+    body:`
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:12px;margin:10px 0;text-align:left">
+        <div style="font-size:.82rem;font-weight:700;color:#166534;margin-bottom:4px">👤 Usuario: Solana (<code>solana_1982@hotmail.com</code>)</div>
+        <p style="font-size:.84rem;color:#14532d;margin:4px 0 8px">¡Muchas gracias Solana por avisarnos y ayudarnos a mejorar Canasta!</p>
+        <div style="border-top:1px dashed #86efac;padding-top:8px;font-size:.8rem;color:#14532d">
+          <div style="margin-bottom:10px">
+            <b>🐞 CAN-00010: Circuito guiado persistente en iPhone / Safari</b><br>
+            <span class="mu" style="color:#166534">Corregimos el bug donde el circuito guiado volvía a aparecer en Safari aunque se marcara 'No volver a mostrar'. Ahora la preferencia se guarda en tu teléfono y se sincroniza con tu cuenta en la nube para que nunca más reaparezca si no lo querés.</span>
+          </div>
+          <div>
+            <b>💡 EQ-MW1CHMEE: Comparación errónea entre tipos de pan</b><br>
+            <span class="mu" style="color:#166534">Incorporamos validación estricta de variantes excluyentes. La app ya no mezcla variedades incompatibles (como <i>Pan de Salvado</i> vs. <i>Pan Lacteado de Mesa</i>), asegurando que solo se comparen productos verdaderamente idénticos.</span>
+          </div>
+        </div>
+      </div>
+    `
+  },
+  {
+    icon:'⚡',
+    tag:'Comunidad Canasta',
+    title:'Mejoras en Escáner con IA y Mis Compras',
+    body:`
+      <div style="background:#f8fafc;border:1.5px solid #cbd5e1;border-radius:12px;padding:12px;margin:10px 0;text-align:left">
+        <div style="margin-bottom:10px">
+          <b>🤖 CAN-00008 & CAN-00009: Límite temporal de consultas en Gemini</b><br>
+          <span class="mu" style="color:#475569;font-size:.8rem">Si la cuota de IA alcanza su límite temporal (error 429), la app ahora te ofrece de inmediato <b>"✍️ Cargar ticket a mano"</b> sin trabarse ni perder la foto que acabás de sacar.</span>
+        </div>
+        <div style="border-top:1px dashed #cbd5e1;padding-top:8px">
+          <b>🔍 CAN-00006: Buscador en vivo en Mis Compras</b><br>
+          <span class="mu" style="color:#475569;font-size:.8rem">Nuevo buscador ágil en la pestaña Compras: filtrá por local, dirección o producto comprado, con etiquetas resaltadas de los productos coincidentes y mayor estabilidad al fijar sucursales.</span>
+        </div>
+      </div>
+    `
+  },
+  {
+    icon:'🤝',
+    tag:'Canasta Crece',
+    title:'¡Tu feedback hace la diferencia!',
+    body:`
+      <p style="font-size:.88rem;color:#334155;margin:8px 0;text-align:left">
+        La comunidad de Canasta sigue creciendo día a día. Si encontrás algún error o se te ocurre una mejora, contanos desde el botón <b>🔧</b> o en Ajustes. ¡Revisamos y solucionamos cada ticket!
+      </p>
+      <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:10px;padding:8px 10px;margin:10px 0;font-size:.8rem;color:#475569;text-align:left">
+        💡 Podés volver a ver estas novedades cuando quieras desde <b>Ajustes → Ayuda → Novedades y agradecimientos</b>.
+      </div>
+    `
+  }
+];
+
+function showNovedadesModal(manual,step=0){
+  novedadesStep=Math.max(0,Math.min(NOVEDADES_SLIDES.length-1,step));
+  const s=NOVEDADES_SLIDES[novedadesStep];
+  const isFirst=novedadesStep===0;
+  const isLast=novedadesStep===NOVEDADES_SLIDES.length-1;
+
+  modal(`
+    <div style="text-align:center">
+      <div style="font-size:2.3rem;line-height:1;margin-bottom:4px">${s.icon}</div>
+      <span class="tag" style="background:#eef6f0;color:var(--gd);font-weight:700;font-size:.76rem;padding:3px 10px;border-radius:999px">${s.tag}</span>
+      <h2 style="margin:8px 0 4px;font-size:1.15rem">${esc(s.title)}</h2>
+      ${s.body}
+      <div class="dots" aria-hidden="true" style="margin:10px 0 6px">
+        ${NOVEDADES_SLIDES.map((_,idx)=>`<i class="${idx===novedadesStep?'on':''}"></i>`).join('')}
+      </div>
+      <div class="mu" style="font-size:.78rem;margin-bottom:12px">${novedadesStep+1} de ${NOVEDADES_SLIDES.length}</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        ${!isFirst?`<button type="button" class="ghost" onclick="showNovedadesModal(true,${novedadesStep-1})" style="flex:1">‹ Anterior</button>`:''}
+        ${!isLast?`<button type="button" onclick="showNovedadesModal(true,${novedadesStep+1})" style="flex:1">Siguiente ›</button>`:`<button type="button" onclick="closeNovedadesModal(true)" style="flex:1;background:var(--g);color:#fff">¡Excelente, gracias!</button>`}
+      </div>
+      <div style="margin-top:8px;display:flex;gap:6px;justify-content:center">
+        <button type="button" class="ghost" onclick="closeNovedadesModal(true);openFeedback()" style="font-size:.8rem;padding:6px 12px">💬 Enviar una sugerencia</button>
+        <button type="button" class="ghost" onclick="closeNovedadesModal(true)" style="font-size:.8rem;padding:6px 12px;color:var(--mu)">Cerrar</button>
+      </div>
+    </div>
+  `,{lock:false});
+}
+
+function closeNovedadesModal(markSeen=true){
+  if(markSeen){
+    try{localStorage.setItem('seen_novedades_ver',NOVEDADES_VER)}catch(_){}
+  }
+  closeModal();
+}
+
+function checkNovedadesAuto(){
+  if(window._exp||draft||tourOpen)return;
+  const seen=localStorage.getItem('seen_novedades_ver');
+  if(seen===NOVEDADES_VER)return;
+  const ov=$('#ov');
+  if(ov&&!ov.hidden)return;
+  showNovedadesModal(false,0);
+}
+
+window.showNovedadesModal=showNovedadesModal;
+window.closeNovedadesModal=closeNovedadesModal;
+window.checkNovedadesAuto=checkNovedadesAuto;
+window.NOVEDADES_VER=NOVEDADES_VER;
+
 /* ---------- Ayuda ---------- */
 function helpFilter(q){q=nk(q);document.querySelectorAll('#hlp details').forEach(d=>{const m=!q||nk(d.textContent).includes(q);d.style.display=m?'':'none';if(q&&m)d.open=true})}
 function help(){
   const Q=(t,b)=>`<details class="hq"><summary>${t}</summary>${b}</details>`;
   app(`<div id="hlp"><button class="ghost" onclick="go('home')" style="padding:6px 14px;margin-bottom:8px">‹ Inicio</button><h1>Ayuda</h1>
-  <div class="mact" style="margin:0 0 12px"><button onclick="tourStart(true)">▶ Ver el recorrido guiado</button></div>
+  <div class="mact" style="margin:0 0 12px"><button onclick="tourStart(true)">▶ Ver el recorrido guiado</button><button class="ghost" onclick="showNovedadesModal(true)">🎉 Novedades y agradecimientos</button></div>
   <div class="sb"><input type="search" placeholder="Buscá en la ayuda…" oninput="helpFilter(this.value)" autocomplete="off"></div>
   ${Q('🚀 Primeros pasos',`<ol><li>Entrá a <b>Ajustes</b> y pegá tu <b>clave de Gemini</b> (se crea gratis en aistudio.google.com/apikey). La usa la app para leer tus tickets.</li><li>Opcional: cargá una <b>clave de Google Maps</b> para ubicar los locales con sugerencias y un pin.</li><li>Tocá el botón de la cámara y cargá tu primer ticket.</li></ol>`)}
   ${Q('📷 Cargar un ticket o factura',`<ul><li>Tocá el botón de la cámara. Podés <b>sacar fotos</b>, elegirlas de la <b>galería</b> o subir un <b>PDF</b>.</li><li>Hasta <b>5 fotos</b> por comprobante: si el ticket es largo, sacalo en partes con un poco de superposición.</li><li>Tocá <b>Leer comprobante</b>. La app detecta el local, la fecha, los productos, la moneda y si es ticket o factura.</li><li><b>Revisá los datos</b>: podés corregir nombres, cantidades, totales, categorías y subcategorías, quitar o agregar productos.</li><li>Tocá <b>Guardar</b>. Vas a ver una ventana de confirmación con tu compra.</li><li>Si no querés usar la cámara, elegí <b>Cargar a mano</b>.</li></ul>`)}
@@ -3549,7 +3689,7 @@ function settings(){
   <p style="margin-top:10px">
     <button class="ghost" type="button" onclick="checkPreciosClarosStatus()">🔄 Verificar actualización del catálogo</button>
   </p></div>
-  <div class="card"><h2 style="margin-top:0">Ayuda</h2><p class="mu" style="margin-top:0">Guía de uso y recorrido guiado de la app.</p><div class="mact" style="margin-top:8px"><button onclick="go('help')">❓ Guía de uso</button><button class="ghost" onclick="tourStart(true)">▶ Ver el recorrido guiado</button></div></div>
+  <div class="card"><h2 style="margin-top:0">Ayuda y Novedades</h2><p class="mu" style="margin-top:0">Guía de uso, novedades recientes y recorrido guiado de la app.</p><div class="mact" style="margin-top:8px"><button onclick="go('help')">❓ Guía de uso</button><button class="ghost" onclick="showNovedadesModal(true)">🎉 Novedades y agradecimientos</button><button class="ghost" onclick="tourStart(true)">▶ Ver el recorrido guiado</button></div></div>
   ${installCard()}
   <div class="card"><h2 style="margin-top:0">Comentarios</h2><p class="mu" style="margin-top:0">¿Encontraste un error o tenés una idea? Contanos y te damos un número de ticket.</p><div class="mact" style="margin-top:8px"><button onclick="openFeedback()">💬 Enviar comentarios</button></div><div id="fbl"></div></div>
   <div class="card"><div class="mu">${esc(user.email)}</div><p style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="ghost" onclick="changePasswordModal()">Cambiar contraseña</button><button class="ghost" onclick="window._manualOut=true;clearBk();sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
