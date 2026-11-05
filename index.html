@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-11-01T06:40">
+<meta name="app-version" content="2026-11-05T12:00">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -492,7 +492,7 @@ function explainAuth(e){
     return `Límite de correos de Supabase alcanzado. Por seguridad, esperá ${s} segundos antes de volver a intentar.`;
   }
   if(/User already registered|already registered/i.test(m))return "Ya existe una cuenta con este email. Tocá \"Entrar\" para iniciar sesión.";
-  if(/Email not confirmed|email_not_confirmed|not confirmed/i.test(m+c))return "Falta confirmar tu email. Revisá tu casilla de correo (o carpeta spam) para activarlo antes de entrar.";
+  if(/Email not confirmed|email_not_confirmed|not confirmed/i.test(m+c))return "Falta confirmar tu email. Si ya abriste el enlace de tu correo, tu cuenta ya está activa: intentá ingresar ahora. Si no te llegó, revisá la carpeta Spam.";
   if(/Invalid login credentials|invalid_credentials/i.test(m+c))return "Email o contraseña incorrectos. Revisá los datos e intentá de nuevo.";
   if(/Password should be at least 6/i.test(m))return "La contraseña debe tener al menos 6 caracteres.";
   if(/NetworkError|Failed to fetch/i.test(m))return "Problema de conexión. Revisá tu internet y volvé a intentar.";
@@ -734,8 +734,9 @@ async function auth(k){
             <h2>¡Cuenta creada!</h2>
             <p>Te enviamos un correo de confirmación a:<br><b style="color:var(--g)">${esc(email)}</b></p>
             <p class="mu" style="margin:12px 0">Abrí tu correo (revisá también <b>Spam</b> o correo no deseado) y hacé clic en el enlace para activar tu cuenta.</p>
+            <p style="font-size:.82rem;color:var(--mu);background:#f4f6f4;border:1px solid #d4dfd8;border-radius:8px;padding:8px 10px;text-align:left;margin:10px 0">💡 <b>Nota:</b> Al hacer clic en el correo tu cuenta queda confirmada al instante. Si tu navegador muestra un aviso de redirección, simplemente volvé acá e iniciá sesión con tu email y contraseña.</p>
             <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
-              <button onclick="login()">Volver al inicio</button>
+              <button onclick="login()">Volver al inicio e iniciar sesión</button>
               <button class="ghost" onclick="resendConfirmation('${esc(email)}')">¿No llegó? Reenviar correo</button>
             </div>
           </div>`);
@@ -759,8 +760,15 @@ async function boot(){
   }
   const {data}=await sb.auth.getSession();
   user=data.session?.user||null;
+  if(user && hash && /access_token/i.test(hash)){
+    try{history.replaceState(null,'',location.pathname+location.search)}catch(_){}
+  }
   if(!user)return login();
-  if(user?.user_metadata?.tour_off){try{localStorage.setItem('tourOff','1')}catch(_){}}
+  if(user?.user_metadata?.tour_off || user?.user_metadata?.tour_seen){
+    try{localStorage.setItem('tourOff','1')}catch(_){}
+    try{sessionStorage.setItem('tourOff','1')}catch(_){}
+    window._tourOff=true;
+  }
   $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;go(g||'home');fixCoords();fixSubcats();autoFx();offerRestore();setTimeout(tourAuto,900);setTimeout(()=>{if(!tourOpen)checkNovedadesAuto()},1400);
 }
 
@@ -1860,20 +1868,44 @@ const TOUR=[
   {v:'settings',t:'Ajustes',d:'Acá cargás tus claves (Gemini para leer tickets y Google Maps para ubicar locales), elegís la moneda, compartís la app, mandás comentarios y encontrás la ayuda.'},
   {icon:'🚀',t:'¡Listo para empezar!',d:'Primer paso: cargá tu clave de Gemini en Ajustes. Después sacale una foto a tu primer ticket. Podés repetir este recorrido o abrir la guía desde Ajustes → Ayuda.',last:true}
 ];
-let tourI=0,tourOpen=false,tourNo=false,tourTouched=false;
+let tourI=0,tourOpen=false,tourNo=true,tourTouched=false;
 function isTourOff(){
-  if(localStorage.getItem('tourOff')==='1')return true;
-  if(user?.user_metadata?.tour_off){
+  if(window._tourOff||localStorage.getItem('tourOff')==='1'||localStorage.getItem('tour_seen')==='1'||sessionStorage.getItem('tourOff')==='1'||user?.user_metadata?.tour_off||user?.user_metadata?.tour_seen){
+    window._tourOff=true;
     try{localStorage.setItem('tourOff','1')}catch(_){}
+    try{sessionStorage.setItem('tourOff','1')}catch(_){}
     return true;
   }
   return false;
 }
 function setTourOffPreference(off){
-  tourNo=!!off;tourTouched=true;
-  try{localStorage.setItem('tourOff',off?'1':'0')}catch(_){}
-  if(off&&user&&sb&&sb.auth&&typeof sb.auth.updateUser==='function'){
-    sb.auth.updateUser({data:{tour_off:true}}).catch(()=>{});
+  tourNo=off!==false;
+  tourTouched=true;
+  if(tourNo){
+    window._tourOff=true;
+    try{localStorage.setItem('tourOff','1')}catch(_){}
+    try{localStorage.setItem('tour_seen','1')}catch(_){}
+    try{sessionStorage.setItem('tourOff','1')}catch(_){}
+    if(user){
+      if(!user.user_metadata)user.user_metadata={};
+      user.user_metadata.tour_off=true;
+      user.user_metadata.tour_seen=true;
+      if(sb&&sb.auth&&typeof sb.auth.updateUser==='function'){
+        sb.auth.updateUser({data:{tour_off:true,tour_seen:true}}).catch(()=>{});
+      }
+      try{
+        fetch('/api/canasta/user/set-tour-preference',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({userId:user.id,email:user.email,tourOff:true})
+        }).catch(()=>{});
+      }catch(_){}
+    }
+  }else{
+    window._tourOff=false;
+    try{localStorage.setItem('tourOff','0')}catch(_){}
+    try{localStorage.removeItem('tour_seen')}catch(_){}
+    try{sessionStorage.setItem('tourOff','0')}catch(_){}
   }
 }
 window.setTourOffPreference=setTourOffPreference;
@@ -1882,9 +1914,9 @@ window.isTourOff=isTourOff;
 function tourStart(manual){
   if(tourOpen)return;
   if(isTourOff()&&!manual)return;
-  closeModal();tourOpen=true;tourI=0;tourTouched=false;tourNo=isTourOff()&&!manual;
+  closeModal();tourOpen=true;tourI=0;tourTouched=false;tourNo=true;
   const r=document.createElement('div');r.id='tour';r.setAttribute('role','dialog');r.setAttribute('aria-modal','true');r.setAttribute('aria-label','Recorrido guiado');
-  r.innerHTML='<div class="back"></div><div id="tspot"></div><div id="tcard"></div>';
+  r.innerHTML='<div class="back" onclick="tourEnd()"></div><div id="tspot"></div><div id="tcard"></div>';
   document.body.appendChild(r);tourShow();
 }
 function tourShow(){
@@ -1893,14 +1925,13 @@ function tourShow(){
   const tgt=st.v?document.querySelector(`#nav button[data-v="${st.v}"]`):null,root=$('#tour');
   if(!root)return;
   root.classList.toggle('center',!tgt);
-  if(last&&!tourTouched)tourNo=true;
   const card=$('#tcard');
   card.innerHTML=`${st.icon?`<div style="font-size:2.4rem;line-height:1">${st.icon}</div>`:''}<h2>${esc(st.t)}</h2><p>${esc(st.d)}</p>
   <div class="dots" aria-hidden="true">${TOUR.map((_,i)=>`<i class="${i===tourI?'on':''}"></i>`).join('')}</div>
   <div class="mu" style="font-size:.8rem">${tourI+1} de ${TOUR.length}</div>
   <div class="tnav">${first?'':'<button class="ghost" onclick="tourGo(-1)">Atrás</button>'}<button id="tnext" onclick="${last?'tourEnd()':'tourGo(1)'}">${first?'Comenzar':last?'¡Empezar!':'Siguiente'}</button></div>
   ${last?'<div class="tnav"><button class="ghost" onclick="tourEnd(\'settings\')">Ir a Ajustes</button><button class="ghost" onclick="tourEnd(\'help\')">Ver la guía</button></div>':''}
-  <label class="tchk" style="cursor:pointer" onclick="event.stopPropagation()"><input type="checkbox" id="tnoshow" ${tourNo?'checked':''} onchange="setTourOffPreference(this.checked)" onclick="setTourOffPreference(this.checked)"> No volver a mostrar al iniciar la app</label>
+  <label class="tchk" style="cursor:pointer"><input type="checkbox" id="tnoshow" ${tourNo?'checked':''} onchange="setTourOffPreference(this.checked)"> No volver a mostrar al iniciar la app</label>
   ${last?'':'<button class="tskip" onclick="tourEnd()">Omitir recorrido</button>'}`;
   if(tgt){
     const b=tgt.getBoundingClientRect(),sp=$('#tspot'),pad=6,round=tgt.classList.contains('scan');
@@ -1909,15 +1940,10 @@ function tourShow(){
   }else{card.style.top='';card.style.bottom=''}
   const n=$('#tnext');if(n)n.focus();
 }
-function tourGo(d){tourI=Math.max(0,Math.min(TOUR.length-1,tourI+d));if(d>0&&tourI===TOUR.length-1&&!tourTouched)tourNo=true;tourShow()}
+function tourGo(d){tourI=Math.max(0,Math.min(TOUR.length-1,tourI+d));tourShow()}
 function tourEnd(dest){
-  const chk=$('#tnoshow');
-  if(chk&&chk.checked){setTourOffPreference(true);}
-  const finished=tourI===TOUR.length-1;
   const r=$('#tour');if(r)r.remove();tourOpen=false;
-  if(tourTouched||tourNo||finished){
-    setTourOffPreference(tourNo||finished);
-  }
+  setTourOffPreference(tourNo!==false);
   go(dest||'home');
   if(localStorage.getItem('seen_novedades_ver')!=='2026-11-04'){
     setTimeout(checkNovedadesAuto,600);
