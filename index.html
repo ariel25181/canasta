@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-11-13T11:38">
+<meta name="app-version" content="2026-11-13T20:35">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -774,7 +774,7 @@ async function boot(){
     try{localStorage.setItem('seen_novedades_ver',String(user.user_metadata.seen_novedades_ver))}catch(_){}
     try{sessionStorage.setItem('seen_novedades_ver',String(user.user_metadata.seen_novedades_ver))}catch(_){}
   }
-  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;go(wantAdmin?'admin':(g||'home'));fixCoords();fixSubcats();autoFx();offerRestore();setTimeout(tourAuto,900);setTimeout(()=>{if(!tourOpen)checkNovedadesAuto()},1400);
+  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;loadSharedSearchRules().catch(()=>{});go(wantAdmin?'admin':(g||'home'));fixCoords();fixSubcats();autoFx();offerRestore();setTimeout(tourAuto,900);setTimeout(()=>{if(!tourOpen)checkNovedadesAuto()},1400);
 }
 
 /* ---------- Navigation ---------- */
@@ -3358,17 +3358,195 @@ const SUPERMARKET_SYNONYMS={
   aceite:['aceite de girasol','aceite de maiz','aceite de oliva','cocinero','natura','canuelas']
 };
 
-function getQuerySynonyms(qNorm){
-  const syns=new Set();
-  if(SUPERMARKET_SYNONYMS[qNorm]){
-    SUPERMARKET_SYNONYMS[qNorm].forEach(s=>syns.add(nk(s)));
+function getAdminEquivsMap(){
+  try{
+    const raw=JSON.parse(localStorage.getItem('admin_equivs')||'{}');
+    const out={};
+    for(const [k,v] of Object.entries(raw||{})){
+      const kn=nk(k);if(!kn)continue;
+      const arr=Array.isArray(v)?v:[v];
+      out[kn]=[...new Set(arr.map(nk).filter(Boolean))];
+    }
+    return out;
+  }catch(e){return {}}
+}
+function saveAdminEquivsMap(map){
+  try{localStorage.setItem('admin_equivs',JSON.stringify(map||{}))}catch(e){}
+}
+function getAdminExclusionsMap(){
+  try{
+    const raw=JSON.parse(localStorage.getItem('admin_exclusions')||'{}');
+    const out={};
+    for(const [k,v] of Object.entries(raw||{})){
+      const kn=nk(k);if(!kn)continue;
+      const arr=Array.isArray(v)?v:[v];
+      out[kn]=[...new Set(arr.map(nk).filter(Boolean))];
+    }
+    return out;
+  }catch(e){return {}}
+}
+function saveAdminExclusionsMap(map){
+  try{localStorage.setItem('admin_exclusions',JSON.stringify(map||{}))}catch(e){}
+}
+function getAdminProductAliases(){
+  try{
+    const raw=JSON.parse(localStorage.getItem('admin_product_aliases')||'{}');
+    const out={};
+    for(const [k,v] of Object.entries(raw||{})){
+      const kn=nk(k);if(!kn||!v)continue;
+      out[kn]=v;
+    }
+    return out;
+  }catch(e){return {}}
+}
+function saveAdminProductAliases(map){
+  try{localStorage.setItem('admin_product_aliases',JSON.stringify(map||{}))}catch(e){}
+}
+window.getAdminEquivsMap=getAdminEquivsMap;
+window.getAdminExclusionsMap=getAdminExclusionsMap;
+window.getAdminProductAliases=getAdminProductAliases;
+
+async function persistSearchRule(payload){
+  try{
+    const sess=sb?.auth?.getSession?await sb.auth.getSession():null;
+    const token=sess?.data?.session?.access_token;
+    if(token){
+      const r=await fetch('/api/canasta/admin/search-rules',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+        body:JSON.stringify(payload)
+      });
+      if(r.ok)return await r.json();
+    }
+  }catch(_){}
+  try{
+    if(user&&sb&&payload.action!=='archive'){
+      await sb.from('feedback').insert({
+        user_id:user.id,
+        ticket:'RULE-'+Date.now().toString(36).toUpperCase(),
+        type:'mejora',
+        screen:'search_rule',
+        status:'activo',
+        app_version:typeof APP_VER!=='undefined'?APP_VER:'2026-11-13',
+        message:`${payload.kind}: ${payload.from} -> ${payload.to||payload.normalizedName||payload.tags||''}`,
+        diagnostics:{kind:payload.kind,from:payload.from,to:payload.to,normalizedName:payload.normalizedName,tags:payload.tags,ean:payload.ean}
+      });
+    }
+  }catch(_){}
+  return {ok:true};
+}
+
+async function loadSharedSearchRules(){
+  let rules=[];
+  try{
+    const r=await fetch('/api/canasta/search-rules');
+    if(r.ok){
+      const j=await r.json();
+      if(Array.isArray(j.rules))rules=j.rules;
+    }
+  }catch(_){}
+  if(!rules.length&&sb&&user){
+    try{
+      const {data}=await sb.from('feedback').select('id,ticket,status,message,diagnostics,created_at').eq('screen','search_rule').neq('status','archived').order('created_at',{ascending:true}).limit(300);
+      if(Array.isArray(data))rules=data;
+    }catch(_){}
   }
-  const words=qNorm.split(/\s+/).filter(w=>w.length>=3);
-  for(const w of words){
-    if(SUPERMARKET_SYNONYMS[w]){
-      SUPERMARKET_SYNONYMS[w].forEach(s=>syns.add(nk(s)));
+  if(!rules.length)return;
+  const eq=getAdminEquivsMap(), ex=getAdminExclusionsMap(), al=getAdminProductAliases();
+  for(const row of rules){
+    const d=row?.diagnostics||{};
+    const f=nk(d.from||''), t=nk(d.to||'');
+    if(d.kind==='synonym'&&f&&t){
+      if(!eq[f])eq[f]=[];
+      if(!eq[f].includes(t))eq[f].push(t);
+    }else if(d.kind==='exclude'&&f&&t){
+      if(!ex[f])ex[f]=[];
+      if(!ex[f].includes(t))ex[f].push(t);
+    }else if(d.kind==='normalize'&&f){
+      al[f]={raw:d.from,normalizedName:d.normalizedName||'',tags:d.tags||'',ean:d.ean||'',ruleId:row.id};
     }
   }
+  saveAdminEquivsMap(eq);
+  saveAdminExclusionsMap(ex);
+  saveAdminProductAliases(al);
+}
+window.loadSharedSearchRules=loadSharedSearchRules;
+
+async function addAdminEquivRule(fromTerm,toTerm){
+  const f=nk(fromTerm), t=nk(toTerm);
+  if(!f||!t)return false;
+  const eq=getAdminEquivsMap();
+  if(!eq[f])eq[f]=[];
+  if(!eq[f].includes(t))eq[f].push(t);
+  saveAdminEquivsMap(eq);
+  await persistSearchRule({action:'add',kind:'synonym',from:fromTerm.trim(),to:toTerm.trim()});
+  return true;
+}
+async function removeAdminEquivRule(fromTerm,toTerm){
+  const f=nk(fromTerm), t=nk(toTerm);
+  const eq=getAdminEquivsMap();
+  if(eq[f]){
+    eq[f]=eq[f].filter(x=>x!==t);
+    if(!eq[f].length)delete eq[f];
+    saveAdminEquivsMap(eq);
+  }
+}
+async function addAdminExclusionRule(queryTerm,excludedPhrase){
+  const f=nk(queryTerm), t=nk(excludedPhrase);
+  if(!f||!t)return false;
+  const ex=getAdminExclusionsMap();
+  if(!ex[f])ex[f]=[];
+  if(!ex[f].includes(t))ex[f].push(t);
+  saveAdminExclusionsMap(ex);
+  await persistSearchRule({action:'add',kind:'exclude',from:queryTerm.trim(),to:excludedPhrase.trim()});
+  return true;
+}
+async function removeAdminExclusionRule(queryTerm,excludedPhrase){
+  const f=nk(queryTerm), t=nk(excludedPhrase);
+  const ex=getAdminExclusionsMap();
+  if(ex[f]){
+    ex[f]=ex[f].filter(x=>x!==t);
+    if(!ex[f].length)delete ex[f];
+    saveAdminExclusionsMap(ex);
+  }
+}
+async function saveProductAliasRule(rawProductName,opts){
+  const key=nk(rawProductName);
+  if(!key)return false;
+  const normalizedName=String(opts?.normalizedName||'').trim();
+  const tags=String(opts?.tags||'').trim();
+  const ean=String(opts?.ean||'').trim();
+  const al=getAdminProductAliases();
+  al[key]={raw:rawProductName,normalizedName,tags,ean};
+  saveAdminProductAliases(al);
+  await persistSearchRule({action:'add',kind:'normalize',from:rawProductName,normalizedName,tags,ean});
+  return true;
+}
+async function removeProductAliasRule(rawProductName){
+  const key=nk(rawProductName);
+  const al=getAdminProductAliases();
+  if(al[key]){delete al[key];saveAdminProductAliases(al);}
+}
+window.addAdminEquivRule=addAdminEquivRule;
+window.removeAdminEquivRule=removeAdminEquivRule;
+window.addAdminExclusionRule=addAdminExclusionRule;
+window.removeAdminExclusionRule=removeAdminExclusionRule;
+window.saveProductAliasRule=saveProductAliasRule;
+window.removeProductAliasRule=removeProductAliasRule;
+
+function getQuerySynonyms(qNorm){
+  const syns=new Set();
+  const eq=getAdminEquivsMap();
+  const addSyns=(term)=>{
+    if(SUPERMARKET_SYNONYMS[term])SUPERMARKET_SYNONYMS[term].forEach(s=>syns.add(nk(s)));
+    if(eq[term])eq[term].forEach(s=>syns.add(nk(s)));
+    for(const [k,list] of Object.entries(eq)){
+      if(list.includes(term))syns.add(k);
+    }
+  };
+  addSyns(qNorm);
+  const words=qNorm.split(/\s+/).filter(w=>w.length>=3);
+  for(const w of words)addSyns(w);
   return Array.from(syns);
 }
 
@@ -3378,25 +3556,36 @@ function smartSearchPrices(rawRows,q){
   const qWords=qNorm.split(/\s+/).filter(w=>w.length>=2);
   const qMult=extractPackMultiplier(qNorm);
   const synonyms=getQuerySynonyms(qNorm);
+  const eq=getAdminEquivsMap();
+  const aliases=getAdminProductAliases();
+  const adminTargets=new Set([...(eq[qNorm]||[])]);
+  for(const w of qWords){if(eq[w])eq[w].forEach(t=>adminTargets.add(t));}
 
   const scored=[];
-  for(const p of rawRows){
+  for(const origP of rawRows){
+    const p={...origP};
     if(shouldExcludeUnrelated(qNorm,p))continue;
     const pName=nk(p.product||p.product_name||'');
+    const alias=aliases[pName];
+    const pNormName=alias?.normalizedName?nk(alias.normalizedName):'';
+    const pAliasTags=alias?.tags?nk(alias.tags):'';
+    const pAliasEan=alias?.ean?nk(alias.ean):'';
     const pSub=nk(p.subcategory||'');
     const pCat=nk(p.category||'');
     const pDesc=nk(p.description||'');
     const pTags=Array.isArray(p.tags)?p.tags.map(nk).join(' '):nk(p.tags||'');
-    const fullText=`${pName} ${pSub} ${pCat} ${pDesc} ${pTags}`;
+    const fullText=`${pName} ${pNormName} ${pAliasTags} ${pAliasEan} ${pSub} ${pCat} ${pDesc} ${pTags}`;
     const pMult=extractPackMultiplier(pName);
 
     p.pack_multiplier=pMult;
+    if(alias?.normalizedName)p.normalized_label=alias.normalizedName;
+    if(alias?.tags)p.custom_tags=alias.tags;
 
     let score=0;
     let confidence='baja';
     let matchType='';
 
-    if(pName.includes(qNorm)){
+    if(pName.includes(qNorm)||(pNormName&&pNormName.includes(qNorm))){
       score=100;
       confidence='alta';
       matchType='exacto';
@@ -3404,6 +3593,10 @@ function smartSearchPrices(rawRows,q){
       score=88;
       confidence='alta';
       matchType='tokens_completos';
+    }else if(Array.from(adminTargets).some(t=>t&&fullText.includes(t))){
+      score=86;
+      confidence='alta';
+      matchType='regla_admin';
     }else if(synonyms.some(syn=>fullText.includes(syn))){
       score=80;
       confidence='alta';
@@ -3479,8 +3672,18 @@ function shouldExcludeUnrelated(qNorm,p){
   const pName=nk(p.product||p.product_name||'');
   const pCat=nk(p.category||'');
   const pSub=nk(p.subcategory||'');
+  const adminEx=getAdminExclusionsMap();
+  const checkList=(list)=>{
+    if(!list)return false;
+    for(const exc of list){
+      if(exc&&!qNorm.includes(exc)&&(pName.includes(exc)||pSub.includes(exc)))return true;
+    }
+    return false;
+  };
+  if(checkList(adminEx[qNorm]))return true;
   const qWords=qNorm.split(/\s+/).filter(w=>w.length>=2);
   for(const w of qWords){
+    if(checkList(adminEx[w]))return true;
     const excList=UNRELATED_TERM_EXCLUSIONS[w];
     if(excList){
       for(const exc of excList){
@@ -3654,6 +3857,7 @@ const prCard=(min,avg,anyExact,rank)=>x=>{
   const packMult=x.pack_multiplier||extractPackMultiplier(x.product);
   const packBadge=(packMult>1)?`<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-weight:700">📦 Pack x${packMult} (${pv!=null?money(Math.round(pv/packMult),cu):''} c/u)</span>`:'';
   const confBadge=(x.search_confidence==='alta'&&!x.is_exact)?'<span class="tag" style="background:#f0fdf4;color:#166534;font-size:.7rem">🎯 Alta confianza</span>':(x.search_confidence==='media')?'<span class="tag" style="background:#fefce8;color:#854d0e;font-size:.7rem">🟡 Coincidencia media</span>':'';
+  const mismatchBtn=(x.search_confidence==='media'||!x.is_exact)?`<button type="button" class="ghost" onclick="openSearchMismatchModal('${encodeURIComponent(prCurrentQ)}','${encodeURIComponent(x.product||'')}','${encodeURIComponent(x.store||'')}',${Number(x.unit_price||0)},${Number(x.search_score||55)},'${esc(x.search_confidence||'media')}')" style="font-size:.74rem;padding:4px 8px;color:#b45309;border-color:#fde68a;background:#fffbeb">🚩 ¿No es este producto?</button>`:'';
 
   let sepaBadge='', sepaDiffBadge='';
   if(currentSepaMatch&&currentSepaMatch.item){
@@ -3696,14 +3900,63 @@ const prCard=(min,avg,anyExact,rank)=>x=>{
       </div>
     </div>
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;margin:8px 0 6px;font-size:.84rem;color:#1e293b">
-      <b>${esc(x.product)}</b>${x.subcategory?` <span class="mu">· ${esc(x.subcategory)}</span>`:''}${x.rel?`<span class="sim" style="background:#e3f2e8;margin-left:6px">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim" style="margin-left:6px">similar</span>'}
+      <b>${esc(x.normalized_label||x.product)}</b>${x.normalized_label&&x.normalized_label!==x.product?` <span class="mu">(${esc(x.product)})</span>`:''}${x.subcategory?` <span class="mu">· ${esc(x.subcategory)}</span>`:''}${x.rel?`<span class="sim" style="background:#e3f2e8;margin-left:6px">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim" style="margin-left:6px">similar</span>'}
     </div>
     <div class="tags" style="margin-bottom:6px">${packBadge}${confBadge}${avgBadge}${sepaBadge}${sepaDiffBadge}${descTag}</div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">
       <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none">🗺️ Cómo llegar</a>
+      ${mismatchBtn}
     </div>
   </div>`;
 };
+
+function openSearchMismatchModal(encQ,encProd,encStore,unitPrice,score,conf){
+  const q=decodeURIComponent(encQ||''), prod=decodeURIComponent(encProd||''), store=decodeURIComponent(encStore||'');
+  modal(`
+    <div style="text-align:left">
+      <h2 style="margin-top:0">🚩 Reportar asociación incorrecta</h2>
+      <p class="mu" style="font-size:.84rem">Buscaste <b>"${esc(q)}"</b> y apareció <b>"${esc(prod)}"</b>${store?` en ${esc(store)}`:''}.</p>
+      <div style="margin:10px 0">
+        <label style="font-size:.8rem;font-weight:700;display:block;margin-bottom:4px">¿Qué pasó con este resultado?</label>
+        <select id="mis-reason" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid var(--ln);font-size:.85rem">
+          <option value="exclude">No es el producto que busqué (excluir de esta búsqueda)</option>
+          <option value="synonym">Sí corresponde, pero debería asociarse con otro nombre</option>
+        </select>
+      </div>
+      <div style="margin:10px 0">
+        <label style="font-size:.8rem;font-weight:700;display:block;margin-bottom:4px">Aclaración opcional (ej: producto correcto o marca):</label>
+        <input id="mis-note" type="text" placeholder="Ej: Es un chocolate con leche, no leche" style="width:100%;font-size:.84rem">
+      </div>
+      <div class="mact" style="margin-top:12px">
+        <button onclick="submitSearchMismatch('${encQ}','${encProd}','${encStore}',${Number(unitPrice||0)},${Number(score||55)},'${esc(conf||'media')}')">Enviar sugerencia</button>
+        <button class="ghost" onclick="closeModal()">Cancelar</button>
+      </div>
+    </div>
+  `);
+}
+async function submitSearchMismatch(encQ,encProd,encStore,unitPrice,score,conf){
+  const q=decodeURIComponent(encQ||''), prod=decodeURIComponent(encProd||''), store=decodeURIComponent(encStore||'');
+  const reason=$('#mis-reason')?.value||'exclude';
+  const note=$('#mis-note')?.value?.trim()||'';
+  try{
+    if(user&&sb){
+      await sb.from('feedback').insert({
+        user_id:user.id,
+        ticket:'MIS-'+Date.now().toString(36).toUpperCase(),
+        type:'mejora',
+        screen:'prices_mismatch',
+        status:'nuevo',
+        app_version:typeof APP_VER!=='undefined'?APP_VER:'2026-11-13',
+        message:`Sugerencia de búsqueda "${q}" -> "${prod}" (${reason})${note?': '+note:''}`,
+        diagnostics:{kind:'search_mismatch',query:q,product:prod,store,unit_price:unitPrice,score,confidence:conf,suggested_action:reason,note}
+      });
+    }
+  }catch(_){}
+  closeModal();
+  toast('¡Gracias! Enviamos tu sugerencia al panel de revisión.');
+}
+window.openSearchMismatchModal=openSearchMismatchModal;
+window.submitSearchMismatch=submitSearchMismatch;
 
 function pRender(q,r,useR){
   const b=$('#pbody');
@@ -4207,7 +4460,10 @@ function saveBenchmarkRating(q,level){
 window.getBenchmarkRatings=getBenchmarkRatings;
 window.saveBenchmarkRating=saveBenchmarkRating;
 
-async function openBenchmarkModal(idx=0){
+window._bmSnapshot=window._bmSnapshot||{};
+window._bmFixOpen={};
+
+async function openBenchmarkModal(idx=0,opts={}){
   if(idx<0)idx=0;
   if(idx>=BENCHMARK_50_PRODUCTS.length){
     renderBenchmarkSummaryModal();
@@ -4221,24 +4477,28 @@ async function openBenchmarkModal(idx=0){
   const lowCount=Object.values(ratings).filter(x=>x.level==='baja').length;
   const ratedCount=Object.keys(ratings).length;
 
+  let rawCorpus=[];
   let sampleResults=[];
   try{
-    const synList=getQuerySynonyms(nk(item.q)).slice(0,3);
+    const synList=getQuerySynonyms(nk(item.q)).slice(0,4);
     const terms=[stemQ(item.q),...synList];
     const conds=terms.map(tm=>`product_key.ilike.*${tm}*,subcategory.ilike.*${tm}*,product_name.ilike.*${tm}*`).join(',');
-    const {data:raw}=await sb.from('price_points').select('*').or(conds).order('unit_price',{ascending:true}).limit(10);
-    sampleResults=smartSearchPrices((raw||[]).map(p=>({
+    const {data:raw}=await sb.from('price_points').select('*').or(conds).order('unit_price',{ascending:true}).limit(15);
+    rawCorpus=(raw||[]).map(p=>({
+      id:p.id,
       product:p.product_name,
       unit_price:p.unit_price,
       currency:p.currency||'ARS',
       store:p.store,
       category:p.category,
-      subcategory:p.subcategory
-    })), item.q);
+      subcategory:p.subcategory,
+      ean:p.ean
+    }));
+    sampleResults=smartSearchPrices(rawCorpus,item.q);
   }catch(e){sampleResults=[];}
 
-  if(!sampleResults.length){
-    const corpus=[
+  if(!rawCorpus.length){
+    rawCorpus=[
       {product:'Pechuga de Pollo Fresca 1kg',unit_price:6200,category:'carnes',store:'Granja Belgrano'},
       {product:'Suprema de Pollo Rebozada 500g',unit_price:4500,category:'carnes',store:'Pollería Central'},
       {product:'Galletitas Rumba 108g',unit_price:550,category:'almacen',store:'Carrefour Express'},
@@ -4249,22 +4509,68 @@ async function openBenchmarkModal(idx=0){
       {product:'Aceite de Girasol Cocinero 900ml',unit_price:1850,category:'almacen',store:'Carrefour'},
       {product:item.expected,unit_price:1500,category:'almacen',store:'Supermercado de Referencia'}
     ];
-    sampleResults=smartSearchPrices(corpus, item.q);
+    sampleResults=smartSearchPrices(rawCorpus,item.q);
   }
 
-  const resultsHtml=sampleResults.length?sampleResults.slice(0,3).map(r=>{
+  const topNow=sampleResults[0]?{conf:sampleResults[0].search_confidence||'baja',score:sampleResults[0].search_score||0,count:sampleResults.length}:{conf:'baja',score:0,count:0};
+  const snap=opts.comparePrev&&window._bmSnapshot[item.q]?window._bmSnapshot[item.q]:null;
+  window._bmSnapshot[item.q]=topNow;
+
+  const showFixControls=opts.fixMode||currentRating==='media'||currentRating==='baja'||!!window._bmFixOpen[item.q];
+
+  let diffBanner='';
+  if(snap){
+    const badge=(c,s)=>c==='alta'?`<span style="color:#15803d;font-weight:800">🟢 ALTA (${s}%)</span>`:c==='media'?`<span style="color:#b45309;font-weight:800">🟡 MEDIA (${s}%)</span>`:`<span style="color:#b91c1c;font-weight:800">🔴 BAJA (${s}%)</span>`;
+    diffBanner=`<div style="background:#f0fdf4;border:1.5px solid #22c55e;border-radius:10px;padding:10px;margin-bottom:10px">
+      <div style="font-size:.76rem;font-weight:800;color:#166534;margin-bottom:4px">⚡ Resultado en vivo (Antes vs. Después):</div>
+      <div style="font-size:.82rem;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span>Antes: ${badge(snap.conf,snap.score)} (${snap.count} res.)</span>
+        <span>➔</span>
+        <span>Ahora: ${badge(topNow.conf,topNow.score)} (${topNow.count} res.)</span>
+      </div>
+      ${topNow.conf==='alta'?`<button type="button" onclick="saveBenchmarkRating('${esc(item.q)}','alta');openBenchmarkModal(${idx})" style="margin-top:8px;width:100%;background:#15803d;font-size:.8rem;padding:7px">✓ Confirmar mejora y pasar a 🟢 Alta</button>`:''}
+    </div>`;
+  }
+
+  const resultsHtml=sampleResults.length?sampleResults.slice(0,4).map((r,ri)=>{
     const pMult=r.pack_multiplier||extractPackMultiplier(r.product);
     const pTag=pMult>1?`<span class="tag" style="background:#fef3c7;color:#92400e;font-weight:700">📦 Pack x${pMult} ($${Math.round(r.unit_price/pMult)} c/u)</span>`:'';
     const cColor=r.search_confidence==='alta'?'#15803d':r.search_confidence==='media'?'#b45309':'#b91c1c';
     const cBg=r.search_confidence==='alta'?'#dcfce7':r.search_confidence==='media'?'#fef3c7':'#fee2e2';
-    return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
-      <div style="flex:1;min-width:0;text-align:left">
-        <b style="font-size:.85rem;color:#0f172a">${esc(r.product)}</b>
-        <div class="mu" style="font-size:.73rem">${esc(r.store||'Comercio')} · ${pTag} <span class="tag" style="background:${cBg};color:${cColor};font-size:.68rem;font-weight:700">${(r.search_confidence||'alta').toUpperCase()} (${r.search_score||85}%)</span></div>
+    const encQ=encodeURIComponent(item.q), encP=encodeURIComponent(r.product);
+    const fixBtns=showFixControls?`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px dashed #e2e8f0">
+      <button type="button" class="ghost" onclick="bmQuickSynonym(${idx},'${encQ}','${encP}')" style="font-size:.7rem;padding:3px 7px;color:#1e40af;border-color:#bfdbfe;background:#eff6ff">➕ Sinónimo</button>
+      <button type="button" class="ghost" onclick="bmQuickExclude(${idx},'${encQ}','${encP}')" style="font-size:.7rem;padding:3px 7px;color:#b91c1c;border-color:#fecaca;background:#fef2f2">🚫 Excluir</button>
+      <button type="button" class="ghost" onclick="bmToggleAliasEditor(${idx},'${encP}',${ri})" style="font-size:.7rem;padding:3px 7px;color:#334155">✏️ Tags / Nombre</button>
+    </div>
+    <div id="bm-alias-${ri}" style="display:none;margin-top:6px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:8px">
+      <div style="font-size:.72rem;font-weight:700;margin-bottom:4px">Normalizar producto / tags para "${esc(r.product)}":</div>
+      <input id="bm-al-name-${ri}" type="text" placeholder="Nombre normalizado (ej: ${esc(item.expected)})" value="${esc(r.normalized_label||'')}" style="font-size:.76rem;margin-bottom:4px">
+      <input id="bm-al-tags-${ri}" type="text" placeholder="Tags buscables (ej: ${esc(item.q)})" value="${esc(r.custom_tags||item.q)}" style="font-size:.76rem;margin-bottom:4px">
+      <input id="bm-al-ean-${ri}" type="text" placeholder="EAN opcional" value="${esc(r.ean||'')}" style="font-size:.76rem;margin-bottom:6px">
+      <button type="button" onclick="bmSaveAlias(${idx},'${encP}',${ri})" style="font-size:.74rem;padding:5px 10px">Guardar y re-probar</button>
+    </div>`:'';
+
+    return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="flex:1;min-width:0;text-align:left">
+          <b style="font-size:.85rem;color:#0f172a">${esc(r.normalized_label||r.product)}</b>
+          <div class="mu" style="font-size:.73rem">${esc(r.store||'Comercio')} · ${pTag} <span class="tag" style="background:${cBg};color:${cColor};font-size:.68rem;font-weight:700">${(r.search_confidence||'alta').toUpperCase()} (${r.search_score||85}%)</span></div>
+        </div>
+        <b style="font-size:.92rem;color:#1e293b;margin-left:8px">${money(r.unit_price,r.currency||'ARS')}</b>
       </div>
-      <b style="font-size:.92rem;color:#1e293b;margin-left:8px">${money(r.unit_price,r.currency||'ARS')}</b>
+      ${fixBtns}
     </div>`;
   }).join(''):'<div class="mu" style="font-size:.8rem;padding:8px">No se encontraron productos coincidentes en el motor.</div>';
+
+  const manualFixBox=showFixControls?`
+    <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:10px;padding:10px;margin-top:8px">
+      <div style="font-size:.76rem;font-weight:800;color:#1e40af;margin-bottom:4px">🔧 Corregir asociación para "${esc(item.q)}"</div>
+      <div style="display:flex;gap:6px">
+        <input id="bm-syn-to" type="text" value="${esc(item.expected)}" placeholder="Sinónimo o nombre real en tickets" style="font-size:.78rem;flex:1">
+        <button type="button" onclick="bmSaveCustomSynonym(${idx},'${encodeURIComponent(item.q)}')" style="font-size:.76rem;padding:6px 10px;white-space:nowrap">➕ Vincular</button>
+      </div>
+    </div>`:`<div style="margin-top:6px;text-align:right"><button type="button" class="ghost" onclick="window._bmFixOpen['${esc(item.q)}']=true;openBenchmarkModal(${idx},{fixMode:true})" style="font-size:.75rem;padding:4px 10px">🔧 Corregir asociación</button></div>`;
 
   modal(`
     <div style="text-align:left">
@@ -4279,6 +4585,8 @@ async function openBenchmarkModal(idx=0){
         Progreso: <b>${ratedCount}/50 calificados</b> · <span style="color:#15803d">🟢 ${highCount}</span> · <span style="color:#b45309">🟡 ${midCount}</span> · <span style="color:#b91c1c">🔴 ${lowCount}</span>
       </div>
 
+      ${diffBanner}
+
       <div style="background:#ffffff;border:2px solid #3b82f6;border-radius:10px;padding:10px;margin-bottom:10px">
         <div style="font-size:.72rem;color:#64748b;font-weight:700">TÉRMINO BUSCADO:</div>
         <div style="font-size:1.15rem;font-weight:800;color:#1e3a8a;margin:2px 0 4px">"${esc(item.q)}"</div>
@@ -4287,6 +4595,7 @@ async function openBenchmarkModal(idx=0){
 
       <div style="font-size:.78rem;font-weight:700;color:#334155;margin-bottom:6px">Resultados devueltos por el algoritmo inteligente:</div>
       ${resultsHtml}
+      ${manualFixBox}
 
       <div style="background:#fafafa;border:1.5px solid var(--ln);border-radius:10px;padding:10px;margin-top:10px">
         <div style="font-size:.78rem;font-weight:700;color:#1e293b;margin-bottom:6px">¿Qué nivel de confianza le otorgás a esta búsqueda?</div>
@@ -4313,35 +4622,91 @@ async function openBenchmarkModal(idx=0){
 }
 window.openBenchmarkModal=openBenchmarkModal;
 
-function renderBenchmarkSummaryModal(){
+async function bmQuickSynonym(idx,encQ,encProd){
+  const q=decodeURIComponent(encQ), prod=decodeURIComponent(encProd);
+  await addAdminEquivRule(q,prod);
+  toast(`Sinónimo guardado: "${q}" ↔ "${prod}"`);
+  await openBenchmarkModal(idx,{fixMode:true,comparePrev:true});
+}
+async function bmSaveCustomSynonym(idx,encQ){
+  const q=decodeURIComponent(encQ);
+  const toVal=$('#bm-syn-to')?.value?.trim();
+  if(!toVal)return toast('Escribí el término o nombre de producto a vincular.');
+  await addAdminEquivRule(q,toVal);
+  toast(`Sinónimo guardado: "${q}" ↔ "${toVal}"`);
+  await openBenchmarkModal(idx,{fixMode:true,comparePrev:true});
+}
+async function bmQuickExclude(idx,encQ,encProd){
+  const q=decodeURIComponent(encQ), prod=decodeURIComponent(encProd);
+  await addAdminExclusionRule(q,prod);
+  toast(`Excluido "${prod}" al buscar "${q}"`);
+  await openBenchmarkModal(idx,{fixMode:true,comparePrev:true});
+}
+function bmToggleAliasEditor(idx,encProd,ri){
+  const el=document.getElementById('bm-alias-'+ri);
+  if(el)el.style.display=el.style.display==='none'?'block':'none';
+}
+async function bmSaveAlias(idx,encProd,ri){
+  const rawProd=decodeURIComponent(encProd);
+  const normalizedName=$('#bm-al-name-'+ri)?.value?.trim()||'';
+  const tags=$('#bm-al-tags-'+ri)?.value?.trim()||'';
+  const ean=$('#bm-al-ean-'+ri)?.value?.trim()||'';
+  if(!normalizedName&&!tags&&!ean)return toast('Completá al menos un nombre, tag o EAN.');
+  await saveProductAliasRule(rawProd,{normalizedName,tags,ean});
+  toast('Normalización y tags guardados');
+  await openBenchmarkModal(idx,{fixMode:true,comparePrev:true});
+}
+window.bmQuickSynonym=bmQuickSynonym;
+window.bmSaveCustomSynonym=bmSaveCustomSynonym;
+window.bmQuickExclude=bmQuickExclude;
+window.bmToggleAliasEditor=bmToggleAliasEditor;
+window.bmSaveAlias=bmSaveAlias;
+
+function renderBenchmarkSummaryModal(filterMode='all'){
   const ratings=getBenchmarkRatings();
   const highCount=Object.values(ratings).filter(x=>x.level==='alta').length;
   const midCount=Object.values(ratings).filter(x=>x.level==='media').length;
   const lowCount=Object.values(ratings).filter(x=>x.level==='baja').length;
   const ratedCount=Object.keys(ratings).length;
+  const pendingCount=BENCHMARK_50_PRODUCTS.length-ratedCount;
 
-  const listHtml=BENCHMARK_50_PRODUCTS.map((p,i)=>{
-    const r=ratings[p.q]?.level||'pendiente';
-    const bg=r==='alta'?'#dcfce7':r==='media'?'#fef3c7':r==='baja'?'#fee2e2':'#f1f5f9';
-    const col=r==='alta'?'#166534':r==='media'?'#92400e':r==='baja'?'#991b1b':'#64748b';
-    const icon=r==='alta'?'🟢 Alta':r==='media'?'🟡 Media':r==='baja'?'🔴 Baja':'⚪ Pendiente';
-    return `<div onclick="openBenchmarkModal(${i})" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:.78rem">
-      <span><b>${i+1}.</b> ${esc(p.q)}</span>
-      <span class="tag" style="background:${bg};color:${col};font-weight:700;font-size:.7rem">${icon}</span>
+  const filtered=BENCHMARK_50_PRODUCTS.map((p,i)=>({p,i,level:ratings[p.q]?.level||'pendiente'})).filter(({level})=>{
+    if(filterMode==='issues')return level==='media'||level==='baja';
+    if(filterMode==='pending')return level==='pendiente';
+    return true;
+  });
+
+  const listHtml=filtered.length?filtered.map(({p,i,level})=>{
+    const bg=level==='alta'?'#dcfce7':level==='media'?'#fef3c7':level==='baja'?'#fee2e2':'#f1f5f9';
+    const col=level==='alta'?'#166534':level==='media'?'#92400e':level==='baja'?'#991b1b':'#64748b';
+    const icon=level==='alta'?'🟢 Alta':level==='media'?'🟡 Media':level==='baja'?'🔴 Baja':'⚪ Pendiente';
+    const fixBtn=(level==='media'||level==='baja')?`<button type="button" class="ghost" onclick="openBenchmarkModal(${i},{fixMode:true})" style="font-size:.7rem;padding:2px 7px;margin-left:6px;color:#b45309;border-color:#fde68a;background:#fffbeb">🔧 Corregir</button>`:'';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid #f1f5f9;font-size:.78rem;gap:6px">
+      <span onclick="openBenchmarkModal(${i})" style="cursor:pointer;flex:1;min-width:0"><b>${i+1}.</b> ${esc(p.q)}</span>
+      <span style="display:flex;align-items:center;flex-shrink:0">
+        <span onclick="openBenchmarkModal(${i})" class="tag" style="background:${bg};color:${col};font-weight:700;font-size:.7rem;cursor:pointer">${icon}</span>
+        ${fixBtn}
+      </span>
     </div>`;
-  }).join('');
+  }).join(''):'<div class="mu" style="padding:16px;text-align:center;font-size:.8rem">No hay consultas en esta categoría.</div>';
 
   modal(`
     <div style="text-align:left">
       <div class="ic ok" style="font-size:2rem;margin:0 0 4px">🎯</div>
       <h2 style="margin:0 0 6px">Benchmark de 50 Consultas</h2>
-      <p class="mu" style="font-size:.82rem;margin:0 0 10px">Estado de validación de calidad de búsqueda por el usuario:</p>
+      <p class="mu" style="font-size:.82rem;margin:0 0 10px">Estado de validación de calidad de búsqueda y corrección rápida:</p>
       
       <div style="background:#f8fafc;border:1.5px solid var(--ln);border-radius:10px;padding:10px;margin-bottom:10px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;gap:4px">
         <div><div class="mu" style="font-size:.65rem">CALIFICADOS</div><b style="font-size:1rem">${ratedCount}/50</b></div>
         <div><div class="mu" style="font-size:.65rem">ALTA</div><b style="font-size:1rem;color:#15803d">${highCount}</b></div>
         <div><div class="mu" style="font-size:.65rem">MEDIA</div><b style="font-size:1rem;color:#b45309">${midCount}</b></div>
         <div><div class="mu" style="font-size:.65rem">BAJA</div><b style="font-size:1rem;color:#b91c1c">${lowCount}</b></div>
+      </div>
+
+      <div class="chips" style="margin-bottom:8px;flex-wrap:wrap">
+        <button type="button" class="chip ${filterMode==='all'?'on':''}" onclick="renderBenchmarkSummaryModal('all')">Todas (50)</button>
+        <button type="button" class="chip ${filterMode==='issues'?'on':''}" onclick="renderBenchmarkSummaryModal('issues')">⚠️ Media / Baja (${midCount+lowCount})</button>
+        <button type="button" class="chip ${filterMode==='pending'?'on':''}" onclick="renderBenchmarkSummaryModal('pending')">⚪ Pendientes (${pendingCount})</button>
       </div>
 
       <div style="max-height:220px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:10px">
@@ -4386,6 +4751,8 @@ async function admin(){
     return;
   }
 
+  await loadSharedSearchRules().catch(()=>{});
+
   app(`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <h1 style="margin:0">🛡️ Panel de Admin</h1>
@@ -4403,7 +4770,7 @@ async function admin(){
   if(!b)return;
 
   if(adminTab==='equivs'){
-    renderAdminEquivs(b);
+    await renderAdminEquivs(b);
   }else if(adminTab==='benchmark'){
     renderAdminBenchmark(b);
   }else if(adminTab==='feedback'){
@@ -4412,48 +4779,158 @@ async function admin(){
 }
 window.admin=admin;
 
-function renderAdminEquivs(b){
+async function fetchCommunityMismatches(){
+  let rows=[];
+  try{
+    const sess=sb?.auth?.getSession?await sb.auth.getSession():null;
+    const token=sess?.data?.session?.access_token;
+    if(token){
+      const r=await fetch('/api/canasta/admin/feedback',{headers:{Authorization:'Bearer '+token}});
+      if(r.ok){
+        const j=await r.json();
+        if(Array.isArray(j.tickets))rows=j.tickets;
+      }
+    }
+  }catch(_){}
+  if(!rows.length&&sb){
+    try{
+      const {data=[]}=await sb.from('feedback').select('id,ticket,type,status,message,screen,diagnostics,created_at').eq('screen','prices_mismatch').order('created_at',{ascending:false}).limit(30);
+      if(Array.isArray(data))rows=data;
+    }catch(_){}
+  }
+  return rows.filter(x=>(x.screen==='prices_mismatch'||x.diagnostics?.kind==='search_mismatch')&&x.status!=='resuelto');
+}
+
+async function renderAdminEquivs(b){
+  const eq=getAdminEquivsMap();
+  const ex=getAdminExclusionsMap();
+  const al=getAdminProductAliases();
+
+  const eqItems=Object.entries(eq).flatMap(([k,list])=>list.map(v=>`
+    <div class="row" style="font-size:.8rem">
+      <span><b>${esc(k)}</b> ➔ ${esc(v)}</span>
+      <button type="button" class="ghost" onclick="removeAdminEquivRule('${esc(k)}','${esc(v)}').then(()=>admin())" style="font-size:.7rem;padding:2px 8px">✕</button>
+    </div>`)).join('')||'<p class="mu" style="font-size:.78rem;margin:4px 0">Sin sinónimos personalizados cargados aún.</p>';
+
+  const exItems=Object.entries(ex).flatMap(([k,list])=>list.map(v=>`
+    <div class="row" style="font-size:.8rem">
+      <span>Al buscar <b>${esc(k)}</b> ocultar <b>"${esc(v)}"</b></span>
+      <button type="button" class="ghost" onclick="removeAdminExclusionRule('${esc(k)}','${esc(v)}').then(()=>admin())" style="font-size:.7rem;padding:2px 8px">✕</button>
+    </div>`)).join('')||'<p class="mu" style="font-size:.78rem;margin:4px 0">Sin exclusiones negativas cargadas aún.</p>';
+
+  const alItems=Object.entries(al).map(([k,v])=>`
+    <div class="row" style="font-size:.8rem">
+      <span><b>${esc(v.raw||k)}</b> ➔ ${esc(v.normalizedName||'-')} ${v.tags?`(${esc(v.tags)})`:''}</span>
+      <button type="button" class="ghost" onclick="removeProductAliasRule('${esc(k)}').then(()=>admin())" style="font-size:.7rem;padding:2px 8px">✕</button>
+    </div>`).join('')||'<p class="mu" style="font-size:.78rem;margin:4px 0">Sin normalizaciones manuales aún.</p>';
+
   b.innerHTML=`
     <div class="card" style="text-align:left">
-      <h2 style="margin-top:0">Auditoría y Corrección de Asociaciones de Productos</h2>
-      <p class="mu" style="font-size:.82rem">Revisá cómo el motor inteligente agrupa y separa presentaciones equivalentes vs distintas:</p>
+      <h2 style="margin-top:0">Auditoría y Corrección de Asociaciones</h2>
+      <p class="mu" style="font-size:.82rem">Todas las equivalencias, exclusiones y tags se aplican en tiempo real al motor de búsqueda inteligente.</p>
       
-      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:10px;margin-bottom:12px">
-        <b style="color:#166534;font-size:.85rem">✓ Regla Estricta Multi-Pack Activada (CAN-00016 / Rumba):</b>
-        <p style="font-size:.8rem;color:#14532d;margin:4px 0 0">
-          Los paquetes individuales (108g / 1u) y los tripacks/multipacks (324g / Pack x3) <b>tienen prohibido equipararse directamente</b>. El motor calcula el precio unitario por paquete individual (ej: $1.200 / 3 = $400 c/u) y los clasifica de forma independiente.
-        </p>
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:10px;margin-bottom:10px">
+        <b style="color:#166534;font-size:.84rem">✓ Regla Estricta Multi-Pack Activada (CAN-00016 / Rumba):</b>
+        <p style="font-size:.78rem;color:#14532d;margin:4px 0 0">Los paquetes individuales (108g / 1u) y multipacks (Pack x3) nunca se mezclan en el mismo ranking.</p>
       </div>
 
-      <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:10px;padding:10px;margin-bottom:12px">
-        <b style="color:#1e40af;font-size:.85rem">✓ Expansión de Sinónimos de Supermercado (CAN-00013 / Suprema):</b>
-        <p style="font-size:.8rem;color:#1e3a8a;margin:4px 0 0">
-          "suprema" busca automáticamente pechuga de pollo, milanesa de pollo y suprema deshuesada en el catálogo y tickets de la comunidad.
-        </p>
-      </div>
-
-      <div style="margin-top:10px">
-        <label style="font-size:.8rem;font-weight:700">Agregar asociación o equivalencia forzada:</label>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--ln)">
+        <label style="font-size:.82rem;font-weight:700">➕ Agregar sinónimo / equivalencia:</label>
         <div style="display:flex;gap:6px;margin-top:4px">
           <input id="eq-from" type="text" placeholder="Ej: fideos cinta" style="font-size:.82rem">
           <input id="eq-to" type="text" placeholder="Ej: tallarines" style="font-size:.82rem">
           <button onclick="addAdminEquiv()" style="white-space:nowrap;font-size:.8rem">Vincular</button>
         </div>
+        <div style="margin-top:8px">${eqItems}</div>
+      </div>
+
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--ln)">
+        <label style="font-size:.82rem;font-weight:700">🚫 Agregar exclusión negativa (evitar falsos positivos):</label>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <input id="ex-from" type="text" placeholder="Al buscar (ej: leche)" style="font-size:.82rem">
+          <input id="ex-to" type="text" placeholder="Ocultar (ej: chocolate)" style="font-size:.82rem">
+          <button class="ghost" onclick="addAdminExclusion()" style="white-space:nowrap;font-size:.8rem;color:#b91c1c;border-color:#fecaca">Excluir</button>
+        </div>
+        <div style="margin-top:8px">${exItems}</div>
+      </div>
+
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--ln)">
+        <label style="font-size:.82rem;font-weight:700">✏️ Productos normalizados / con tags personalizados:</label>
+        <div style="margin-top:6px">${alItems}</div>
       </div>
     </div>
+
+    <div class="card" style="text-align:left" id="admin-mismatches-box">
+      <h2 style="margin-top:0">📥 Sugerencias de la comunidad</h2>
+      <p class="mu" style="font-size:.8rem">Cargando reportes de asociaciones desde Precios…</p>
+    </div>
   `;
+
+  const mBox=$('#admin-mismatches-box');
+  if(mBox){
+    const mismatches=await fetchCommunityMismatches();
+    mBox.innerHTML=`
+      <h2 style="margin-top:0">📥 Sugerencias de la comunidad (${mismatches.length})</h2>
+      ${mismatches.length?mismatches.map(m=>{
+        const d=m.diagnostics||{};
+        const q=d.query||'', prod=d.product||'';
+        return `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:8px;background:#f8fafc">
+          <div style="font-size:.82rem;font-weight:700;color:#0f172a">Búsqueda "${esc(q)}" ➔ "${esc(prod)}"</div>
+          <div class="mu" style="font-size:.75rem;margin:2px 0 6px">${esc(m.message||'')}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" class="ghost" onclick="adminApplyMismatchRule('${esc(m.id||'')}','exclude','${encodeURIComponent(q)}','${encodeURIComponent(prod)}')" style="font-size:.72rem;padding:4px 8px;color:#b91c1c;border-color:#fecaca">🚫 Excluir</button>
+            <button type="button" class="ghost" onclick="adminApplyMismatchRule('${esc(m.id||'')}','synonym','${encodeURIComponent(q)}','${encodeURIComponent(prod)}')" style="font-size:.72rem;padding:4px 8px;color:#1e40af;border-color:#bfdbfe">➕ Vincular sinónimo</button>
+            <button type="button" class="ghost" onclick="adminResolveMismatch('${esc(m.id||'')}')" style="font-size:.72rem;padding:4px 8px">✓ Descartar</button>
+          </div>
+        </div>`;
+      }).join(''):'<p class="mu" style="font-size:.8rem;margin:0">No hay reportes pendientes desde Precios.</p>'}
+    `;
+  }
 }
 
-function addAdminEquiv(){
+async function adminApplyMismatchRule(id,kind,encQ,encProd){
+  const q=decodeURIComponent(encQ||''), prod=decodeURIComponent(encProd||'');
+  if(kind==='exclude')await addAdminExclusionRule(q,prod);
+  else await addAdminEquivRule(q,prod);
+  if(id)await adminResolveMismatch(id,true);
+  toast(kind==='exclude'?'Exclusión aplicada al buscador':'Sinónimo vinculado');
+  admin();
+}
+async function adminResolveMismatch(id,silent){
+  try{
+    const sess=sb?.auth?.getSession?await sb.auth.getSession():null;
+    const token=sess?.data?.session?.access_token;
+    if(token&&id){
+      await fetch('/api/canasta/admin/feedback-resolve',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+        body:JSON.stringify({id,status:'resuelto'})
+      });
+    }else if(sb&&id){
+      await sb.from('feedback').update({status:'resuelto'}).eq('id',id);
+    }
+  }catch(_){}
+  if(!silent){toast('Sugerencia marcada como resuelta');admin();}
+}
+window.adminApplyMismatchRule=adminApplyMismatchRule;
+window.adminResolveMismatch=adminResolveMismatch;
+
+async function addAdminEquiv(){
   const f=$('#eq-from')?.value?.trim(), t=$('#eq-to')?.value?.trim();
   if(!f||!t)return toast('Ingresá ambos términos para asociar.');
-  const eq=JSON.parse(localStorage.getItem('admin_equivs')||'{}');
-  eq[nk(f)]=nk(t);
-  localStorage.setItem('admin_equivs',JSON.stringify(eq));
+  await addAdminEquivRule(f,t);
   toast(`Vinculado: "${f}" ➔ "${t}"`);
   admin();
 }
+async function addAdminExclusion(){
+  const f=$('#ex-from')?.value?.trim(), t=$('#ex-to')?.value?.trim();
+  if(!f||!t)return toast('Ingresá el término buscado y el producto a excluir.');
+  await addAdminExclusionRule(f,t);
+  toast(`Excluido "${t}" al buscar "${f}"`);
+  admin();
+}
 window.addAdminEquiv=addAdminEquiv;
+window.addAdminExclusion=addAdminExclusion;
 
 function renderAdminBenchmark(b){
   const ratings=getBenchmarkRatings();
@@ -4461,6 +4938,7 @@ function renderAdminBenchmark(b){
   const midCount=Object.values(ratings).filter(x=>x.level==='media').length;
   const lowCount=Object.values(ratings).filter(x=>x.level==='baja').length;
   const ratedCount=Object.keys(ratings).length;
+  const issueCount=midCount+lowCount;
 
   b.innerHTML=`
     <div class="card" style="text-align:left">
@@ -4474,11 +4952,12 @@ function renderAdminBenchmark(b){
         <div><div class="mu" style="font-size:.7rem">TOTAL CONSULTAS</div><b style="font-size:1.15rem">50</b></div>
         <div><div class="mu" style="font-size:.7rem">CALIFICADOS</div><b style="font-size:1.15rem">${ratedCount}</b></div>
         <div><div class="mu" style="font-size:.7rem">ALTA CONFIANZA</div><b style="font-size:1.15rem;color:#15803d">${highCount}</b></div>
-        <div><div class="mu" style="font-size:.7rem">MEDIA / BAJA</div><b style="font-size:1.15rem;color:#b45309">${midCount + lowCount}</b></div>
+        <div><div class="mu" style="font-size:.7rem">MEDIA / BAJA</div><b style="font-size:1.15rem;color:#b45309">${issueCount}</b></div>
       </div>
 
       <div class="mact">
-        <button class="ghost" onclick="renderBenchmarkSummaryModal()">📋 Ver Matriz Detallada</button>
+        ${issueCount>0?`<button onclick="renderBenchmarkSummaryModal('issues')" style="background:#b45309">🔧 Corregir Media / Baja (${issueCount})</button>`:''}
+        <button class="ghost" onclick="renderBenchmarkSummaryModal('all')">📋 Ver Matriz Detallada</button>
         <button class="ghost" onclick="if(confirm('¿Reiniciar benchmark?')){localStorage.removeItem('benchmark_50_ratings');admin()}">🔄 Reiniciar Evaluaciones</button>
       </div>
     </div>
