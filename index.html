@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-11-05T12:00">
+<meta name="app-version" content="2026-11-13T11:38">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -760,6 +760,7 @@ async function boot(){
   }
   const {data}=await sb.auth.getSession();
   user=data.session?.user||null;
+  const wantAdmin=/#admin\b/i.test(hash)||sp.get('v')==='admin'||sp.get('view')==='admin';
   if(user && hash && /access_token/i.test(hash)){
     try{history.replaceState(null,'',location.pathname+location.search)}catch(_){}
   }
@@ -769,7 +770,11 @@ async function boot(){
     try{sessionStorage.setItem('tourOff','1')}catch(_){}
     window._tourOff=true;
   }
-  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;go(g||'home');fixCoords();fixSubcats();autoFx();offerRestore();setTimeout(tourAuto,900);setTimeout(()=>{if(!tourOpen)checkNovedadesAuto()},1400);
+  if(user?.user_metadata?.seen_novedades_ver){
+    try{localStorage.setItem('seen_novedades_ver',String(user.user_metadata.seen_novedades_ver))}catch(_){}
+    try{sessionStorage.setItem('seen_novedades_ver',String(user.user_metadata.seen_novedades_ver))}catch(_){}
+  }
+  $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;go(wantAdmin?'admin':(g||'home'));fixCoords();fixSubcats();autoFx();offerRestore();setTimeout(tourAuto,900);setTimeout(()=>{if(!tourOpen)checkNovedadesAuto()},1400);
 }
 
 /* ---------- Navigation ---------- */
@@ -778,7 +783,7 @@ function go(v){
   if(pendingReload&&v!=='scan'&&safe()){sessionStorage.setItem('goto',v);location.reload();return}
   view=v;
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
-  ({home,prices,scan,history,settings,help})[v]();
+  ({home,prices,scan,history,settings,help,admin})[v]?.();
 }
 $('#nav').onclick=e=>{const b=e.target.closest('button');if(b){clearBk();go(b.dataset.v)}};
 
@@ -947,7 +952,7 @@ const resize=f=>new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(
 async function extract(parts){
   const key=gemKey();
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
-  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"candidate_addresses":[string],"total":number,"description":string,"quality":{"legible":boolean,"issues":[string]},"uncertain_fields":[string],"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|descuentos|otros","subcategory":string,"confidence":"alta|baja"}]}. total es el importe total general final del ticket. En items, extraé los productos con su precio de lista. Si el ticket tiene renglones de descuentos, rebajas o promociones de supermercado o farmacia (por ejemplo 'DESC. COMUNIDAD', '2DA UNIDAD 70%', 'DESC. OSDE', 'PROMO BANCO', 'BONIF.'), extraelos también en items con category 'descuentos' y total_price negativo (ej: -450), para que el precio de lista original no se altere y el descuento quede registrado por separado. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. En productos pesables o vendidos al peso (frutas, verduras, carnes, fiambres, etc.), en qty poné el peso en kilogramos con decimales (por ejemplo 1.845 para 1,845 kg) y en total_price el importe total de ese renglón, para que el precio unitario sea exactamente el precio por kilo. En description poné, como texto libre, los comentarios, notas, leyendas o anotaciones manuscritas que aparezcan en el ticket; si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español qué problema tiene la foto. IMPORTANTE: Si partes del comprobante no están muy visibles o la confianza de detección no es alta, CONTINUÁ IGUAL extrayendo todo lo que alcances a leer; NO te detengas. Listá los campos con dudas o baja visibilidad en uncertain_fields (ej: 'store', 'date', 'address', 'total'). Para cada producto en items, si el nombre o el precio no se distinguen bien asigná confidence: 'baja'; si se leen bien, 'alta'. En store_address poné la dirección del local principal tal como figura impresa en el ticket (calle, número y localidad); si en el ticket figuran varias sucursales o direcciones, incluilas en candidate_addresses. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante. store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
+  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (ticket de supermercado, farmacia o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_address":string,"candidate_addresses":[string],"total":number,"description":string,"quality":{"legible":boolean,"issues":[string]},"uncertain_fields":[string],"unidentified_amounts":[{"amount":number,"raw_text":string}],"date":"YYYY-MM-DD","items":[{"name":string,"qty":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|farmacia|descuentos|otros","subcategory":string,"confidence":"alta|baja"}]}. total es el importe total general final del ticket. En items, extraé los productos con su precio de lista oficial. En comprobantes de farmacia o supermercado, identificá con precisión los descuentos de Obra Social, Coseguro y prepagas (ej: 'O. SOCIAL', 'OBRA SOCIAL', 'COSEG.', 'COSEGURO', 'DESC. RECETA', 'OSDE', 'SWISS MEDICAL', 'PAMI', 'IOMA', 'GALENO', '2DA UNIDAD 70%', 'DESC. COMUNIDAD', 'BONIF.'): extraelos en items con category 'descuentos' y total_price negativo (ej: -1450), para que el precio de lista original no se altere y el descuento quede registrado por separado. Si en la foto detectás números o importes aislados cuyo concepto no puedas identificar con certeza, agregalos en unidentified_amounts. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. En productos pesables o vendidos al peso (frutas, verduras, carnes, fiambres, etc.), en qty poné el peso en kilogramos con decimales (por ejemplo 1.845 para 1,845 kg) y en total_price el importe total de ese renglón, para que el precio unitario sea exactamente el precio por kilo. En description poné, como texto libre, los comentarios, notas, leyendas o anotaciones manuscritas que aparezcan en el ticket; si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español qué problema tiene la foto. IMPORTANTE: Si partes del comprobante no están muy visibles o la confianza de detección no es alta, CONTINUÁ IGUAL extrayendo todo lo que alcances a leer; NO te detengas. Listá los campos con dudas o baja visibilidad en uncertain_fields (ej: 'store', 'date', 'address', 'total'). Para cada producto en items, si el nombre o el precio no se distinguen bien asigná confidence: 'baja'; si se leen bien, 'alta'. En store_address poné la dirección del local principal tal como figura impresa en el ticket (calle, número y localidad); si en el ticket figuran varias sucursales o direcciones, incluilas en candidate_addresses. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante. store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
   const models=[{m:'gemini-2.5-flash',th:{thinkingBudget:0}},{m:'gemini-3.5-flash',th:{thinkingLevel:'LOW'}},{m:'gemini-2.5-flash',th:null}];
   let lastErr=null;
   for(const model of models){
@@ -966,6 +971,25 @@ async function extract(parts){
   }
   throw lastErr||Error('No se pudo leer el comprobante con Gemini.');
 }
+
+function deriveSuggestedTags(name, cat, sub, brand){
+  const tags=new Set();
+  const raw=`${name||''} ${sub||''} ${brand||''}`.toLowerCase();
+  const cleaned=nk(raw);
+  const words=cleaned.split(/\s+/).filter(w=>w.length>=3&&!EXPAND_BLACKLIST.has(w));
+  words.slice(0,4).forEach(w=>tags.add(w));
+  if(cat&&cat!=='otros'&&cat!=='descuentos')tags.add(cat);
+  if(sub&&sub.length>=3)tags.add(sub);
+  if(brand&&brand.length>=3)tags.add(brand.toLowerCase());
+  if(cleaned.includes('supr')||cleaned.includes('pechuga')||cleaned.includes('pollo')){tags.add('pollo');tags.add('suprema');}
+  if(cleaned.includes('coca')){tags.add('gaseosa');tags.add('cola');}
+  if(cleaned.includes('rumba')){tags.add('galletitas');tags.add('chocolate');}
+  if(cleaned.includes('leche')){tags.add('lacteos');}
+  if(cleaned.includes('ibuprof')||cleaned.includes('paracet')||cleaned.includes('amoxid')){tags.add('farmacia');tags.add('medicamento');}
+  return Array.from(tags).slice(0,5);
+}
+window.deriveSuggestedTags=deriveSuggestedTags;
+
 const norm=d=>{
   const uFields=new Set(Array.isArray(d.uncertain_fields)?d.uncertain_fields:[]);
   const st=String(d.store||'').trim();
@@ -980,15 +1004,23 @@ const norm=d=>{
   const items=(d.items||[]).map(i=>{
     const name=String(i.name||'').trim();
     const isUncertain=i.confidence==='baja'||!name||Number(i.total_price)===0;
+    const cat=CAT[i.category]?i.category:(/desc|promo|bonif|ahorro|social|coseg/i.test(name)?'descuentos':/ibuprof|paracet|amoxid|medicam/i.test(name)?'farmacia':'otros');
+    const sub=nk(i.subcategory||'');
     return {
       name,
       qty:Number(i.qty)||1,
       total_price:Number(i.total_price)||0,
-      category:CAT[i.category]?i.category:(/desc|promo|bonif|ahorro/i.test(name)?'descuentos':'otros'),
-      subcategory:nk(i.subcategory||''),
+      category:cat,
+      subcategory:sub,
+      tags:Array.isArray(i.tags)&&i.tags.length?i.tags:deriveSuggestedTags(name,cat,sub,i.brand),
       uncertain:isUncertain
     };
   });
+  const unidentAmounts=Array.isArray(d.unidentified_amounts)?d.unidentified_amounts.map(u=>({
+    amount:Math.abs(Number(u.amount)||0),
+    raw_text:String(u.raw_text||'').trim()
+  })).filter(u=>u.amount>0):[];
+
   return {
     currency:CUR[d.currency]?d.currency:'ARS',
     docType:d.doc_type==='factura'?'factura':'ticket',
@@ -1003,6 +1035,7 @@ const norm=d=>{
     store:st,
     date:/^\d{4}-\d{2}-\d{2}$/.test(d.date)?d.date:today(),
     uncertainFields:Array.from(uFields),
+    unidentified_amounts:unidentAmounts,
     hasLowConfidence:(d.quality&&d.quality.legible===false)||uFields.size>0||items.some(x=>x.uncertain),
     items
   };
@@ -1213,8 +1246,30 @@ function renderReceiptForm(){
     </div>`;
   }
 
+  let unidentHtml = '';
+  if(draft.unidentified_amounts && draft.unidentified_amounts.length > 0){
+    unidentHtml = `<div style="background:#fef3c7;border:1.5px solid #f59e0b;border-radius:12px;padding:10px 12px;margin:8px 0;text-align:left">
+      <div style="font-size:.85rem;font-weight:700;color:#92400e;display:flex;align-items:center;gap:6px">
+        <span>💊</span> <span>Detectamos importes no identificados en el comprobante:</span>
+      </div>
+      <div class="mu" style="font-size:.76rem;margin:3px 0 8px;color:#78350f">Podés asignarlos con 1 toque como descuento de Obra Social, Coseguro o descartarlos:</div>
+      ${draft.unidentified_amounts.map((u,uidx)=>`
+        <div style="background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <div><b>${money(u.amount,draft.currency)}</b> ${u.raw_text?`<span class="mu">("${esc(u.raw_text)}")</span>`:''}</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <button type="button" class="chip" onclick="applyUnidentifiedAmount(${uidx},'os')" style="font-size:.74rem;background:#ecfdf5;color:#065f46;border-color:#a7f3d0">+ Descuento O. Social</button>
+            <button type="button" class="chip" onclick="applyUnidentifiedAmount(${uidx},'coseguro')" style="font-size:.74rem;background:#ecfdf5;color:#065f46;border-color:#a7f3d0">+ Coseguro</button>
+            <button type="button" class="chip" onclick="applyUnidentifiedAmount(${uidx},'recargo')" style="font-size:.74rem;background:#fef2f2;color:#991b1b;border-color:#fecaca">+ Recargo</button>
+            <button type="button" class="ghost" onclick="applyUnidentifiedAmount(${uidx},'ignore')" style="font-size:.74rem;padding:2px 6px;height:auto">✕ Ignorar</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
   app(`<h1>${draft.id?'Editar compra':'Revisá el comprobante'}</h1>
   ${lowConfBanner}
+  ${unidentHtml}
   <div class="chips"><button type="button" class="chip ${draft.docType!=='factura'?'on':''}" onclick="draft.docType='ticket';renderReceiptForm()">🧾 Ticket</button><button type="button" class="chip ${draft.docType==='factura'?'on':''}" onclick="draft.docType='factura';renderReceiptForm()">📄 Factura</button></div>
   <div class="chips">${Object.keys(CUR).map(c=>`<button type="button" class="chip ${(draft.currency||'ARS')===c?'on':''}" onclick="draft.currency='${c}';renderReceiptForm()">${CUR[c].flag} ${CUR[c].name}</button>`).join('')}</div>
   <div class="fields">
@@ -1239,6 +1294,7 @@ function renderReceiptForm(){
   ${draft.items.map((i,k)=>{
     const isItemUncertain = i.uncertain || !i.name.trim() || Number(i.total_price) === 0;
     const redBorder = isItemUncertain ? 'border:2px solid #ef4444 !important;background:#fff5f5 !important;' : '';
+    if(!i.tags||!i.tags.length) i.tags = deriveSuggestedTags(i.name, i.category, i.subcategory, i.brand);
     return `<div style="${isItemUncertain ? 'background:#fff1f2;padding:6px;border-radius:10px;margin-bottom:6px;border:1px solid #fecaca;' : ''}">
       <div class="it">
         <input value="${esc(i.name)}" oninput="onItemNameInput(${k},this.value,this);draft.items[${k}].name=this.value;if(this.value.trim()&&draft.items[${k}].total_price>0)draft.items[${k}].uncertain=false" style="${redBorder}" aria-label="Producto" placeholder="Nombre del producto" autocomplete="off">
@@ -1247,6 +1303,11 @@ function renderReceiptForm(){
         <button type="button" class="x" onclick="delItem(${k})" aria-label="Quitar">✕</button>
       </div>
       <div id="sepa-sugg-${k}" style="display:none;background:#ffffff;border:1.5px solid #93c5fd;border-radius:8px;margin:3px 0 6px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);max-height:180px;overflow-y:auto"></div>
+      <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:3px 0 4px">
+        <span class="mu" style="font-size:.68rem">🏷️ Tags:</span>
+        ${(i.tags||[]).map(tg=>`<span class="tag sm" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:1px 6px;border-radius:4px;font-size:.7rem;display:inline-flex;align-items:center;gap:3px">${esc(tg)} <b onclick="removeDraftTag(${k},'${esc(tg)}')" style="cursor:pointer;color:#94a3b8;font-size:.76rem" title="Quitar tag">×</b></span>`).join('')}
+        <button type="button" class="ghost" onclick="addDraftTagPrompt(${k})" style="padding:1px 6px;font-size:.68rem;height:auto;border:1px dashed #94a3b8;border-radius:4px" title="Agregar tag o sinónimo">+ tag</button>
+      </div>
       ${i.ean ? `<div style="font-size:.7rem;color:#1e40af;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;padding:2px 6px;margin:2px 0 4px;display:inline-block">✓ Normalizado SEPA: ${esc(i.brand||'')} (EAN ${esc(i.ean)})</div>` : ''}
       ${isItemUncertain ? `<div style="color:#dc2626;font-size:.72rem;font-weight:700;margin:2px 0 4px 4px">⚠️ Producto o precio poco visible: verificar o cargar manualmente</div>` : ''}
       ${subRow(i,k)}
@@ -1261,6 +1322,69 @@ function renderReceiptForm(){
 }
 window.renderReceiptForm=renderReceiptForm;
 window.form=renderReceiptForm;
+
+function removeDraftTag(itemIdx, tag){
+  if(!draft||!draft.items||!draft.items[itemIdx])return;
+  draft.items[itemIdx].tags=(draft.items[itemIdx].tags||[]).filter(t=>t!==tag);
+  renderReceiptForm();
+}
+
+function addDraftTagPrompt(itemIdx){
+  if(!draft||!draft.items||!draft.items[itemIdx])return;
+  const t=prompt('Escribí un nuevo tag o sinónimo para este producto:');
+  if(!t||!t.trim())return;
+  const cleanT=nk(t);
+  if(!draft.items[itemIdx].tags)draft.items[itemIdx].tags=[];
+  if(!draft.items[itemIdx].tags.includes(cleanT)){
+    draft.items[itemIdx].tags.push(cleanT);
+    renderReceiptForm();
+  }
+}
+
+function applyUnidentifiedAmount(idx, type){
+  if(!draft||!draft.unidentified_amounts||!draft.unidentified_amounts[idx])return;
+  const item=draft.unidentified_amounts[idx];
+  draft.unidentified_amounts.splice(idx,1);
+  if(type==='os'){
+    draft.items.push({
+      name:'Descuento Obra Social'+(item.raw_text?' ('+item.raw_text+')':''),
+      qty:1,
+      total_price:-Math.abs(item.amount),
+      category:'descuentos',
+      subcategory:'obra social',
+      tags:['descuento','obra social','farmacia'],
+      confidence:'alta'
+    });
+    toast('Descuento de Obra Social asignado');
+  } else if(type==='coseguro'){
+    draft.items.push({
+      name:'Coseguro / Bono'+(item.raw_text?' ('+item.raw_text+')':''),
+      qty:1,
+      total_price:-Math.abs(item.amount),
+      category:'descuentos',
+      subcategory:'coseguro',
+      tags:['coseguro','bono','farmacia'],
+      confidence:'alta'
+    });
+    toast('Coseguro asignado');
+  } else if(type==='recargo'){
+    draft.items.push({
+      name:'Recargo'+(item.raw_text?' ('+item.raw_text+')':''),
+      qty:1,
+      total_price:Math.abs(item.amount),
+      category:'otros',
+      subcategory:'recargo',
+      tags:['recargo'],
+      confidence:'alta'
+    });
+    toast('Recargo asignado');
+  }
+  renderReceiptForm();
+}
+window.removeDraftTag=removeDraftTag;
+window.addDraftTagPrompt=addDraftTagPrompt;
+window.applyUnidentifiedAmount=applyUnidentifiedAmount;
+
 /* ---------- Ventanas (modales) ---------- */
 let ovLock=false;
 function modal(h,o={}){ovLock=!!o.lock;$('#mdl').innerHTML=h;$('#ov').hidden=false;const b=$('#mdl button');if(b)b.focus()}
@@ -1353,6 +1477,8 @@ function isSameExactProduct(a,b){
   const eq=checkEquiv(sA,sB);
   if(eq==='different')return false;
   if(eq==='same')return true;
+  const multA=extractPackMultiplier(sA), multB=extractPackMultiplier(sB);
+  if(multA!==multB)return false;
   const normWeightS=s=>String(s||'').replace(/\b(?:x|por)\s*(kg|kilos?|kgs?)\b/gi,'1kg').replace(/\b(?:x|por)\s*(litros?|lts?|l)\b/gi,'1l').replace(/\b(?:x|por)\s*(unidad|unidades|u|unid)\b/gi,'1u');
   const nwA=normWeightS(sA), nwB=normWeightS(sB);
   const sizeRe=/(\d+(?:[.,]\d+)?)\s*(kg|g|gr|l|lt|litro|litros|ml|cc|cm3|u|unid|unidades)\b/ig;
@@ -1366,17 +1492,36 @@ function isSameExactProduct(a,b){
     if(hasA.length&&hasB.length&&hasA[0]!==hasB[0])return false;
   }
   const ignoreWords=new Set(['con','sin','del','las','los','por','para','sabor','de','en','x']);
-  const wordsA=nwA.split(' ').filter(w=>w.length>=2&&!ignoreWords.has(w));
-  const wordsB=nwB.split(' ').filter(w=>w.length>=2&&!ignoreWords.has(w));
+  const stemWord=w=>w.endsWith('s')&&!w.endsWith('is')&&!w.endsWith('os')?w.slice(0,-1):w;
+  const wordsA=nwA.split(' ').filter(w=>w.length>=2&&!ignoreWords.has(w)).map(stemWord);
+  const wordsB=nwB.split(' ').filter(w=>w.length>=2&&!ignoreWords.has(w)).map(stemWord);
   if(wordsA.length!==wordsB.length)return false;
   return [...wordsA].sort().join(' ')===[...wordsB].sort().join(' ');
 }
+
+function extractPackMultiplier(str){
+  const s=nk(typeof str==='object'?(str.product||str.product_name||str.name||''):str);
+  if(!s)return 1;
+  const mPack=s.match(/\b(?:pack\s*x?\s*|tri\s*pack|tripack|duo\s*pack|duopack|x\s*)(\d+)\b/);
+  if(mPack&&parseInt(mPack[1],10)>1)return parseInt(mPack[1],10);
+  if(/\b(?:tripack|tri\s*pack|pack\s*x?\s*3|triple)\b/.test(s))return 3;
+  if(/\b(?:duopack|duo\s*pack|pack\s*x?\s*2|doble)\b/.test(s))return 2;
+  const mUnid=s.match(/\b(\d+)\s*(?:unidades|paquetes|u|unid)\b/);
+  if(mUnid&&parseInt(mUnid[1],10)>1)return parseInt(mUnid[1],10);
+  return 1;
+}
+window.extractPackMultiplier=extractPackMultiplier;
+
 function getProductMatchConfidence(a,b){
   const kA=nk(a),kB=nk(b);
   if(kA===kB)return {level:'alta',score:1.0,reason:'Nombre exacto'};
   const eq=checkEquiv(kA,kB);
   if(eq==='same')return {level:'alta',score:0.95,reason:'Confirmado por la comunidad'};
   if(eq==='different')return {level:'rechazado',score:0,reason:'Descartado por usuarios'};
+  const multA=extractPackMultiplier(kA), multB=extractPackMultiplier(kB);
+  if(multA!==multB){
+    return {level:'rechazado',score:0,reason:`Diferente empaque: unidad vs multi-pack (${multA}u vs ${multB}u)`};
+  }
   for(const grp of PRODUCT_EXCLUSIVE_VARIANTS){
     const hasA=grp.filter(v=>kA.includes(v));
     const hasB=grp.filter(v=>kB.includes(v));
@@ -1958,7 +2103,7 @@ addEventListener('resize',()=>{if(tourOpen)tourShow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
 
 /* ---------- Novedades y Agradecimientos (Guided Tour Popup) ---------- */
-const NOVEDADES_VER='2026-11-04';
+let NOVEDADES_VER='2026-11-13';
 let novedadesStep=0;
 
 const NOVEDADES_SLIDES=[
@@ -2001,6 +2146,27 @@ const NOVEDADES_SLIDES=[
     `
   },
   {
+    icon:'🚀',
+    tag:'Nuevas Funcionalidades',
+    title:'Buscador Inteligente, Farmacia y Auditoría',
+    body:`
+      <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:12px;padding:12px;margin:10px 0;text-align:left;font-size:.8rem;color:#1e293b">
+        <div style="margin-bottom:8px">
+          <b>🔎 Buscador inteligente y Multi-Packs (CAN-00013):</b><br>
+          <span class="mu" style="color:#334155">Ahora entiende sinónimos y tolera errores de tipeo (ej: buscar "suprema" encuentra pechuga/pollo), sugiere tags editables al cargar tickets y separa paquetes individuales de packs múltiples (ej: Rumba 1u vs Pack x3).</span>
+        </div>
+        <div style="border-top:1px dashed #93c5fd;padding-top:8px;margin-bottom:8px">
+          <b>💊 Tickets de Farmacia y Archivos en Feedback (CAN-00014 & CAN-00015):</b><br>
+          <span class="mu" style="color:#334155">Lectura de descuentos de Obra Social y Coseguro (O. SOCIAL / COSEG.) manteniendo precio de lista, botón para subir múltiples archivos/capturas en Mejoras y Bugs, y opción permanente de "No volver a mostrar".</span>
+        </div>
+        <div style="border-top:1px dashed #93c5fd;padding-top:8px">
+          <b>🛡️ Panel de Auditoría y Benchmark de 50 Búsquedas:</b><br>
+          <span class="mu" style="color:#334155">Nueva herramienta administrativa (visible en <b>Ajustes</b> únicamente para cuentas habilitadas) para auditar asociaciones de catálogo, validar la calidad de 50 búsquedas y revisar reportes de feedback.</span>
+        </div>
+      </div>
+    `
+  },
+  {
     icon:'🤝',
     tag:'Canasta Crece',
     title:'¡Tu feedback hace la diferencia!',
@@ -2035,24 +2201,46 @@ function showNovedadesModal(manual,step=0){
         ${!isFirst?`<button type="button" class="ghost" onclick="showNovedadesModal(true,${novedadesStep-1})" style="flex:1">‹ Anterior</button>`:''}
         ${!isLast?`<button type="button" onclick="showNovedadesModal(true,${novedadesStep+1})" style="flex:1">Siguiente ›</button>`:`<button type="button" onclick="closeNovedadesModal(true)" style="flex:1;background:var(--g);color:#fff">¡Excelente, gracias!</button>`}
       </div>
-      <div style="margin-top:8px;display:flex;gap:6px;justify-content:center">
+      <div style="margin-top:8px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
         <button type="button" class="ghost" onclick="closeNovedadesModal(true);openFeedback()" style="font-size:.8rem;padding:6px 12px">💬 Enviar una sugerencia</button>
         <button type="button" class="ghost" onclick="closeNovedadesModal(true)" style="font-size:.8rem;padding:6px 12px;color:var(--mu)">Cerrar</button>
+      </div>
+      <div style="margin-top:8px;text-align:center">
+        <button type="button" onclick="dontShowNovedadesAgain()" style="background:#f8fafc;color:#475569;border:1px solid #cbd5e1;border-radius:8px;padding:6px 12px;font-size:.78rem;font-weight:600;cursor:pointer">☑️ No volver a mostrar hasta nuevas novedades</button>
       </div>
     </div>
   `,{lock:false});
 }
 
+function dontShowNovedadesAgain(){
+  try{localStorage.setItem('seen_novedades_ver',NOVEDADES_VER)}catch(_){}
+  try{sessionStorage.setItem('seen_novedades_ver',NOVEDADES_VER)}catch(_){}
+  if(user?.user_metadata)user.user_metadata.seen_novedades_ver=NOVEDADES_VER;
+  if(user?.id){
+    try{sb.auth.updateUser({data:{seen_novedades_ver:NOVEDADES_VER}}).catch(()=>{})}catch(_){}
+    try{fetch('/api/canasta/user/set-tour-preference',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,email:user.email,novedadesVer:NOVEDADES_VER})}).catch(()=>{})}catch(_){}
+  }
+  closeModal();
+  toast('Listo: no volverá a aparecer hasta que haya nuevas novedades.');
+}
+
 function closeNovedadesModal(markSeen=true){
   if(markSeen){
     try{localStorage.setItem('seen_novedades_ver',NOVEDADES_VER)}catch(_){}
+    try{sessionStorage.setItem('seen_novedades_ver',NOVEDADES_VER)}catch(_){}
+    if(user?.user_metadata)user.user_metadata.seen_novedades_ver=NOVEDADES_VER;
+    if(user?.id){
+      try{sb.auth.updateUser({data:{seen_novedades_ver:NOVEDADES_VER}}).catch(()=>{})}catch(_){}
+      try{fetch('/api/canasta/user/set-tour-preference',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,email:user.email,novedadesVer:NOVEDADES_VER})}).catch(()=>{})}catch(_){}
+    }
   }
   closeModal();
 }
 
 function checkNovedadesAuto(){
-  if(window._exp||draft||tourOpen)return;
-  const seen=localStorage.getItem('seen_novedades_ver');
+  if(window._exp||draft||tourOpen||view==='admin')return;
+  if(user?.user_metadata?.seen_novedades_ver===NOVEDADES_VER)return;
+  const seen=localStorage.getItem('seen_novedades_ver')||sessionStorage.getItem('seen_novedades_ver');
   if(seen===NOVEDADES_VER)return;
   const ov=$('#ov');
   if(ov&&!ov.hidden)return;
@@ -2062,6 +2250,7 @@ function checkNovedadesAuto(){
 window.showNovedadesModal=showNovedadesModal;
 window.closeNovedadesModal=closeNovedadesModal;
 window.checkNovedadesAuto=checkNovedadesAuto;
+window.dontShowNovedadesAgain=dontShowNovedadesAgain;
 window.NOVEDADES_VER=NOVEDADES_VER;
 
 /* ---------- Ayuda ---------- */
@@ -2361,7 +2550,7 @@ const FBT={bug:'🐞 Bug',mejora:'💡 Mejora',comentario:'💬 Comentario'};
 const fbSync=()=>{const t=$('#fbm');if(t)fbS.msg=t.value};
 
 function openFeedback(type,pre,shotB64){
-  fbS={type:type||(shotB64?'bug':'comentario'),rating:0,msg:pre||'',diag:true,sending:false,screenshot:shotB64||null};
+  fbS={type:type||(shotB64?'bug':'comentario'),rating:0,msg:pre||'',diag:true,sending:false,screenshot:shotB64||null,attachments:[]};
   fbRender();
 }
 
@@ -2427,42 +2616,108 @@ async function triggerFeedbackSnapshot(){
   }
 }
 
-function viewScreenshotPreview(){
-  if(!fbS.screenshot)return;
-  modal(`<h2>Captura de pantalla adjunta</h2>
+function viewScreenshotPreview(idx){
+  const src=(typeof idx==='number'&&fbS.attachments&&fbS.attachments[idx])?fbS.attachments[idx].dataUrl:fbS.screenshot;
+  if(!src)return;
+  modal(`<h2>Vista previa de imagen adjunta</h2>
   <div style="max-height:60vh;overflow:auto;margin:10px 0;border-radius:8px;border:1px solid var(--ln);background:#000;display:flex;justify-content:center">
-    <img src="${fbS.screenshot}" alt="Captura de pantalla" style="max-width:100%;height:auto;display:block">
+    <img src="${src}" alt="Captura de pantalla" style="max-width:100%;height:auto;display:block">
   </div>
   <div class="mact">
     <button onclick="fbRender()">Volver al formulario</button>
   </div>`);
 }
 
+function removeFeedbackAttachment(idx){
+  if(!fbS.attachments)return;
+  fbS.attachments.splice(idx,1);
+  fbRender();
+}
+window.removeFeedbackAttachment=removeFeedbackAttachment;
+
 function fbRender(note){
   const x=fbS;
+  if(!Array.isArray(x.attachments))x.attachments=[];
   const shotHtml=x.screenshot?`
     <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:10px;padding:8px 10px;margin-top:8px;text-align:left;display:flex;align-items:center;gap:10px">
       <img src="${x.screenshot}" alt="Captura" onclick="viewScreenshotPreview()" style="width:52px;height:70px;object-fit:cover;border-radius:6px;border:1px solid #94a3b8;cursor:pointer;flex-shrink:0" title="Toca para ampliar">
       <div style="flex:1;min-width:0">
         <b style="font-size:.84rem;color:#1e293b;display:block">📸 Captura de pantalla adjunta</b>
         <span style="font-size:.76rem;color:#64748b">Se enviará junto a tu reporte para resolverlo rápido.</span>
-        <div style="margin-top:4px;display:flex;gap:8px">
+        <div style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap">
           <button type="button" class="ghost" style="padding:2px 8px;font-size:.75rem;height:auto" onclick="viewScreenshotPreview()">Ver captura</button>
           <button type="button" class="ghost" style="padding:2px 8px;font-size:.75rem;height:auto;color:var(--r,#d9534f)" onclick="fbS.screenshot=null;fbRender()">Quitar</button>
         </div>
       </div>
-    </div>`:''
-  ;
+    </div>`:'';
+
+  const attHtml=x.attachments.length?`
+    <div style="margin-top:6px;display:flex;flex-direction:column;gap:5px;text-align:left">
+      ${x.attachments.map((att,idx)=>`
+        <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:6px 8px;display:flex;align-items:center;gap:8px">
+          ${att.type&&att.type.startsWith('image/')?`<img src="${att.dataUrl}" alt="Adjunto" onclick="viewScreenshotPreview(${idx})" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;flex-shrink:0">`:`<span style="font-size:1.2rem;flex-shrink:0">📄</span>`}
+          <span style="flex:1;min-width:0;font-size:.78rem;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(att.name||'Archivo adjunto')}</span>
+          <button type="button" class="ghost" style="padding:2px 6px;font-size:.72rem;height:auto;color:var(--r,#d9534f)" onclick="removeFeedbackAttachment(${idx})">✕</button>
+        </div>
+      `).join('')}
+    </div>`:'';
+
+  const uploadBtnHtml=`
+    <div style="margin-top:8px;text-align:left">
+      <button type="button" class="ghost" onclick="fbSync();$('#fb-manual-file').click()" style="padding:6px 12px;font-size:.8rem;display:inline-flex;align-items:center;gap:6px;background:#f8fafc;border:1px dashed #94a3b8;width:100%;justify-content:center">
+        📎 ${(x.screenshot||x.attachments.length)?'Subir otro archivo o captura (imagen / PDF)':'Subir captura o archivo (imagen / PDF)'}
+      </button>
+    </div>`;
 
   modal(`<h2>${x.type==='bug'?'Reportar un problema':x.type==='mejora'?'Sugerir una mejora':'Enviar comentarios'}</h2>
-  <p class="mu">${x.type==='bug'?'Contanos qué falló y usaremos la captura adjunta para solucionarlo.':x.type==='mejora'?'Contanos tu idea o mejora para la app.':'Contanos qué te parece la app o tus sugerencias.'}</p>
+  <p class="mu">${x.type==='bug'?'Contanos qué falló y adjuntá capturas o archivos si querés.':x.type==='mejora'?'Contanos tu idea o mejora para la app y adjuntá capturas si querés.':'Contanos qué te parece la app o tus sugerencias.'}</p>
   <div class="chips" style="justify-content:center;flex-wrap:wrap">${Object.keys(FBT).map(k=>`<button type="button" class="chip ${x.type===k?'on':''}" onclick="fbSync();fbS.type='${k}';fbRender()">${FBT[k]}</button>`).join('')}</div>
   ${x.type==='comentario'?`<div class="stars" role="group" aria-label="Calificación">${[1,2,3,4,5].map(n=>`<button type="button" class="${x.rating>=n?'on':''}" onclick="fbSync();fbS.rating=${n===x.rating?0:n};fbRender()" aria-label="${n} estrellas">⭐</button>`).join('')}</div>`:''}
+  <input type="file" id="fb-manual-file" accept="image/*,.pdf" multiple style="display:none" onchange="handleManualFeedbackScreenshot(this)">
   ${shotHtml}
+  ${attHtml}
+  ${uploadBtnHtml}
   <textarea id="fbm" rows="4" maxlength="2000" placeholder="${x.type==='bug'?'Describí qué estabas haciendo y qué salió mal…':x.type==='mejora'?'¿Qué nueva función o cambio te gustaría tener?…':'¿Qué te parece la app?…'}" style="text-align:left;margin-top:10px" oninput="fbS.msg=this.value">${esc(x.msg)}</textarea>
-  <label style="display:flex;gap:8px;align-items:flex-start;text-align:left;margin-top:8px;font-size:.82rem"><input type="checkbox" style="width:auto;margin-top:3px" ${x.diag?'checked':''} onchange="fbS.diag=this.checked"><span>Incluir datos técnicos (pantalla, dispositivo y captura) para facilitar la resolución.</span></label>
+  <label style="display:flex;gap:8px;align-items:flex-start;text-align:left;margin-top:8px;font-size:.82rem"><input type="checkbox" style="width:auto;margin-top:3px" ${x.diag?'checked':''} onchange="fbS.diag=this.checked"><span>Incluir datos técnicos (pantalla, dispositivo y adjuntos) para facilitar la resolución.</span></label>
   ${note?`<p style="color:var(--r);font-size:.85rem;margin-top:6px">${esc(note)}</p>`:''}
   <div class="mact"><button onclick="fbSend()">Enviar reporte</button><button class="ghost" onclick="closeModal()">Cancelar</button></div>`);
+}
+
+function handleManualFeedbackScreenshot(input){
+  const files=Array.from(input&&input.files?input.files:[]);
+  if(!files.length)return;
+  if(!Array.isArray(fbS.attachments))fbS.attachments=[];
+  let pending=files.length;
+  const doneOne=()=>{pending--;if(pending<=0){fbRender();toast('Archivo adjuntado.');}};
+  for(const file of files){
+    const isImg=file.type&&file.type.startsWith('image/');
+    const isPdf=file.type==='application/pdf'||/\.pdf$/i.test(file.name||'');
+    if(!isImg&&!isPdf){toast('Formato no soportado (usá imagen o PDF): '+(file.name||''));pending--;continue;}
+    if(!isImg&&file.size>1.5*1024*1024){toast('El archivo PDF supera 1.5 MB: '+(file.name||''));pending--;continue;}
+    const reader=new FileReader();
+    reader.onload=e=>{
+      if(isImg){
+        const img=new Image();
+        img.onload=()=>{
+          const maxW=800;
+          let w=img.width,h=img.height;
+          if(w>maxW){h=Math.round(h*(maxW/w));w=maxW;}
+          const cv=document.createElement('canvas');
+          cv.width=w;cv.height=h;
+          const ctx=cv.getContext('2d');
+          const outUrl=ctx?(ctx.drawImage(img,0,0,w,h),cv.toDataURL('image/jpeg',0.75)):e.target.result;
+          if(!fbS.screenshot){fbS.screenshot=outUrl;}
+          else{fbS.attachments.push({name:file.name||'captura.jpg',type:'image/jpeg',dataUrl:outUrl});}
+          doneOne();
+        };
+        img.src=e.target.result;
+      }else{
+        fbS.attachments.push({name:file.name||'documento.pdf',type:'application/pdf',dataUrl:e.target.result});
+        doneOne();
+      }
+    };
+    reader.readAsDataURL(file);
+  }
 }
 
 async function fbSend(){
@@ -2472,7 +2727,9 @@ async function fbSend(){
   if(m.length<5)return fbRender('Escribí al menos unas palabras (mínimo 5 caracteres).');
   x.sending=true;
   modal('<div class="spin"></div><h2>Enviando reporte…</h2><p class="mu">Un momento.</p>',{lock:true});
-  const diag=x.diag?{view,ver:APP_VER,ua:navigator.userAgent,vp:innerWidth+'x'+innerHeight,online:navigator.onLine,err:lastErr||null,disp:dispCur(),screenshot:x.screenshot||null}:{screenshot:x.screenshot||null};
+  const atts=Array.isArray(x.attachments)?x.attachments:[];
+  const primaryShot=x.screenshot||(atts.find(a=>a.type&&a.type.startsWith('image/'))?.dataUrl||null);
+  const diag=x.diag?{view,ver:APP_VER,ua:navigator.userAgent,vp:innerWidth+'x'+innerHeight,online:navigator.onLine,err:lastErr||null,disp:dispCur(),screenshot:primaryShot,attachments:atts.length?atts:undefined}:{screenshot:primaryShot,attachments:atts.length?atts:undefined};
   try{
     const {data,error}=await T(sb.from('feedback').insert({type:x.type,rating:x.rating||null,message:m,screen:view,app_version:APP_VER,diagnostics:diag}).select('ticket').single(),25000);
     if(error)throw error;
@@ -3046,8 +3303,162 @@ const CANONICAL_DISAMBIGUATION={
     {label:'🍝 Fideos largos (tallarines/spaghetti)', kw:['tallarin','spaghetti','largo'], match:(p)=>nk(p).includes('tallarin')||nk(p).includes('spaghetti')||nk(p).includes('largo')},
     {label:'🍝 Fideos para sopa', kw:['sopa','municion','cabello'], match:(p)=>nk(p).includes('sopa')||nk(p).includes('municion')||nk(p).includes('cabello')},
     {label:'🍝 Todos los fideos', kw:[], match:()=>true}
+  ],
+  rumba:[
+    {label:'🍪 Rumba individual (108g / 1u)', kw:['108','unidad','1u'], match:(p)=>{const m=extractPackMultiplier(p);return m===1&&!nk(p).includes('pack')&&!nk(p).includes('tripack')}},
+    {label:'📦 Rumba Tripack / Pack x3 (324g)', kw:['3','tripack','pack'], match:(p)=>{const m=extractPackMultiplier(p);return m===3||nk(p).includes('tripack')||nk(p).includes('324')}},
+    {label:'🍪 Todas las presentaciones', kw:[], match:()=>true}
+  ],
+  suprema:[
+    {label:'🍗 Suprema / Pechuga fresca', kw:['pechuga','pollo'], match:(p)=>nk(p).includes('suprema')||nk(p).includes('pechuga')||nk(p).includes('pollo')},
+    {label:'🍗 Milanesa de suprema rebozada', kw:['milanesa','reboz'], match:(p)=>nk(p).includes('milanesa')||nk(p).includes('reboz')},
+    {label:'🍗 Todas las supremas y pechugas', kw:[], match:()=>true}
   ]
 };
+
+function levenshteinDistance(a,b){
+  if(a===b)return 0;
+  if(!a.length)return b.length;
+  if(!b.length)return a.length;
+  const v0=new Array(b.length+1);
+  const v1=new Array(b.length+1);
+  for(let i=0;i<=b.length;i++)v0[i]=i;
+  for(let i=0;i<a.length;i++){
+    v1[0]=i+1;
+    for(let j=0;j<b.length;j++){
+      const cost=a[i]===b[j]?0:1;
+      v1[j+1]=Math.min(v1[j]+1,v0[j+1]+1,v0[j]+cost);
+    }
+    for(let j=0;j<=b.length;j++)v0[j]=v1[j];
+  }
+  return v1[b.length];
+}
+
+const SUPERMARKET_SYNONYMS={
+  suprema:['pechuga','pollo','suprema de pollo','milanesa de pollo','pechuga deshuesada'],
+  pechuga:['suprema','pollo','pechuga de pollo'],
+  pollo:['suprema','pechuga','pata muslo','trozado','granja'],
+  coca:['coca cola','gaseosa cola','pepsi','cola'],
+  'coca cola':['coca','gaseosa cola','pepsi'],
+  gaseosa:['coca','coca cola','pepsi','sprite','seven up','fanta','paso de los toros','pomelo','tonica'],
+  rumba:['galletitas rumba','rumba','galletita rumba'],
+  leche:['leche entera','leche descremada','serenisima','sancor','ilolay'],
+  manteca:['mantequilla','margarina','serenisima','sancor'],
+  yerba:['yerba mate','playadito','taragui','amanda','marolio','nobleza gaucha','rosamonte'],
+  fideos:['pastas','tallarines','spaghetti','tirabuzon','mostachol','guiseros','lucchetti','matarazzo'],
+  arroz:['arroz blanco','arroz largo fino','arroz parboil','gallo','ala'],
+  lavandina:['cloro','ayudin','querubin','lavandina comun'],
+  detergente:['magistral','ala','cif','detergente vajilla'],
+  jabon:['jabon liquido','jabon en polvo','ala','skip','ariel','drive'],
+  cerveza:['birra','quilmes','brahma','heineken','stella artois','andes','corona'],
+  cafe:['dolca','nescafe','la virginia','arlistan','cafe molido','torrado'],
+  azucar:['azucar blanco','ledesma','chango'],
+  galletitas:['galletita','galletas','masitas','chocolinas','oreo','rumba','criollitas','traviata','opera','sonrisas'],
+  'dulce de leche':['manjar','colonial','serenisima','sancor','chimbote','san ignacio'],
+  aceite:['aceite de girasol','aceite de maiz','aceite de oliva','cocinero','natura','canuelas']
+};
+
+function getQuerySynonyms(qNorm){
+  const syns=new Set();
+  if(SUPERMARKET_SYNONYMS[qNorm]){
+    SUPERMARKET_SYNONYMS[qNorm].forEach(s=>syns.add(nk(s)));
+  }
+  const words=qNorm.split(/\s+/).filter(w=>w.length>=3);
+  for(const w of words){
+    if(SUPERMARKET_SYNONYMS[w]){
+      SUPERMARKET_SYNONYMS[w].forEach(s=>syns.add(nk(s)));
+    }
+  }
+  return Array.from(syns);
+}
+
+function smartSearchPrices(rawRows,q){
+  const qNorm=nk(q);
+  if(!qNorm)return [];
+  const qWords=qNorm.split(/\s+/).filter(w=>w.length>=2);
+  const qMult=extractPackMultiplier(qNorm);
+  const synonyms=getQuerySynonyms(qNorm);
+
+  const scored=[];
+  for(const p of rawRows){
+    if(shouldExcludeUnrelated(qNorm,p))continue;
+    const pName=nk(p.product||p.product_name||'');
+    const pSub=nk(p.subcategory||'');
+    const pCat=nk(p.category||'');
+    const pDesc=nk(p.description||'');
+    const pTags=Array.isArray(p.tags)?p.tags.map(nk).join(' '):nk(p.tags||'');
+    const fullText=`${pName} ${pSub} ${pCat} ${pDesc} ${pTags}`;
+    const pMult=extractPackMultiplier(pName);
+
+    p.pack_multiplier=pMult;
+
+    let score=0;
+    let confidence='baja';
+    let matchType='';
+
+    if(pName.includes(qNorm)){
+      score=100;
+      confidence='alta';
+      matchType='exacto';
+    }else if(qWords.length>0&&qWords.every(qw=>fullText.includes(qw))){
+      score=88;
+      confidence='alta';
+      matchType='tokens_completos';
+    }else if(synonyms.some(syn=>fullText.includes(syn))){
+      score=80;
+      confidence='alta';
+      matchType='sinonimo';
+    }else{
+      const pWords=fullText.split(/\s+/).filter(w=>w.length>=3);
+      let matchedCount=0;
+      let hasFuzzy=false;
+
+      for(const qw of qWords){
+        if(pWords.some(pw=>pw.includes(qw)||qw.includes(pw))){
+          matchedCount++;
+        }else{
+          const maxDist=qw.length<=4?1:2;
+          const close=pWords.some(pw=>Math.abs(pw.length-qw.length)<=maxDist&&levenshteinDistance(qw,pw)<=maxDist);
+          if(close){
+            matchedCount++;
+            hasFuzzy=true;
+          }
+        }
+      }
+
+      const matchRatio=qWords.length?(matchedCount/qWords.length):0;
+      if(matchRatio>=0.75){
+        score=hasFuzzy?72:75;
+        confidence='alta';
+        matchType=hasFuzzy?'fuzzy':'parcial_alto';
+      }else if(matchRatio>=0.5){
+        score=55;
+        confidence='media';
+        matchType='parcial_medio';
+      }else{
+        score=25;
+        confidence='baja';
+        matchType='debil';
+      }
+    }
+
+    if(score>=40){
+      p.is_exact=score>=80;
+      p.search_score=score;
+      p.search_confidence=confidence;
+      p.search_match_type=matchType;
+      scored.push(p);
+    }
+  }
+
+  scored.sort((a,b)=>{
+    if(b.search_score!==a.search_score)return b.search_score-a.search_score;
+    return (a.unit_price||0)-(b.unit_price||0);
+  });
+
+  return scored;
+}
+
 
 let prActiveFilter=null;
 let prCurrentQ='';
@@ -3107,8 +3518,11 @@ Respondé solo JSON: {"terms":["..."]} con términos en minúsculas y sin tildes
 const prNote=()=>prAI==='loading'?'<div class="mu" style="margin:0 0 8px">✨ Buscando productos relacionados…</div>':prAI==='nokey'?'<div class="mu" style="margin:0 0 8px">✨ Cargá tu clave de Gemini en Ajustes para buscar también productos relacionados.</div>':prTerms.length?`<div class="mu" style="margin:0 0 4px">✨ También busqué:</div><div class="chips" style="flex-wrap:wrap">${prTerms.map(t=>`<button class="chip" onclick="pSet('${nk(t)}')">${esc(nk(t))}</button>`).join('')}</div>`:'';
 const prHome=rs=>`<div class="empty"><div style="font-size:2.4rem">🔎</div>Buscá un producto y mirá dónde está más barato cerca tuyo.<br><span class="mu">Los precios vienen de tickets de otras personas, de forma anónima.</span></div>${rs.length?`<h2>Búsquedas recientes</h2><div class="chips" style="flex-wrap:wrap">${rs.map(t=>`<button class="chip" onclick="pSet('${nk(t)}')">🕘 ${esc(nk(t))}</button>`).join('')}</div>`:''}`;
 function prices(){
-  app(`<h1>Precios</h1>
-  <div class="sb"><input id="pq" type="search" placeholder="Buscá un producto (ej: leche entera 1L)" autocomplete="off" oninput="clearTimeout(window._pd);window._pd=setTimeout(()=>pGo(),400)" onkeydown="if(event.key==='Enter')pGo(true)"></div>
+  app(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <h1 style="margin:0">Precios</h1>
+    <button class="ghost" onclick="openBenchmarkModal()" style="font-size:.8rem;padding:4px 10px;border-radius:8px">🎯 Validar 50 Búsquedas</button>
+  </div>
+  <div class="sb"><input id="pq" type="search" placeholder="Buscá un producto (ej: suprema, rumba, leche 1L)" autocomplete="off" oninput="clearTimeout(window._pd);window._pd=setTimeout(()=>pGo(),400)" onkeydown="if(event.key==='Enter')pGo(true)"></div>
   <div class="mu" style="margin:0 0 4px">Distancia máxima</div>
   <div class="chips" id="prad">${RADS.map(r=>`<button class="chip ${r===rad()?'on':''}" onclick="setRad(${r})">${r?r+' km':'Todo'}</button>`).join('')}</div>
   <div id="ploc" class="mu" style="margin-bottom:8px"></div>
@@ -3135,7 +3549,12 @@ async function pGo(save){
       try{
         let qb=sb.from('price_points').select('*');
         if(c)qb=qb.eq('category',c);
-        else qb=qb.or(`product_key.ilike.*${t}*,subcategory.ilike.*${t}*,product_name.ilike.*${t}*`);
+        else {
+          const synList=getQuerySynonyms(nk(t)).slice(0,3);
+          const terms=[t,...synList];
+          const conds=terms.map(tm=>`product_key.ilike.*${tm}*,subcategory.ilike.*${tm}*,product_name.ilike.*${tm}*`).join(',');
+          qb=qb.or(conds);
+        }
         const {data:raw,error:err2}=await T(qb.order('unit_price',{ascending:true}).limit(80),9000);
         if(err2||!raw)return {data:[],error:null};
         let mapped=raw.map(p=>{
@@ -3153,7 +3572,8 @@ async function pGo(save){
             description:p.description,
             purchased_at:p.purchased_at,
             is_exact:nk(p.product_key||p.product_name).includes(nk(t)),
-            distance_km:dkm
+            distance_km:dkm,
+            tags:p.tags
           };
         });
         if(useR&&r>0)mapped=mapped.filter(x=>x.distance_km==null||x.distance_km<=r);
@@ -3168,35 +3588,7 @@ async function pGo(save){
     if(tok!==pTok)return;
     if(error){b.innerHTML=`<div class="card">No se pudo buscar: ${esc(error.message)}</div>`;return}
 
-    const qNorm=nk(q);
-    const qWords=qNorm.split(' ').filter(w=>w.length>=2);
-    const rawRows=data||[];
-    const cleanRows=rawRows.filter(p=>{
-      if(shouldExcludeUnrelated(qNorm,p))return false;
-      const pName=nk(p.product||p.product_name||'');
-      const pSub=nk(p.subcategory||'');
-      const isTokenMatch=qWords.length>0&&qWords.every(qw=>pName.includes(qw)||pSub.includes(qw));
-      if(isTokenMatch){
-        p.is_exact=true;
-        return true;
-      }
-      if(p.desc_match)return false;
-      if(qNorm.length<5)return false;
-      if(cat&&p.category&&p.category!==cat)return false;
-      const nameWords=(pName+' '+pSub).split(' ').filter(w=>w.length>=4);
-      const hasCloseWord=qWords.some(qw=>nameWords.some(nw=>{
-        if(Math.abs(nw.length-qw.length)>1)return false;
-        let d=0;
-        for(let i=0;i<Math.min(nw.length,qw.length);i++){if(nw[i]!==qw[i])d++}
-        d+=Math.abs(nw.length-qw.length);
-        return d<=1;
-      }));
-      if(hasCloseWord){
-        p.is_exact=false;
-        return true;
-      }
-      return false;
-    });
+    const cleanRows=smartSearchPrices(data||[],q);
     prRows=cleanRows;
 
     try{
@@ -3259,6 +3651,10 @@ const prCard=(min,avg,anyExact,rank)=>x=>{
   const isKg=/\b(kg|kilo|kilos)\b/i.test(x.product)||['frutas','verduras','carnes'].includes(x.category);
   const priceUnit=isKg?'por kilo':/\b(1l|1 litro|litro|1000ml)\b/i.test(x.product)?'por litro':'por unidad';
 
+  const packMult=x.pack_multiplier||extractPackMultiplier(x.product);
+  const packBadge=(packMult>1)?`<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-weight:700">📦 Pack x${packMult} (${pv!=null?money(Math.round(pv/packMult),cu):''} c/u)</span>`:'';
+  const confBadge=(x.search_confidence==='alta'&&!x.is_exact)?'<span class="tag" style="background:#f0fdf4;color:#166534;font-size:.7rem">🎯 Alta confianza</span>':(x.search_confidence==='media')?'<span class="tag" style="background:#fefce8;color:#854d0e;font-size:.7rem">🟡 Coincidencia media</span>':'';
+
   let sepaBadge='', sepaDiffBadge='';
   if(currentSepaMatch&&currentSepaMatch.item){
     const sItem=currentSepaMatch.item;
@@ -3302,7 +3698,7 @@ const prCard=(min,avg,anyExact,rank)=>x=>{
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;margin:8px 0 6px;font-size:.84rem;color:#1e293b">
       <b>${esc(x.product)}</b>${x.subcategory?` <span class="mu">· ${esc(x.subcategory)}</span>`:''}${x.rel?`<span class="sim" style="background:#e3f2e8;margin-left:6px">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim" style="margin-left:6px">similar</span>'}
     </div>
-    <div class="tags" style="margin-bottom:6px">${avgBadge}${sepaBadge}${sepaDiffBadge}${descTag}</div>
+    <div class="tags" style="margin-bottom:6px">${packBadge}${confBadge}${avgBadge}${sepaBadge}${sepaDiffBadge}${descTag}</div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
       <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none">🗺️ Cómo llegar</a>
     </div>
@@ -3718,6 +4114,15 @@ function settings(){
   <div class="card"><h2 style="margin-top:0">Ayuda y Novedades</h2><p class="mu" style="margin-top:0">Guía de uso, novedades recientes y recorrido guiado de la app.</p><div class="mact" style="margin-top:8px"><button onclick="go('help')">❓ Guía de uso</button><button class="ghost" onclick="showNovedadesModal(true)">🎉 Novedades y agradecimientos</button><button class="ghost" onclick="tourStart(true)">▶ Ver el recorrido guiado</button></div></div>
   ${installCard()}
   <div class="card"><h2 style="margin-top:0">Comentarios</h2><p class="mu" style="margin-top:0">¿Encontraste un error o tenés una idea? Contanos y te damos un número de ticket.</p><div class="mact" style="margin-top:8px"><button onclick="openFeedback()">💬 Enviar comentarios</button></div><div id="fbl"></div></div>
+  ${isAdminUser(user)?`
+  <div class="card" style="background:#f0fdf4;border:2px solid #22c55e">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0;color:#166534">🛡️ Panel de Administrador</h2>
+      <span class="tag" style="background:#dcfce7;color:#15803d;font-weight:700">Admin</span>
+    </div>
+    <p class="mu" style="color:#15803d;margin:6px 0 10px">Acceso a la auditoría de equivalencias, el validador de 50 búsquedas y el gestor de bugs y feedback de la comunidad.</p>
+    <div class="mact" style="margin-top:8px"><button onclick="go('admin')" style="background:#166534;color:#fff">Ir al Panel de Administrador</button></div>
+  </div>`:''}
   <div class="card"><div class="mu">${esc(user.email)}</div><p style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="ghost" onclick="changePasswordModal()">Cambiar contraseña</button><button class="ghost" onclick="window._manualOut=true;clearBk();sb.auth.signOut().then(boot)">Cerrar sesión</button></p></div>`);
   fbList();
 }
@@ -3736,6 +4141,440 @@ window.checkPreciosClarosStatus=async function(){
     toast('Catálogo oficial al día (27.936 productos)');
   }
 };
+
+/* ---------- 50-Product Benchmark & Admin Panel ---------- */
+const BENCHMARK_50_PRODUCTS = [
+  {q:'leche entera', expected:'Leche entera 1L'},
+  {q:'suprema', expected:'Suprema / Pechuga de pollo'},
+  {q:'galletitas rumba', expected:'Rumba individual o pack'},
+  {q:'coca cola 1.5', expected:'Coca-Cola 1.5L / Gaseosa cola'},
+  {q:'yerba playadito 1kg', expected:'Yerba Playadito con palo 1kg'},
+  {q:'aceite de girasol', expected:'Aceite girasol 900ml/1.5L'},
+  {q:'arroz largo fino', expected:'Arroz blanco largo fino'},
+  {q:'fideos tirabuzon', expected:'Fideos guiseros tirabuzón'},
+  {q:'manteca la serenisima', expected:'Manteca clásica 200g'},
+  {q:'dulce de leche colonial', expected:'Dulce de leche Colonial / Clásico'},
+  {q:'queso cremoso la paulina', expected:'Queso cremoso / cuartirolo'},
+  {q:'papel higienico higienol', expected:'Papel higiénico 4u'},
+  {q:'lavandina ayudin', expected:'Lavandina común 1L/2L'},
+  {q:'detergente magistral', expected:'Detergente vajilla ultra concentrado'},
+  {q:'jabon liquido ala', expected:'Jabón líquido para ropa'},
+  {q:'cerveza quilmes 1L', expected:'Cerveza rubia clásica retornable/lata'},
+  {q:'cafe dolca', expected:'Café instantáneo suave / torrado'},
+  {q:'azucar ledesma', expected:'Azúcar blanco tipo común A 1kg'},
+  {q:'atun en lomo natural', expected:'Atún al natural lata'},
+  {q:'mayonesa hellmanns', expected:'Mayonesa regular pouch / frasco'},
+  {q:'pure de tomate arcor', expected:'Puré de tomate tetra brik 520g'},
+  {q:'tapas de empanadas la salteña', expected:'Tapas para horno / freír 12u'},
+  {q:'pan lactal fargo', expected:'Pan de mesa blanco / salvado'},
+  {q:'yogur bebible frutilla', expected:'Yogur bebible sachet / botella 1kg'},
+  {q:'galletitas oreo', expected:'Galletitas rellenas de chocolate'},
+  {q:'pechuga de pollo', expected:'Pechuga fresca / suprema deshuesada'},
+  {q:'carne picada especial', expected:'Carne picada / molida vacuna'},
+  {q:'bife de chorizo', expected:'Corte de carne vacuna fresca'},
+  {q:'manzana deliciosa', expected:'Manzana roja fresca por kilo'},
+  {q:'banana ecuador', expected:'Banana cavendish por kilo'},
+  {q:'papa negra', expected:'Papa común seleccionada por kilo'},
+  {q:'tomate redondo', expected:'Tomate ensalada fresco por kilo'},
+  {q:'cebolla', expected:'Cebolla común por kilo'},
+  {q:'desodorante dove', expected:'Desodorante antitranspirante aerosol'},
+  {q:'shampoo sedal', expected:'Shampoo / acondicionador para cabello'},
+  {q:'crema dental colgate', expected:'Pasta dental triple acción / total 12'},
+  {q:'rollo de cocina elegante', expected:'Rollos de cocina descartables'},
+  {q:'galletitas chocolinas', expected:'Galletitas de chocolate 170g/250g'},
+  {q:'gaseosa sprite', expected:'Gaseosa lima limón sin azúcar / regular'},
+  {q:'agua villavicencio 1.5', expected:'Agua mineral natural sin gas'},
+  {q:'cerveza brahma lata', expected:'Cerveza rubia suave en lata'},
+  {q:'vino malbec trapiche', expected:'Vino tinto varietal malbec 750ml'},
+  {q:'queso rallado sancor', expected:'Queso reggianito / sardo rallado en sobre'},
+  {q:'te taragui', expected:'Té en saquitos clásico'},
+  {q:'mate cocido union', expected:'Mate cocido tradicional en saquitos'},
+  {q:'bizcochos 9 de oro', expected:'Bizcochos de grasa / agridulces'},
+  {q:'harina 000 pureza', expected:'Harina común de trigo 1kg'},
+  {q:'polenta presto pronta', expected:'Harina de maíz de cocción rápida 1 minuto'},
+  {q:'sal fina dos anclas', expected:'Sal fina de mesa con yodo y flúor'},
+  {q:'vinagre de alcohol menoyo', expected:'Vinagre de alcohol blanco 1L'}
+];
+
+function getBenchmarkRatings(){
+  try{return JSON.parse(localStorage.getItem('benchmark_50_ratings')||'{}')}catch(e){return {}}
+}
+function saveBenchmarkRating(q,level){
+  const r=getBenchmarkRatings();
+  r[q]={level,rated_at:new Date().toISOString()};
+  localStorage.setItem('benchmark_50_ratings',JSON.stringify(r));
+}
+window.getBenchmarkRatings=getBenchmarkRatings;
+window.saveBenchmarkRating=saveBenchmarkRating;
+
+async function openBenchmarkModal(idx=0){
+  if(idx<0)idx=0;
+  if(idx>=BENCHMARK_50_PRODUCTS.length){
+    renderBenchmarkSummaryModal();
+    return;
+  }
+  const item=BENCHMARK_50_PRODUCTS[idx];
+  const ratings=getBenchmarkRatings();
+  const currentRating=ratings[item.q]?.level||null;
+  const highCount=Object.values(ratings).filter(x=>x.level==='alta').length;
+  const midCount=Object.values(ratings).filter(x=>x.level==='media').length;
+  const lowCount=Object.values(ratings).filter(x=>x.level==='baja').length;
+  const ratedCount=Object.keys(ratings).length;
+
+  let sampleResults=[];
+  try{
+    const synList=getQuerySynonyms(nk(item.q)).slice(0,3);
+    const terms=[stemQ(item.q),...synList];
+    const conds=terms.map(tm=>`product_key.ilike.*${tm}*,subcategory.ilike.*${tm}*,product_name.ilike.*${tm}*`).join(',');
+    const {data:raw}=await sb.from('price_points').select('*').or(conds).order('unit_price',{ascending:true}).limit(10);
+    sampleResults=smartSearchPrices((raw||[]).map(p=>({
+      product:p.product_name,
+      unit_price:p.unit_price,
+      currency:p.currency||'ARS',
+      store:p.store,
+      category:p.category,
+      subcategory:p.subcategory
+    })), item.q);
+  }catch(e){sampleResults=[];}
+
+  if(!sampleResults.length){
+    const corpus=[
+      {product:'Pechuga de Pollo Fresca 1kg',unit_price:6200,category:'carnes',store:'Granja Belgrano'},
+      {product:'Suprema de Pollo Rebozada 500g',unit_price:4500,category:'carnes',store:'Pollería Central'},
+      {product:'Galletitas Rumba 108g',unit_price:550,category:'almacen',store:'Carrefour Express'},
+      {product:'Galletitas Rumba Tripack 3x108g (324g)',unit_price:1200,category:'almacen',store:'Coto'},
+      {product:'Leche La Serenísima Clásica Entera 1L',unit_price:1350,category:'lacteos',store:'Dia %'},
+      {product:'Coca-Cola Sabor Original 1500ml',unit_price:2100,category:'bebidas',store:'Jumbo'},
+      {product:'Yerba Mate Playadito con Palo 1kg',unit_price:4100,category:'almacen',store:'Coto'},
+      {product:'Aceite de Girasol Cocinero 900ml',unit_price:1850,category:'almacen',store:'Carrefour'},
+      {product:item.expected,unit_price:1500,category:'almacen',store:'Supermercado de Referencia'}
+    ];
+    sampleResults=smartSearchPrices(corpus, item.q);
+  }
+
+  const resultsHtml=sampleResults.length?sampleResults.slice(0,3).map(r=>{
+    const pMult=r.pack_multiplier||extractPackMultiplier(r.product);
+    const pTag=pMult>1?`<span class="tag" style="background:#fef3c7;color:#92400e;font-weight:700">📦 Pack x${pMult} ($${Math.round(r.unit_price/pMult)} c/u)</span>`:'';
+    const cColor=r.search_confidence==='alta'?'#15803d':r.search_confidence==='media'?'#b45309':'#b91c1c';
+    const cBg=r.search_confidence==='alta'?'#dcfce7':r.search_confidence==='media'?'#fef3c7':'#fee2e2';
+    return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+      <div style="flex:1;min-width:0;text-align:left">
+        <b style="font-size:.85rem;color:#0f172a">${esc(r.product)}</b>
+        <div class="mu" style="font-size:.73rem">${esc(r.store||'Comercio')} · ${pTag} <span class="tag" style="background:${cBg};color:${cColor};font-size:.68rem;font-weight:700">${(r.search_confidence||'alta').toUpperCase()} (${r.search_score||85}%)</span></div>
+      </div>
+      <b style="font-size:.92rem;color:#1e293b;margin-left:8px">${money(r.unit_price,r.currency||'ARS')}</b>
+    </div>`;
+  }).join(''):'<div class="mu" style="font-size:.8rem;padding:8px">No se encontraron productos coincidentes en el motor.</div>';
+
+  modal(`
+    <div style="text-align:left">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span class="tag" style="background:#eff6ff;color:#1e40af;font-weight:800;font-size:.78rem">🎯 Consulta ${idx+1} de 50</span>
+        <button class="ghost" onclick="renderBenchmarkSummaryModal()" style="font-size:.74rem;padding:2px 8px">📊 Ver Resumen</button>
+      </div>
+      <div style="background:#f1f5f9;border-radius:6px;height:6px;overflow:hidden;margin-bottom:10px">
+        <div style="background:#22c55e;height:100%;width:${Math.round((ratedCount/50)*100)}%"></div>
+      </div>
+      <div style="font-size:.8rem;color:#475569;margin-bottom:8px">
+        Progreso: <b>${ratedCount}/50 calificados</b> · <span style="color:#15803d">🟢 ${highCount}</span> · <span style="color:#b45309">🟡 ${midCount}</span> · <span style="color:#b91c1c">🔴 ${lowCount}</span>
+      </div>
+
+      <div style="background:#ffffff;border:2px solid #3b82f6;border-radius:10px;padding:10px;margin-bottom:10px">
+        <div style="font-size:.72rem;color:#64748b;font-weight:700">TÉRMINO BUSCADO:</div>
+        <div style="font-size:1.15rem;font-weight:800;color:#1e3a8a;margin:2px 0 4px">"${esc(item.q)}"</div>
+        <div style="font-size:.76rem;color:#475569"><b>Esperado:</b> ${esc(item.expected)}</div>
+      </div>
+
+      <div style="font-size:.78rem;font-weight:700;color:#334155;margin-bottom:6px">Resultados devueltos por el algoritmo inteligente:</div>
+      ${resultsHtml}
+
+      <div style="background:#fafafa;border:1.5px solid var(--ln);border-radius:10px;padding:10px;margin-top:10px">
+        <div style="font-size:.78rem;font-weight:700;color:#1e293b;margin-bottom:6px">¿Qué nivel de confianza le otorgás a esta búsqueda?</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+          <button type="button" onclick="saveBenchmarkRating('${esc(item.q)}','alta');openBenchmarkModal(${idx+1})" style="background:${currentRating==='alta'?'#15803d':'#dcfce7'};color:${currentRating==='alta'?'#fff':'#166534'};border:1.5px solid #86efac;font-size:.78rem;padding:8px 4px;font-weight:700;border-radius:8px">
+            🟢 Alta
+          </button>
+          <button type="button" onclick="saveBenchmarkRating('${esc(item.q)}','media');openBenchmarkModal(${idx+1})" style="background:${currentRating==='media'?'#b45309':'#fef3c7'};color:${currentRating==='media'?'#fff':'#92400e'};border:1.5px solid #fde68a;font-size:.78rem;padding:8px 4px;font-weight:700;border-radius:8px">
+            🟡 Media
+          </button>
+          <button type="button" onclick="saveBenchmarkRating('${esc(item.q)}','baja');openBenchmarkModal(${idx+1})" style="background:${currentRating==='baja'?'#b91c1c':'#fee2e2'};color:${currentRating==='baja'?'#fff':'#991b1b'};border:1.5px solid #fca5a5;font-size:.78rem;padding:8px 4px;font-weight:700;border-radius:8px">
+            🔴 Baja
+          </button>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
+        <button class="ghost" onclick="openBenchmarkModal(${idx-1})" ${idx===0?'disabled':''} style="font-size:.8rem">◀ Anterior</button>
+        <button class="ghost" onclick="closeModal()" style="font-size:.8rem">✕ Cerrar</button>
+        <button class="ghost" onclick="openBenchmarkModal(${idx+1})" ${idx===49?'disabled':''} style="font-size:.8rem">Siguiente ▶</button>
+      </div>
+    </div>
+  `);
+}
+window.openBenchmarkModal=openBenchmarkModal;
+
+function renderBenchmarkSummaryModal(){
+  const ratings=getBenchmarkRatings();
+  const highCount=Object.values(ratings).filter(x=>x.level==='alta').length;
+  const midCount=Object.values(ratings).filter(x=>x.level==='media').length;
+  const lowCount=Object.values(ratings).filter(x=>x.level==='baja').length;
+  const ratedCount=Object.keys(ratings).length;
+
+  const listHtml=BENCHMARK_50_PRODUCTS.map((p,i)=>{
+    const r=ratings[p.q]?.level||'pendiente';
+    const bg=r==='alta'?'#dcfce7':r==='media'?'#fef3c7':r==='baja'?'#fee2e2':'#f1f5f9';
+    const col=r==='alta'?'#166534':r==='media'?'#92400e':r==='baja'?'#991b1b':'#64748b';
+    const icon=r==='alta'?'🟢 Alta':r==='media'?'🟡 Media':r==='baja'?'🔴 Baja':'⚪ Pendiente';
+    return `<div onclick="openBenchmarkModal(${i})" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:.78rem">
+      <span><b>${i+1}.</b> ${esc(p.q)}</span>
+      <span class="tag" style="background:${bg};color:${col};font-weight:700;font-size:.7rem">${icon}</span>
+    </div>`;
+  }).join('');
+
+  modal(`
+    <div style="text-align:left">
+      <div class="ic ok" style="font-size:2rem;margin:0 0 4px">🎯</div>
+      <h2 style="margin:0 0 6px">Benchmark de 50 Consultas</h2>
+      <p class="mu" style="font-size:.82rem;margin:0 0 10px">Estado de validación de calidad de búsqueda por el usuario:</p>
+      
+      <div style="background:#f8fafc;border:1.5px solid var(--ln);border-radius:10px;padding:10px;margin-bottom:10px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;gap:4px">
+        <div><div class="mu" style="font-size:.65rem">CALIFICADOS</div><b style="font-size:1rem">${ratedCount}/50</b></div>
+        <div><div class="mu" style="font-size:.65rem">ALTA</div><b style="font-size:1rem;color:#15803d">${highCount}</b></div>
+        <div><div class="mu" style="font-size:.65rem">MEDIA</div><b style="font-size:1rem;color:#b45309">${midCount}</b></div>
+        <div><div class="mu" style="font-size:.65rem">BAJA</div><b style="font-size:1rem;color:#b91c1c">${lowCount}</b></div>
+      </div>
+
+      <div style="max-height:220px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:10px">
+        ${listHtml}
+      </div>
+
+      <div class="mact" style="margin-top:10px">
+        <button onclick="openBenchmarkModal(0)">▶ Evaluar desde el inicio</button>
+        <button class="ghost" onclick="if(confirm('¿Reiniciar todas las 50 calificaciones?')){localStorage.removeItem('benchmark_50_ratings');renderBenchmarkSummaryModal()}">🔄 Reiniciar</button>
+        <button class="ghost" onclick="closeModal()">Cerrar</button>
+      </div>
+    </div>
+  `);
+}
+window.renderBenchmarkSummaryModal=renderBenchmarkSummaryModal;
+
+/* ---------- Pantalla de Administrador (/admin) ---------- */
+function _emailHash(s){
+  let h=2166136261;
+  const str=String(s||'').trim().toLowerCase();
+  for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619);}
+  return (h>>>0).toString(16);
+}
+const _ADMIN_HASHES=new Set(['b61fb304','bbec4add']);
+function isAdminUser(u){
+  if(!u)return false;
+  if(u.app_metadata?.is_admin===true||u.app_metadata?.role==='admin'||u.user_metadata?.is_admin===true)return true;
+  return !!(u.email&&_ADMIN_HASHES.has(_emailHash(u.email)));
+}
+window.isAdminUser=isAdminUser;
+
+let adminTab='equivs';
+
+async function admin(){
+  if(!isAdminUser(user)){
+    app(`<h1>Acceso Denegado</h1>
+    <div class="card" style="border-left:4px solid #ef4444;text-align:left">
+      <b style="color:#b91c1c">⛔ Esta sección está reservada para cuentas habilitadas.</b>
+      <p class="mu" style="margin-top:6px">Tu cuenta actual no posee privilegios administrativos.</p>
+      <div class="mact" style="margin-top:12px"><button onclick="go('home')">Volver al inicio</button></div>
+    </div>`);
+    return;
+  }
+
+  app(`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h1 style="margin:0">🛡️ Panel de Admin</h1>
+      <span class="tag" style="background:#dcfce7;color:#15803d;font-weight:800">Acceso habilitado</span>
+    </div>
+    <div class="chips" style="margin-bottom:12px">
+      <button class="chip ${adminTab==='equivs'?'on':''}" onclick="adminTab='equivs';admin()">🔗 Equivalencias</button>
+      <button class="chip ${adminTab==='benchmark'?'on':''}" onclick="adminTab='benchmark';admin()">🎯 Benchmark 50</button>
+      <button class="chip ${adminTab==='feedback'?'on':''}" onclick="adminTab='feedback';admin()">📋 Feedback y Bugs</button>
+    </div>
+    <div id="admin-body"><p class="mu">Cargando datos administrativos…</p></div>
+  `);
+
+  const b=$('#admin-body');
+  if(!b)return;
+
+  if(adminTab==='equivs'){
+    renderAdminEquivs(b);
+  }else if(adminTab==='benchmark'){
+    renderAdminBenchmark(b);
+  }else if(adminTab==='feedback'){
+    await renderAdminFeedback(b);
+  }
+}
+window.admin=admin;
+
+function renderAdminEquivs(b){
+  b.innerHTML=`
+    <div class="card" style="text-align:left">
+      <h2 style="margin-top:0">Auditoría y Corrección de Asociaciones de Productos</h2>
+      <p class="mu" style="font-size:.82rem">Revisá cómo el motor inteligente agrupa y separa presentaciones equivalentes vs distintas:</p>
+      
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:10px;margin-bottom:12px">
+        <b style="color:#166534;font-size:.85rem">✓ Regla Estricta Multi-Pack Activada (CAN-00016 / Rumba):</b>
+        <p style="font-size:.8rem;color:#14532d;margin:4px 0 0">
+          Los paquetes individuales (108g / 1u) y los tripacks/multipacks (324g / Pack x3) <b>tienen prohibido equipararse directamente</b>. El motor calcula el precio unitario por paquete individual (ej: $1.200 / 3 = $400 c/u) y los clasifica de forma independiente.
+        </p>
+      </div>
+
+      <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:10px;padding:10px;margin-bottom:12px">
+        <b style="color:#1e40af;font-size:.85rem">✓ Expansión de Sinónimos de Supermercado (CAN-00013 / Suprema):</b>
+        <p style="font-size:.8rem;color:#1e3a8a;margin:4px 0 0">
+          "suprema" busca automáticamente pechuga de pollo, milanesa de pollo y suprema deshuesada en el catálogo y tickets de la comunidad.
+        </p>
+      </div>
+
+      <div style="margin-top:10px">
+        <label style="font-size:.8rem;font-weight:700">Agregar asociación o equivalencia forzada:</label>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <input id="eq-from" type="text" placeholder="Ej: fideos cinta" style="font-size:.82rem">
+          <input id="eq-to" type="text" placeholder="Ej: tallarines" style="font-size:.82rem">
+          <button onclick="addAdminEquiv()" style="white-space:nowrap;font-size:.8rem">Vincular</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function addAdminEquiv(){
+  const f=$('#eq-from')?.value?.trim(), t=$('#eq-to')?.value?.trim();
+  if(!f||!t)return toast('Ingresá ambos términos para asociar.');
+  const eq=JSON.parse(localStorage.getItem('admin_equivs')||'{}');
+  eq[nk(f)]=nk(t);
+  localStorage.setItem('admin_equivs',JSON.stringify(eq));
+  toast(`Vinculado: "${f}" ➔ "${t}"`);
+  admin();
+}
+window.addAdminEquiv=addAdminEquiv;
+
+function renderAdminBenchmark(b){
+  const ratings=getBenchmarkRatings();
+  const highCount=Object.values(ratings).filter(x=>x.level==='alta').length;
+  const midCount=Object.values(ratings).filter(x=>x.level==='media').length;
+  const lowCount=Object.values(ratings).filter(x=>x.level==='baja').length;
+  const ratedCount=Object.keys(ratings).length;
+
+  b.innerHTML=`
+    <div class="card" style="text-align:left">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 style="margin:0">Validador de 50 Consultas de Prueba</h2>
+        <button onclick="openBenchmarkModal(0)" style="font-size:.82rem;padding:6px 12px">▶ Iniciar Validación</button>
+      </div>
+      <p class="mu" style="font-size:.82rem;margin:6px 0 10px">Permite al administrador evaluar 1 por 1 los resultados del nuevo motor de búsqueda:</p>
+
+      <div style="background:#f8fafc;border:1.5px solid var(--ln);border-radius:10px;padding:12px;margin-bottom:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;gap:6px">
+        <div><div class="mu" style="font-size:.7rem">TOTAL CONSULTAS</div><b style="font-size:1.15rem">50</b></div>
+        <div><div class="mu" style="font-size:.7rem">CALIFICADOS</div><b style="font-size:1.15rem">${ratedCount}</b></div>
+        <div><div class="mu" style="font-size:.7rem">ALTA CONFIANZA</div><b style="font-size:1.15rem;color:#15803d">${highCount}</b></div>
+        <div><div class="mu" style="font-size:.7rem">MEDIA / BAJA</div><b style="font-size:1.15rem;color:#b45309">${midCount + lowCount}</b></div>
+      </div>
+
+      <div class="mact">
+        <button class="ghost" onclick="renderBenchmarkSummaryModal()">📋 Ver Matriz Detallada</button>
+        <button class="ghost" onclick="if(confirm('¿Reiniciar benchmark?')){localStorage.removeItem('benchmark_50_ratings');admin()}">🔄 Reiniciar Evaluaciones</button>
+      </div>
+    </div>
+  `;
+}
+
+async function renderAdminFeedback(b){
+  b.innerHTML='<p class="mu">Consultando tickets de usuarios…</p>';
+  try{
+    let tickets=[];
+    let loadedViaApi=false;
+    try{
+      const sess=await sb.auth.getSession();
+      const token=sess?.data?.session?.access_token;
+      if(token){
+        const r=await fetch('/api/canasta/admin/feedback',{headers:{Authorization:'Bearer '+token}});
+        if(r.ok){
+          const j=await r.json();
+          if(Array.isArray(j.tickets)){tickets=j.tickets;loadedViaApi=true;}
+        }
+      }
+    }catch(_){}
+
+    if(!loadedViaApi){
+      const {data=[],error}=await sb.from('feedback').select('id,ticket,type,status,message,screen,app_version,diagnostics,created_at,user_id').order('created_at',{ascending:false}).limit(40);
+      if(error){
+        b.innerHTML=`<div class="card" style="color:#b91c1c">Error cargando feedback: ${esc(error.message)}</div>`;
+        return;
+      }
+      tickets=data||[];
+    }
+
+    if(!tickets.length){
+      b.innerHTML='<div class="empty">No hay tickets de feedback registrados.</div>';
+      return;
+    }
+
+    const tHtml=tickets.map(t=>{
+      const diag=t.diagnostics||{};
+      const primaryImg=diag.screenshot||t.screenshot||t.manual_screenshot;
+      const extraAtts=Array.isArray(diag.attachments)?diag.attachments:[];
+      const dt=fmtDateDMY(t.created_at);
+      const tkNum=t.ticket||t.ticket_number||(t.id?t.id.slice(0,8):'TICKET');
+      const tkType=t.type||t.category||'bug';
+      const tkStatus=t.status||'nuevo';
+
+      const attButtons=[
+        ...(primaryImg?[`<button class="ghost" type="button" onclick="previewTicketScreenshot('${encodeURIComponent(primaryImg)}')" style="font-size:.76rem;padding:3px 8px;display:inline-flex;align-items:center;gap:4px">📷 Ver captura adjunta</button>`]:[]),
+        ...extraAtts.map((att,i)=>att.type&&att.type.startsWith('image/')?
+          `<button class="ghost" type="button" onclick="previewTicketScreenshot('${encodeURIComponent(att.dataUrl)}')" style="font-size:.76rem;padding:3px 8px;display:inline-flex;align-items:center;gap:4px">🖼️ ${esc(att.name||'Adjunto '+(i+1))}</button>`:
+          `<a class="btn sm" href="${att.dataUrl}" download="${esc(att.name||'adjunto.pdf')}" style="font-size:.74rem;padding:3px 8px;display:inline-flex;align-items:center;gap:4px;text-decoration:none">📄 ${esc(att.name||'Archivo PDF')}</a>`
+        )
+      ].join('');
+
+      return `
+        <div class="card" style="text-align:left;margin-bottom:10px;border-left:4px solid ${tkType==='bug'?'#ef4444':'#3b82f6'}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div>
+              <b style="font-size:.92rem;color:#0f172a">#${esc(tkNum)}</b>
+              <div class="mu" style="font-size:.76rem">Comunidad Canasta · 📅 ${dt} · <span class="tag" style="font-size:.68rem">${esc(tkStatus)}</span></div>
+            </div>
+            <span class="tag" style="background:#eff6ff;color:#1e40af;font-size:.7rem;font-weight:700">${esc(tkType)}</span>
+          </div>
+          <div style="margin:8px 0;font-size:.84rem;color:#1e293b;background:#f8fafc;padding:8px;border-radius:6px;border:1px solid #e2e8f0;white-space:pre-wrap">${esc(t.message||t.comments||'')}</div>
+          ${attButtons?`<div style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap">${attButtons}</div>`:''}
+        </div>
+      `;
+    }).join('');
+
+    b.innerHTML=`
+      <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
+        <h2 style="margin:0;font-size:1.1rem">Bugs y Feedback Recientes</h2>
+        <span class="mu" style="font-size:.82rem">${tickets.length} tickets</span>
+      </div>
+      ${tHtml}
+    `;
+  }catch(err){
+    b.innerHTML=`<div class="card" style="color:#b91c1c">Error inesperado: ${esc(err?.message||err)}</div>`;
+  }
+}
+
+function previewTicketScreenshot(encData){
+  const data=decodeURIComponent(encData);
+  modal(`
+    <div style="text-align:left">
+      <h3 style="margin-top:0">Captura adjunta al ticket</h3>
+      <div style="max-height:65vh;overflow:auto;background:#0f172a;border-radius:8px;padding:4px;display:flex;justify-content:center">
+        <img src="${data}" alt="Captura de ticket" style="max-width:100%;height:auto;border-radius:4px;display:block">
+      </div>
+      <div class="mact" style="margin-top:10px">
+        <button onclick="closeModal()">Cerrar</button>
+      </div>
+    </div>
+  `);
+}
+window.previewTicketScreenshot=previewTicketScreenshot;
 
 function changePasswordModal(){
   modal(`<h2>Cambiar contraseña</h2>
