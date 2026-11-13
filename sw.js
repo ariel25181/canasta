@@ -1,4 +1,4 @@
-const CACHE='canasta-v32';
+const CACHE='canasta-v33';
 const SHELL=['./','index.html','manifest.json','icon-192.png','icon-512.png','icon-180.png','html2canvas.min.js'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE).map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});
