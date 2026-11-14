@@ -2635,10 +2635,50 @@ addEventListener('resize',()=>{if(tourOpen)tourShow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
 
 /* ---------- Novedades y Agradecimientos (Guided Tour Popup) ---------- */
-let NOVEDADES_VER='2026-11-13';
+let NOVEDADES_VER="2026-11-14-canasta-v35-ejov";
+const PR_NOVEDADES_NOTE="Categorías de comercio, producto separado, SEPA solo en carga, pestañas Admin (Tags y No homologados) y feedback 👍/👎 en Precios.";
 let novedadesStep=0;
 
 const NOVEDADES_SLIDES=[
+  {
+    icon:'🚀',
+    tag:'Novedades de hoy · PR canasta-v35',
+    title:'Categorías, Productos Separados y Manito 👍/👎',
+    body:`
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:12px;margin:10px 0;text-align:left;font-size:.8rem;color:#14532d">
+        ${PR_NOVEDADES_NOTE?`<div style="background:#fff;border:1px solid #86efac;border-radius:8px;padding:8px;margin-bottom:8px;font-weight:700;color:#166534">📌 ${esc(PR_NOVEDADES_NOTE)}</div>`:''}
+        <div style="margin-bottom:8px">
+          <b>🏬 5 Categorías de Comercio:</b><br>
+          <span class="mu" style="color:#166534">Ahora podés clasificar y filtrar en <b>Precios</b> y <b>Compras</b> por <b>Supermercado, Almacén, Verdulería, Restaurant y Farmacia</b>.</span>
+        </div>
+        <div style="border-top:1px dashed #86efac;padding-top:8px;margin-bottom:8px">
+          <b>🧬 Producto separado y SEPA solo en Carga:</b><br>
+          <span class="mu" style="color:#166534">Separamos <b>Marca, Modelo/Variante, Peso/Volumen, Envase y Pack</b> para comparar por $/kg o $/L. Sacamos SEPA de Precios y Compras (queda solo como ayuda ortográfica al cargar).</span>
+        </div>
+        <div style="border-top:1px dashed #86efac;padding-top:8px">
+          <b>👍👎 Feedback rápido en cada resultado:</b><br>
+          <span class="mu" style="color:#166534">En <b>Precios</b> ahora tenés manitos <b>👍 / 👎</b> en cada resultado para contarnos si lo que trajo coincide con tu búsqueda.</span>
+        </div>
+      </div>
+    `
+  },
+  {
+    icon:'🛡️',
+    tag:'Panel Admin & Buscador',
+    title:'Nuevas pestañas de Tags y Productos No Homologados',
+    body:`
+      <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:12px;padding:12px;margin:10px 0;text-align:left;font-size:.8rem;color:#1e293b">
+        <div style="margin-bottom:8px">
+          <b>🏷️ Revisión de Tags en Admin:</b><br>
+          <span class="mu" style="color:#334155">Nueva pestaña <b>Tags</b> para revisar, editar, asignar o quitar tags de productos desde reglas o tickets en tiempo real.</span>
+        </div>
+        <div style="border-top:1px dashed #93c5fd;padding-top:8px">
+          <b>🧩 Productos No Homologados:</b><br>
+          <span class="mu" style="color:#334155">Nueva pestaña <b>No homologados</b> para detectar nombres crudos de tickets (priorizando reportes <b>👎</b>), autocompletar ortografía SEPA, homologar campos separados o aprobar nombres válidos.</span>
+        </div>
+      </div>
+    `
+  },
   {
     icon:'🎉',
     tag:'Agradecimiento a Usuarios',
@@ -2663,51 +2703,21 @@ const NOVEDADES_SLIDES=[
   {
     icon:'⚡',
     tag:'Comunidad Canasta',
-    title:'Mejoras en Escáner con IA y Mis Compras',
+    title:'Buscador Inteligente, Escáner y Auditoría',
     body:`
-      <div style="background:#f8fafc;border:1.5px solid #cbd5e1;border-radius:12px;padding:12px;margin:10px 0;text-align:left">
-        <div style="margin-bottom:10px">
-          <b>🤖 CAN-00008 & CAN-00009: Límite temporal de consultas en Gemini</b><br>
-          <span class="mu" style="color:#475569;font-size:.8rem">Si la cuota de IA alcanza su límite temporal (error 429), la app ahora te ofrece de inmediato <b>"✍️ Cargar ticket a mano"</b> sin trabarse ni perder la foto que acabás de sacar.</span>
+      <div style="background:#f8fafc;border:1.5px solid #cbd5e1;border-radius:12px;padding:12px;margin:10px 0;text-align:left;font-size:.8rem;color:#334155">
+        <div style="margin-bottom:8px">
+          <b>🔎 Buscador inteligente y Multi-Packs (CAN-00013):</b><br>
+          <span class="mu" style="color:#475569">Sinónimos, tolerancia a tipeo ("suprema" encuentra pechuga/pollo), aislamiento de packs múltiples (1u vs. 3u), y <b>Panel de Auditoría</b> con 50 búsquedas.</span>
+        </div>
+        <div style="border-top:1px dashed #cbd5e1;padding-top:8px;margin-bottom:8px">
+          <b>🤖 CAN-00008 & CAN-00009: Límite de cuota Gemini y Farmacia</b><br>
+          <span class="mu" style="color:#475569">Opción inmediata <b>"✍️ Cargar ticket a mano"</b> ante error 429, lectura de Obra Social/Coseguro en farmacias y adjuntos múltiples en Feedback.</span>
         </div>
         <div style="border-top:1px dashed #cbd5e1;padding-top:8px">
           <b>🔍 CAN-00006: Buscador en vivo en Mis Compras</b><br>
-          <span class="mu" style="color:#475569;font-size:.8rem">Nuevo buscador ágil en la pestaña Compras: filtrá por local, dirección o producto comprado, con etiquetas resaltadas de los productos coincidentes y mayor estabilidad al fijar sucursales.</span>
+          <span class="mu" style="color:#475569">Filtro en tiempo real por local, dirección, producto o categoría y recordatorio en <b>Ajustes → Ayuda → Novedades</b>.</span>
         </div>
-      </div>
-    `
-  },
-  {
-    icon:'🚀',
-    tag:'Nuevas Funcionalidades',
-    title:'Buscador Inteligente, Farmacia y Auditoría',
-    body:`
-      <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:12px;padding:12px;margin:10px 0;text-align:left;font-size:.8rem;color:#1e293b">
-        <div style="margin-bottom:8px">
-          <b>🔎 Buscador inteligente y Multi-Packs (CAN-00013):</b><br>
-          <span class="mu" style="color:#334155">Ahora entiende sinónimos y tolera errores de tipeo (ej: buscar "suprema" encuentra pechuga/pollo), sugiere tags editables al cargar tickets y separa paquetes individuales de packs múltiples (ej: Rumba 1u vs Pack x3).</span>
-        </div>
-        <div style="border-top:1px dashed #93c5fd;padding-top:8px;margin-bottom:8px">
-          <b>💊 Tickets de Farmacia y Archivos en Feedback (CAN-00014 & CAN-00015):</b><br>
-          <span class="mu" style="color:#334155">Lectura de descuentos de Obra Social y Coseguro (O. SOCIAL / COSEG.) manteniendo precio de lista, botón para subir múltiples archivos/capturas en Mejoras y Bugs, y opción permanente de "No volver a mostrar".</span>
-        </div>
-        <div style="border-top:1px dashed #93c5fd;padding-top:8px">
-          <b>🛡️ Panel de Auditoría y Benchmark de 50 Búsquedas:</b><br>
-          <span class="mu" style="color:#334155">Nueva herramienta administrativa (visible en <b>Ajustes</b> únicamente para cuentas habilitadas) para auditar asociaciones de catálogo, validar la calidad de 50 búsquedas y revisar reportes de feedback.</span>
-        </div>
-      </div>
-    `
-  },
-  {
-    icon:'🤝',
-    tag:'Canasta Crece',
-    title:'¡Tu feedback hace la diferencia!',
-    body:`
-      <p style="font-size:.88rem;color:#334155;margin:8px 0;text-align:left">
-        La comunidad de Canasta sigue creciendo día a día. Si encontrás algún error o se te ocurre una mejora, contanos desde el botón <b>🔧</b> o en Ajustes. ¡Revisamos y solucionamos cada ticket!
-      </p>
-      <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:10px;padding:8px 10px;margin:10px 0;font-size:.8rem;color:#475569;text-align:left">
-        💡 Podés volver a ver estas novedades cuando quieras desde <b>Ajustes → Ayuda → Novedades y agradecimientos</b>.
       </div>
     `
   }
