@@ -49,6 +49,18 @@ document.addEventListener('touchend', function(e) {
 html,body{margin:0;touch-action:manipulation;-webkit-text-size-adjust:100%;overscroll-behavior-y:none}
 body{background:var(--bg);color:var(--tx);font:16px/1.4 Nunito,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 calc(84px + env(safe-area-inset-bottom))}
 main{max-width:640px;margin:0 auto;padding:16px}
+main.wide{max-width:1020px}
+.pr-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
+.pr-col{min-width:0;display:flex;flex-direction:column;gap:8px}
+.pr-col-hdr{font-weight:800;font-size:.88rem;border-radius:12px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.pr-col-hdr.ok{background:#ecfdf5;color:#166534;border:1.5px solid #86efac}
+.pr-col-hdr.ex{background:#fef2f2;color:#991b1b;border:1.5px solid #fecaca}
+@media(max-width:560px){
+  .pr-cols{gap:8px}
+  .pr-col-hdr{font-size:.76rem;padding:6px 8px}
+  .pr-cols .card{padding:10px}
+  .pr-cols .p2{font-size:1.06rem}
+}
 h1{font-size:1.6rem;margin:8px 0 16px;font-weight:800}
 h2{font-size:1.1rem;margin:20px 0 8px;font-weight:800}
 .card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(35,49,42,.08)}
@@ -1063,6 +1075,8 @@ function go(v){
   draft=null;mapShown=false;found=null;
   if(pendingReload&&v!=='scan'&&safe()){sessionStorage.setItem('goto',v);location.reload();return}
   view=v;
+  const mEl=document.querySelector('main');
+  if(mEl)mEl.classList.toggle('wide',v==='prices');
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   ({home,prices,scan,history,settings,help,admin})[v]?.();
 }
@@ -1465,16 +1479,189 @@ async function triggerSepaSuggest(k){
 }
 window.triggerSepaSuggest=triggerSepaSuggest;
 
+const SUPERMARKET_ABBREV_EXPANSIONS={
+  gall:'galletitas',galle:'galletitas',gallet:'galletitas',galleti:'galletitas',
+  choc:'chocolate',choco:'chocolate',chocol:'chocolate',
+  rum:'rumba',
+  lech:'leche',
+  ent:'entera',
+  descr:'descremada',descrem:'descremada',deslact:'deslactosada',
+  yog:'yogur',yogurth:'yogur',
+  azuc:'azucar',
+  fide:'fideos',
+  mat:'matarazzo',luc:'lucchetti',lucc:'lucchetti',
+  seren:'serenisima',serenis:'serenisima',sanc:'sancor',
+  coc:'coca cola',gaseo:'gaseosa',gaseos:'gaseosa',
+  cerv:'cerveza',
+  lavand:'lavandina',deterg:'detergente',jab:'jabon',
+  liq:'liquido',polv:'polvo',conc:'concentrado',concent:'concentrado',
+  mant:'manteca',manteq:'manteca',merm:'mermelada',aceit:'aceite',
+  tom:'tomate',
+  mila:'milanesa',milane:'milanesa',pech:'pechuga',supr:'suprema',suprem:'suprema',
+  hamb:'hamburguesa',hamburg:'hamburguesa',salch:'salchichas',
+  desod:'desodorante',suaviz:'suavizante',acond:'acondicionador',shamp:'shampoo',dentif:'dentifrico',
+  mortad:'mortadela',ques:'queso',postr:'postre',
+  bot:'botella',sach:'sachet',tetr:'tetra',paq:'paquete',unid:'unidad',
+  orig:'original',clas:'clasica',trad:'tradicional',esp:'especial',espec:'especial',fliar:'familiar',econ:'economico',
+  gral:'general',navid:'navidad',limp:'limpiador',desinf:'desinfectante',higiene:'higienico',hig:'higienico',
+  bco:'blanco',bca:'blanca',ng:'negro',nva:'nueva',peq:'pequeno',gde:'grande'
+};
+const VALID_UNIT_ABBREVS=new Set(['g','gr','grs','kg','kgs','ml','cc','cm3','l','lt','lts','u','un','oz','mg','mcg','x1','x2','x3','x4','x6','x12','x24']);
+
+function findPartialWordsInProductName(name){
+  const raw=String(name||'').trim();
+  if(!raw)return [];
+  const hits=[];
+  const seen=new Set();
+  const pushHit=(token,suggestion)=>{
+    const key=String(token).toLowerCase();
+    if(!key||seen.has(key))return;
+    seen.add(key);
+    hits.push({token,suggestion:suggestion||''});
+  };
+  const spaceTokens=raw.split(/\s+/).filter(Boolean);
+  for(const rawTok of spaceTokens){
+    const tokLower=rawTok.toLowerCase();
+    // Ignore pure numbers/decimals or numeric weights like 1.5l, 500g, 1.5kg
+    if(/^\d+(?:[.,]\d+)?(?:kg|kgs|g|gr|grs|ml|cc|cm3|l|lt|lts|u|un|mg|oz)?$/i.test(tokLower))continue;
+    // Detect slash contractions like c/azuc, s/sal, p/horno
+    if(/^[csp]\/[a-záéíóúñ]*/i.test(tokLower)){
+      const parts=tokLower.split('/');
+      const pref=parts[0]==='c'?'con':parts[0]==='s'?'sin':'para';
+      const rest=parts[1]||'';
+      const restExp=SUPERMARKET_ABBREV_EXPANSIONS[rest.replace(/\./g,'')]||rest;
+      pushHit(rawTok,`${pref}${restExp?' '+restExp:''}`.trim());
+      continue;
+    }
+    // Detect dot-joined or dot-ended abbreviations like GALL.CHOC.RUM or LECH.ENT.
+    if(/[a-záéíóúñ]\./i.test(rawTok)){
+      const cleanDot=tokLower.replace(/\.+$/,'');
+      if(VALID_UNIT_ABBREVS.has(cleanDot))continue;
+      const dotParts=rawTok.split('.').filter(Boolean);
+      for(const dp of dotParts){
+        const dpClean=nk(dp);
+        if(!dpClean||/^\d+$/.test(dpClean)||VALID_UNIT_ABBREVS.has(dpClean))continue;
+        pushHit(dp+'.',SUPERMARKET_ABBREV_EXPANSIONS[dpClean]||'');
+      }
+      continue;
+    }
+    const cleanWord=nk(rawTok);
+    if(!cleanWord||/^\d+$/.test(cleanWord)||VALID_UNIT_ABBREVS.has(cleanWord))continue;
+    if(SUPERMARKET_ABBREV_EXPANSIONS[cleanWord]){
+      pushHit(rawTok,SUPERMARKET_ABBREV_EXPANSIONS[cleanWord]);
+    }
+  }
+  return hits;
+}
+
+function buildExpandedSuggestionFromPartial(name){
+  const raw=String(name||'').trim();
+  if(!raw)return '';
+  const tokens=raw.split(/\s+/).filter(Boolean);
+  const out=[];
+  let changed=false;
+  for(const tok of tokens){
+    const lower=tok.toLowerCase();
+    if(/^\d+(?:[.,]\d+)?(?:kg|kgs|g|gr|grs|ml|cc|cm3|l|lt|lts|u|un|mg|oz)?$/i.test(lower)){
+      out.push(tok);
+      continue;
+    }
+    if(/^[csp]\/[a-záéíóúñ]*/i.test(lower)){
+      const parts=lower.split('/');
+      const pref=parts[0]==='c'?'con':parts[0]==='s'?'sin':'para';
+      const rest=parts[1]?parts[1].replace(/\./g,''):'';
+      const exp=SUPERMARKET_ABBREV_EXPANSIONS[nk(rest)]||rest;
+      out.push(pref+(exp?' '+exp:''));
+      changed=true;
+      continue;
+    }
+    if(/[a-záéíóúñ]\./i.test(tok)){
+      const cleanDot=lower.replace(/\.+$/,'');
+      if(VALID_UNIT_ABBREVS.has(cleanDot)){
+        out.push(cleanDot);
+        continue;
+      }
+      const parts=tok.split('.').filter(Boolean);
+      for(const p of parts){
+        const pNorm=nk(p);
+        if(SUPERMARKET_ABBREV_EXPANSIONS[pNorm]){
+          out.push(SUPERMARKET_ABBREV_EXPANSIONS[pNorm]);
+          changed=true;
+        }else if(/^\d+$/.test(pNorm)){
+          out.push(p);
+        }else{
+          out.push(p);
+          changed=true;
+        }
+      }
+      continue;
+    }
+    const wNorm=nk(tok);
+    if(SUPERMARKET_ABBREV_EXPANSIONS[wNorm]){
+      out.push(SUPERMARKET_ABBREV_EXPANSIONS[wNorm]);
+      changed=true;
+    }else{
+      out.push(tok);
+    }
+  }
+  const res=out.join(' ').replace(/\s+/g,' ').trim();
+  return changed&&res.toLowerCase()!==raw.toLowerCase()?res.replace(/\b\w/g,c=>c.toUpperCase()):'';
+}
+
+function applyPartialWordSuggestion(k){
+  if(!draft||!draft.items||!draft.items[k])return;
+  const sugg=buildExpandedSuggestionFromPartial(draft.items[k].name);
+  if(!sugg){
+    triggerSepaSuggest(k);
+    return;
+  }
+  draft.items[k].name=sugg;
+  const parsed=parseStructuredProductText(sugg,{
+    brand:draft.items[k].brand,
+    variant:draft.items[k].variant,
+    size_value:draft.items[k].size_value,
+    size_unit:draft.items[k].size_unit,
+    package_type:draft.items[k].package_type,
+    pack_count:draft.items[k].pack_count
+  });
+  draft.items[k].base_name=parsed.base_name;
+  if(!draft.items[k].brand)draft.items[k].brand=parsed.brand;
+  if(!draft.items[k].variant)draft.items[k].variant=parsed.variant;
+  if(draft.items[k].size_value==null)draft.items[k].size_value=parsed.size_value;
+  if(!draft.items[k].size_unit)draft.items[k].size_unit=parsed.size_unit;
+  draft.items[k].tags=deriveSuggestedTags(sugg,draft.items[k].category,draft.items[k].subcategory,draft.items[k].brand);
+  renderReceiptForm();
+  toast(`✓ Palabras completadas: ${sugg}`);
+}
+window.findPartialWordsInProductName=findPartialWordsInProductName;
+window.buildExpandedSuggestionFromPartial=buildExpandedSuggestionFromPartial;
+window.applyPartialWordSuggestion=applyPartialWordSuggestion;
+
+function getPartialWordWarningHtml(k, item){
+  if(!item||item.category==='descuentos'||Number(item.total_price)<0)return '';
+  const hits=findPartialWordsInProductName(item.name);
+  if(!hits.length)return '';
+  const expSugg=buildExpandedSuggestionFromPartial(item.name);
+  const tokensTxt=hits.map(h=>h.suggestion?`"${h.token}" → ${h.suggestion}`:`"${h.token}"`).join(' · ');
+  return `<div style="background:#fff7ed;border:1.5px solid #fb923c;border-radius:10px;padding:7px 10px;margin:4px 0;font-size:.75rem;color:#9a3412">
+    <div style="font-weight:700">⚠️ Completá las palabras parciales antes de guardar: <span style="color:#7c2d12">${esc(tokensTxt)}</span></div>
+    ${expSugg?`<div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="chip" onclick="applyPartialWordSuggestion(${k})" style="font-size:.73rem;padding:4px 10px;background:#fff;border-color:#fb923c;color:#9a3412">✨ Completar a "${esc(expSugg)}"</button></div>`:''}
+  </div>`;
+}
+
 function onItemNameInput(k,val,inputEl){
   if(!draft||!draft.items||!draft.items[k])return;
   draft.items[k].name=val;
   if(val.trim()&&draft.items[k].total_price>0){
     draft.items[k].uncertain=false;
   }
+  const hasPartials=(draft.items[k].category!=='descuentos'&&Number(draft.items[k].total_price)>=0)?findPartialWordsInProductName(val).length>0:false;
   if(inputEl){
-    inputEl.style.border='';
-    inputEl.style.background='';
+    inputEl.style.border=hasPartials?'2px solid #f97316':'';
+    inputEl.style.background=hasPartials?'#fff7ed':'';
   }
+  const pwBox=document.getElementById(`item-partial-warn-${k}`);
+  if(pwBox)pwBox.innerHTML=getPartialWordWarningHtml(k,draft.items[k]);
   updateItemSummaryEl(k);
 
   const suggBox=document.getElementById(`sepa-sugg-${k}`);
@@ -1696,17 +1883,20 @@ function renderReceiptForm(){
   </div>
   <div class="mu it"><span>Producto</span><span>Cant.</span><span>Total</span><span></span></div>
   ${draft.items.map((i,k)=>{
-    const isItemUncertain = i.uncertain || !i.name.trim() || Number(i.total_price) === 0;
-    const redBorder = isItemUncertain ? 'border:2px solid #ef4444 !important;background:#fff5f5 !important;' : '';
+    const partialHits=(i.category==='descuentos'||Number(i.total_price)<0)?[]:findPartialWordsInProductName(i.name);
+    const hasPartial=partialHits.length>0;
+    const isItemUncertain = i.uncertain || !i.name.trim() || Number(i.total_price) === 0 || hasPartial;
+    const redBorder = (i.uncertain || !i.name.trim() || Number(i.total_price) === 0) ? 'border:2px solid #ef4444 !important;background:#fff5f5 !important;' : (hasPartial ? 'border:2px solid #f97316 !important;background:#fff7ed !important;' : '');
     if(!i.tags||!i.tags.length) i.tags = deriveSuggestedTags(i.name, i.category, i.subcategory, i.brand);
     const expanded = !!i._expanded;
     return `<div class="it-card ${isItemUncertain?'unc':''}">
       <div class="it">
-        <input value="${esc(i.name)}" oninput="onItemNameInput(${k},this.value,this);draft.items[${k}].name=this.value;if(this.value.trim()&&draft.items[${k}].total_price>0)draft.items[${k}].uncertain=false" style="${redBorder}" aria-label="Nombre del producto" placeholder="Nombre del producto" autocomplete="off">
+        <input id="item-name-${k}" value="${esc(i.name)}" oninput="onItemNameInput(${k},this.value,this);draft.items[${k}].name=this.value;if(this.value.trim()&&draft.items[${k}].total_price>0)draft.items[${k}].uncertain=false" style="${redBorder}" aria-label="Nombre del producto" placeholder="Nombre completo del producto (sin abreviaturas)" autocomplete="off">
         <input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value;updateItemSummaryEl(${k})" aria-label="Cantidad">
-        <input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;if(this.value>0&&draft.items[${k}].name.trim())draft.items[${k}].uncertain=false;renderReceiptForm()" style="${redBorder}" aria-label="Total">
+        <input type="number" min="0" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;if(this.value>0&&draft.items[${k}].name.trim())draft.items[${k}].uncertain=false;renderReceiptForm()" style="${(i.uncertain||Number(i.total_price)===0)?'border:2px solid #ef4444 !important;background:#fff5f5 !important;':''}" aria-label="Total">
         <button type="button" class="x" onclick="delItem(${k})" aria-label="Quitar">✕</button>
       </div>
+      <div id="item-partial-warn-${k}">${getPartialWordWarningHtml(k,i)}</div>
       <div id="sepa-sugg-${k}" style="display:none;background:#ffffff;border:1.5px solid #86efac;border-radius:10px;margin:3px 0 6px;overflow:hidden;box-shadow:0 4px 10px rgba(0,0,0,0.08);max-height:200px;overflow-y:auto"></div>
       <div class="it-summary">
         <span id="item-sum-${k}" style="flex:1;min-width:0">${getItemSummaryHtml(i)}</span>
@@ -1866,6 +2056,19 @@ function validate(){
   if(!draft.store.trim())return{title:'Falta el supermercado',msg:'Escribí el nombre del supermercado para poder guardar la compra.',focus:'#store'};
   if(!draft.date)return{title:'Falta la fecha',msg:'Elegí la fecha de la compra.',focus:null};
   if(!draft.items.some(i=>i.name.trim()))return{title:'Faltan productos',msg:'Agregá al menos un producto con nombre.',focus:null};
+  for(let idx=0;idx<draft.items.length;idx++){
+    const it=draft.items[idx];
+    if(!it||!it.name||!it.name.trim()||it.category==='descuentos'||Number(it.total_price)<0)continue;
+    const partialHits=findPartialWordsInProductName(it.name);
+    if(partialHits.length){
+      const tokensList=partialHits.map(h=>h.suggestion?`"${h.token}" (ej: ${h.suggestion})`:`"${h.token}"`).join(', ');
+      return{
+        title:'Completá las palabras parciales',
+        msg:`El producto "${it.name.trim()}" tiene abreviaturas o palabras incompletas (${tokensList}). Completalas antes de guardar para que aparezca correctamente en las búsquedas.`,
+        focus:`#item-name-${idx}`
+      };
+    }
+  }
   return null;
 }
 function explain(e){
@@ -2635,46 +2838,50 @@ addEventListener('resize',()=>{if(tourOpen)tourShow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
 
 /* ---------- Novedades y Agradecimientos (Guided Tour Popup) ---------- */
-let NOVEDADES_VER="2026-11-14-canasta-v35-ejov";
-const PR_NOVEDADES_NOTE="Categorías de comercio, producto separado, SEPA solo en carga, pestañas Admin (Tags y No homologados) y feedback 👍/👎 en Precios.";
+let NOVEDADES_VER="2026-11-15-canasta-v36-7vzz";
+const PR_NOVEDADES_NOTE="Precios en 2 columnas (Aceptados vs Excluidos), contadores 👍/👎 compartidos, palabras completas en carga y Admin simple en 3 pestañas.";
 let novedadesStep=0;
 
 const NOVEDADES_SLIDES=[
   {
     icon:'🚀',
-    tag:'Novedades de hoy · PR canasta-v35',
-    title:'Categorías, Productos Separados y Manito 👍/👎',
+    tag:'Novedades de hoy · PR canasta-v36',
+    title:'Búsqueda en 2 Columnas, Contadores 👍/👎 y Carga sin Abreviaturas',
     body:`
       <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:12px;margin:10px 0;text-align:left;font-size:.8rem;color:#14532d">
         ${PR_NOVEDADES_NOTE?`<div style="background:#fff;border:1px solid #86efac;border-radius:8px;padding:8px;margin-bottom:8px;font-weight:700;color:#166534">📌 ${esc(PR_NOVEDADES_NOTE)}</div>`:''}
         <div style="margin-bottom:8px">
-          <b>🏬 5 Categorías de Comercio:</b><br>
-          <span class="mu" style="color:#166534">Ahora podés clasificar y filtrar en <b>Precios</b> y <b>Compras</b> por <b>Supermercado, Almacén, Verdulería, Restaurant y Farmacia</b>.</span>
+          <b>📊 Resultados en 2 columnas (Aceptados y Excluidos):</b><br>
+          <span class="mu" style="color:#166534">En <b>Precios</b> ahora ves a la izquierda los resultados <b>Aceptados</b> y a la derecha los <b>Excluidos</b>, junto con contadores compartidos de <b>👍 / 👎</b> entre todos los usuarios.</span>
         </div>
         <div style="border-top:1px dashed #86efac;padding-top:8px;margin-bottom:8px">
-          <b>🧬 Producto separado y SEPA solo en Carga:</b><br>
-          <span class="mu" style="color:#166534">Separamos <b>Marca, Modelo/Variante, Peso/Volumen, Envase y Pack</b> para comparar por $/kg o $/L. Sacamos SEPA de Precios y Compras (queda solo como ayuda ortográfica al cargar).</span>
+          <b>✍️ Nombres completos al cargar compras:</b><br>
+          <span class="mu" style="color:#166534">Detectamos palabras parciales o abreviaturas de ticket (ej: <i>GALL.CHOC.RUM</i>) al cargar y te ayudamos a completarlas para que todos encuentren el producto.</span>
         </div>
         <div style="border-top:1px dashed #86efac;padding-top:8px">
-          <b>👍👎 Feedback rápido en cada resultado:</b><br>
-          <span class="mu" style="color:#166534">En <b>Precios</b> ahora tenés manitos <b>👍 / 👎</b> en cada resultado para contarnos si lo que trajo coincide con tu búsqueda.</span>
+          <b>🏬 Categorías y Producto separado:</b><br>
+          <span class="mu" style="color:#166534">5 categorías de comercio, anatomía separada (Marca, Modelo, Peso, Envase) y SEPA solo como ayuda ortográfica en carga.</span>
         </div>
       </div>
     `
   },
   {
     icon:'🛡️',
-    tag:'Panel Admin & Buscador',
-    title:'Nuevas pestañas de Tags y Productos No Homologados',
+    tag:'Panel Admin Simplificado',
+    title:'Tags/Categorías, Sinónimos/Acrónimos y Manito Abajo',
     body:`
       <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:12px;padding:12px;margin:10px 0;text-align:left;font-size:.8rem;color:#1e293b">
         <div style="margin-bottom:8px">
-          <b>🏷️ Revisión de Tags en Admin:</b><br>
-          <span class="mu" style="color:#334155">Nueva pestaña <b>Tags</b> para revisar, editar, asignar o quitar tags de productos desde reglas o tickets en tiempo real.</span>
+          <b>🏷️ Tags y Categorías:</b><br>
+          <span class="mu" style="color:#334155">Agregá, cambiá o quitá tags y categorías de productos o comercios desde el panel simple de Admin.</span>
+        </div>
+        <div style="border-top:1px dashed #93c5fd;padding-top:8px;margin-bottom:8px">
+          <b>🔤 Sinónimos y Acrónimos:</b><br>
+          <span class="mu" style="color:#334155">Agregá, editá o eliminá sinónimos y acrónimos para que el buscador entienda apodos y abreviaturas.</span>
         </div>
         <div style="border-top:1px dashed #93c5fd;padding-top:8px">
-          <b>🧩 Productos No Homologados:</b><br>
-          <span class="mu" style="color:#334155">Nueva pestaña <b>No homologados</b> para detectar nombres crudos de tickets (priorizando reportes <b>👎</b>), autocompletar ortografía SEPA, homologar campos separados o aprobar nombres válidos.</span>
+          <b>👎 Revisión de Manito Abajo:</b><br>
+          <span class="mu" style="color:#334155">Revisá los productos marcados con 👎 por los usuarios para decidir con un toque si excluirlos o mantenerlos en esa búsqueda.</span>
         </div>
       </div>
     `
@@ -3900,6 +4107,28 @@ const SUPERMARKET_SYNONYMS={
   aceite:['aceite de girasol','aceite de maiz','aceite de oliva','cocinero','natura','canuelas']
 };
 
+const SUPERMARKET_ACRONYMS={
+  ddl:['dulce de leche'],
+  galles:['galletitas','galletita'],
+  gall:['galletitas'],
+  coca:['coca cola'],
+  pepsi:['pepsi cola'],
+  mat:['matarazzo'],
+  luc:['lucchetti'],
+  ser:['serenisima'],
+  birra:['cerveza'],
+  jab:['jabon'],
+  lav:['lavandina'],
+  det:['detergente'],
+  yog:['yogur'],
+  lech:['leche'],
+  fide:['fideos'],
+  sup:['suprema'],
+  mila:['milanesa'],
+  descrem:['descremada'],
+  descr:['descremada']
+};
+
 function getAdminEquivsMap(){
   try{
     const raw=JSON.parse(localStorage.getItem('admin_equivs')||'{}');
@@ -3914,6 +4143,21 @@ function getAdminEquivsMap(){
 }
 function saveAdminEquivsMap(map){
   try{localStorage.setItem('admin_equivs',JSON.stringify(map||{}))}catch(e){}
+}
+function getAdminAcronymsMap(){
+  try{
+    const raw=JSON.parse(localStorage.getItem('admin_acronyms')||'{}');
+    const out={};
+    for(const [k,v] of Object.entries(raw||{})){
+      const kn=nk(k);if(!kn)continue;
+      const arr=Array.isArray(v)?v:[v];
+      out[kn]=[...new Set(arr.map(nk).filter(Boolean))];
+    }
+    return out;
+  }catch(e){return {}}
+}
+function saveAdminAcronymsMap(map){
+  try{localStorage.setItem('admin_acronyms',JSON.stringify(map||{}))}catch(e){}
 }
 function getAdminExclusionsMap(){
   try{
@@ -3945,6 +4189,7 @@ function saveAdminProductAliases(map){
   try{localStorage.setItem('admin_product_aliases',JSON.stringify(map||{}))}catch(e){}
 }
 window.getAdminEquivsMap=getAdminEquivsMap;
+window.getAdminAcronymsMap=getAdminAcronymsMap;
 window.getAdminExclusionsMap=getAdminExclusionsMap;
 window.getAdminProductAliases=getAdminProductAliases;
 
@@ -3972,13 +4217,15 @@ async function persistSearchRule(payload){
         screen:'search_rule',
         status:'activo',
         app_version:typeof APP_VER!=='undefined'?APP_VER:'2026-11-14',
-        message:`${payload.kind}: ${payload.from} -> ${payload.to||payload.normalizedName||payload.tags||''}`,
+        message:`${payload.kind}: ${payload.from} -> ${payload.to||payload.normalizedName||payload.tags||payload.category||''}`,
         diagnostics:{
           kind:payload.kind,
           from:payload.from,
           to:payload.to,
           normalizedName:payload.normalizedName,
           tags:payload.tags,
+          category:payload.category,
+          storeCategory:payload.storeCategory,
           ean:payload.ean,
           brand:payload.brand,
           variant:payload.variant,
@@ -4009,13 +4256,16 @@ async function loadSharedSearchRules(){
     }catch(_){}
   }
   if(!rules.length)return;
-  const eq=getAdminEquivsMap(), ex=getAdminExclusionsMap(), al=getAdminProductAliases();
+  const eq=getAdminEquivsMap(), ac=getAdminAcronymsMap(), ex=getAdminExclusionsMap(), al=getAdminProductAliases();
   for(const row of rules){
     const d=row?.diagnostics||{};
     const f=nk(d.from||''), t=nk(d.to||'');
     if(d.kind==='synonym'&&f&&t){
       if(!eq[f])eq[f]=[];
       if(!eq[f].includes(t))eq[f].push(t);
+    }else if(d.kind==='acronym'&&f&&t){
+      if(!ac[f])ac[f]=[];
+      if(!ac[f].includes(t))ac[f].push(t);
     }else if(d.kind==='exclude'&&f&&t){
       if(!ex[f])ex[f]=[];
       if(!ex[f].includes(t))ex[f].push(t);
@@ -4024,6 +4274,8 @@ async function loadSharedSearchRules(){
         raw:d.from,
         normalizedName:d.normalizedName||'',
         tags:d.tags||'',
+        category:d.category||'',
+        storeCategory:d.storeCategory||'',
         ean:d.ean||'',
         brand:d.brand||'',
         variant:d.variant||'',
@@ -4036,6 +4288,7 @@ async function loadSharedSearchRules(){
     }
   }
   saveAdminEquivsMap(eq);
+  saveAdminAcronymsMap(ac);
   saveAdminExclusionsMap(ex);
   saveAdminProductAliases(al);
 }
@@ -4051,6 +4304,20 @@ async function addAdminEquivRule(fromTerm,toTerm){
   await persistSearchRule({action:'add',kind:'synonym',from:fromTerm.trim(),to:toTerm.trim()});
   return true;
 }
+async function editAdminEquivRule(oldFrom,oldTo,newFrom,newTo){
+  const of=nk(oldFrom), ot=nk(oldTo), nf=nk(newFrom), nt=nk(newTo);
+  if(!nf||!nt)return false;
+  const eq=getAdminEquivsMap();
+  if(eq[of]){
+    eq[of]=eq[of].filter(x=>x!==ot);
+    if(!eq[of].length)delete eq[of];
+  }
+  if(!eq[nf])eq[nf]=[];
+  if(!eq[nf].includes(nt))eq[nf].push(nt);
+  saveAdminEquivsMap(eq);
+  await persistSearchRule({action:'edit',kind:'synonym',prevFrom:oldFrom,prevTo:oldTo,from:newFrom.trim(),to:newTo.trim()});
+  return true;
+}
 async function removeAdminEquivRule(fromTerm,toTerm){
   const f=nk(fromTerm), t=nk(toTerm);
   const eq=getAdminEquivsMap();
@@ -4059,6 +4326,41 @@ async function removeAdminEquivRule(fromTerm,toTerm){
     if(!eq[f].length)delete eq[f];
     saveAdminEquivsMap(eq);
   }
+  await persistSearchRule({action:'archive',kind:'synonym',from:fromTerm,to:toTerm});
+}
+async function addAdminAcronymRule(abbr,fullTerm){
+  const f=nk(abbr), t=nk(fullTerm);
+  if(!f||!t)return false;
+  const ac=getAdminAcronymsMap();
+  if(!ac[f])ac[f]=[];
+  if(!ac[f].includes(t))ac[f].push(t);
+  saveAdminAcronymsMap(ac);
+  await persistSearchRule({action:'add',kind:'acronym',from:abbr.trim(),to:fullTerm.trim()});
+  return true;
+}
+async function editAdminAcronymRule(oldAbbr,oldFull,newAbbr,newFull){
+  const of=nk(oldAbbr), ot=nk(oldFull), nf=nk(newAbbr), nt=nk(newFull);
+  if(!nf||!nt)return false;
+  const ac=getAdminAcronymsMap();
+  if(ac[of]){
+    ac[of]=ac[of].filter(x=>x!==ot);
+    if(!ac[of].length)delete ac[of];
+  }
+  if(!ac[nf])ac[nf]=[];
+  if(!ac[nf].includes(nt))ac[nf].push(nt);
+  saveAdminAcronymsMap(ac);
+  await persistSearchRule({action:'edit',kind:'acronym',prevFrom:oldAbbr,prevTo:oldFull,from:newAbbr.trim(),to:newFull.trim()});
+  return true;
+}
+async function removeAdminAcronymRule(abbr,fullTerm){
+  const f=nk(abbr), t=nk(fullTerm);
+  const ac=getAdminAcronymsMap();
+  if(ac[f]){
+    ac[f]=ac[f].filter(x=>x!==t);
+    if(!ac[f].length)delete ac[f];
+    saveAdminAcronymsMap(ac);
+  }
+  await persistSearchRule({action:'archive',kind:'acronym',from:abbr,to:fullTerm});
 }
 async function addAdminExclusionRule(queryTerm,excludedPhrase){
   const f=nk(queryTerm), t=nk(excludedPhrase);
@@ -4070,6 +4372,20 @@ async function addAdminExclusionRule(queryTerm,excludedPhrase){
   await persistSearchRule({action:'add',kind:'exclude',from:queryTerm.trim(),to:excludedPhrase.trim()});
   return true;
 }
+async function editAdminExclusionRule(oldQ,oldEx,newQ,newEx){
+  const oq=nk(oldQ), oe=nk(oldEx), nq=nk(newQ), ne=nk(newEx);
+  if(!nq||!ne)return false;
+  const ex=getAdminExclusionsMap();
+  if(ex[oq]){
+    ex[oq]=ex[oq].filter(x=>x!==oe);
+    if(!ex[oq].length)delete ex[oq];
+  }
+  if(!ex[nq])ex[nq]=[];
+  if(!ex[nq].includes(ne))ex[nq].push(ne);
+  saveAdminExclusionsMap(ex);
+  await persistSearchRule({action:'edit',kind:'exclude',prevFrom:oldQ,prevTo:oldEx,from:newQ.trim(),to:newEx.trim()});
+  return true;
+}
 async function removeAdminExclusionRule(queryTerm,excludedPhrase){
   const f=nk(queryTerm), t=nk(excludedPhrase);
   const ex=getAdminExclusionsMap();
@@ -4078,6 +4394,7 @@ async function removeAdminExclusionRule(queryTerm,excludedPhrase){
     if(!ex[f].length)delete ex[f];
     saveAdminExclusionsMap(ex);
   }
+  await persistSearchRule({action:'archive',kind:'exclude',from:queryTerm,to:excludedPhrase});
 }
 async function saveProductAliasRule(rawProductName,opts){
   const key=nk(rawProductName);
@@ -4086,6 +4403,8 @@ async function saveProductAliasRule(rawProductName,opts){
   const prev=al[key]||{};
   const normalizedName=opts?.normalizedName!==undefined?String(opts.normalizedName||'').trim():String(prev.normalizedName||'').trim();
   const tags=opts?.tags!==undefined?String(opts.tags||'').trim():String(prev.tags||'').trim();
+  const category=opts?.category!==undefined?nk(opts.category||''):String(prev.category||'').trim();
+  const storeCategory=opts?.storeCategory!==undefined?normalizeStoreCategory(opts.storeCategory||''):String(prev.storeCategory||'').trim();
   const ean=opts?.ean!==undefined?String(opts.ean||'').trim():String(prev.ean||'').trim();
   const brand=opts?.brand!==undefined?String(opts.brand||'').trim():String(prev.brand||'').trim();
   const variant=opts?.variant!==undefined?String(opts.variant||'').trim():String(prev.variant||'').trim();
@@ -4093,9 +4412,9 @@ async function saveProductAliasRule(rawProductName,opts){
   const size_unit=opts?.size_unit!==undefined?normalizeSizeUnit(opts.size_unit):String(prev.size_unit||'');
   const package_type=opts?.package_type!==undefined?String(opts.package_type||'').trim():String(prev.package_type||'').trim();
   const homologated=opts?.homologated!==undefined?!!opts.homologated:!!(prev.homologated||normalizedName||ean);
-  al[key]={raw:rawProductName,normalizedName,tags,ean,brand,variant,size_value,size_unit,package_type,homologated,ruleId:prev.ruleId};
+  al[key]={raw:rawProductName,normalizedName,tags,category,storeCategory,ean,brand,variant,size_value,size_unit,package_type,homologated,ruleId:prev.ruleId};
   saveAdminProductAliases(al);
-  await persistSearchRule({action:'add',kind:'normalize',from:rawProductName,normalizedName,tags,ean,brand,variant,size_value,size_unit,package_type,homologated});
+  await persistSearchRule({action:'add',kind:'normalize',from:rawProductName,normalizedName,tags,category,storeCategory,ean,brand,variant,size_value,size_unit,package_type,homologated});
   return true;
 }
 async function removeProductAliasRule(rawProductName){
@@ -4111,43 +4430,176 @@ async function removeProductAliasRule(rawProductName){
   }
 }
 window.addAdminEquivRule=addAdminEquivRule;
+window.editAdminEquivRule=editAdminEquivRule;
 window.removeAdminEquivRule=removeAdminEquivRule;
+window.addAdminAcronymRule=addAdminAcronymRule;
+window.editAdminAcronymRule=editAdminAcronymRule;
+window.removeAdminAcronymRule=removeAdminAcronymRule;
 window.addAdminExclusionRule=addAdminExclusionRule;
+window.editAdminExclusionRule=editAdminExclusionRule;
 window.removeAdminExclusionRule=removeAdminExclusionRule;
 window.saveProductAliasRule=saveProductAliasRule;
 window.removeProductAliasRule=removeProductAliasRule;
 
+window._sharedSearchVotes={counts:{},myVotes:{},pairs:[],loadedAt:0};
+async function loadSharedSearchVotes(force){
+  if(!force&&window._sharedSearchVotes.loadedAt&&Date.now()-window._sharedSearchVotes.loadedAt<15000){
+    return window._sharedSearchVotes;
+  }
+  let counts={}, myVotes={}, pairs=[], loadedViaApi=false;
+  try{
+    const uid=user?.id?encodeURIComponent(user.id):'';
+    const r=await fetch(`/api/canasta/search-votes${uid?`?userId=${uid}`:''}`);
+    if(r.ok){
+      const j=await r.json();
+      if(j&&typeof j.counts==='object'){
+        counts=j.counts||{};
+        myVotes=j.myVotes||{};
+        pairs=Array.isArray(j.pairs)?j.pairs:[];
+        loadedViaApi=true;
+      }
+    }
+  }catch(_){}
+  if(!loadedViaApi&&sb){
+    try{
+      const {data}=await sb.from('feedback')
+        .select('id,user_id,screen,status,message,diagnostics,created_at')
+        .in('screen',['prices_thumb_up','prices_mismatch'])
+        .order('created_at',{ascending:false})
+        .limit(500);
+      const seenUserPair=new Set();
+      const pairMeta={};
+      for(const row of (Array.isArray(data)?data:[])){
+        const d=row?.diagnostics||{};
+        const qRaw=String(d.query||'').trim(), pRaw=String(d.product||'').trim();
+        const qN=nk(qRaw), pN=nk(pRaw);
+        if(!qN||!pN)continue;
+        const pairKey=`${qN}|||${pN}`;
+        const isUp=row.screen==='prices_thumb_up'||d.is_accurate===true;
+        const voteType=isUp?'up':'down';
+        const voterKey=`${row.user_id||row.id}::${pairKey}`;
+        if(!pairMeta[pairKey]){
+          pairMeta[pairKey]={key:pairKey,query:qRaw,product:pRaw,up:0,down:0,stores:new Set(),notes:[],lastAt:row.created_at||'',unresolvedIds:[]};
+        }
+        if(d.store)pairMeta[pairKey].stores.add(String(d.store));
+        if(d.note&&!pairMeta[pairKey].notes.includes(String(d.note)))pairMeta[pairKey].notes.push(String(d.note));
+        if(!isUp&&row.status!=='resuelto'&&row.id)pairMeta[pairKey].unresolvedIds.push(row.id);
+        if(seenUserPair.has(voterKey))continue;
+        seenUserPair.add(voterKey);
+        if(!counts[pairKey])counts[pairKey]={up:0,down:0};
+        if(isUp){counts[pairKey].up++;pairMeta[pairKey].up++;}
+        else{counts[pairKey].down++;pairMeta[pairKey].down++;}
+        if(user?.id&&row.user_id&&String(row.user_id)===String(user.id))myVotes[pairKey]=voteType;
+      }
+      pairs=Object.values(pairMeta)
+        .filter(x=>x.down>0||x.unresolvedIds.length>0)
+        .map(x=>({...x,stores:Array.from(x.stores),resolved:x.unresolvedIds.length===0}))
+        .sort((a,b)=>(b.down-a.down)||(b.unresolvedIds.length-a.unresolvedIds.length));
+    }catch(_){}
+  }
+  window._sharedSearchVotes={counts,myVotes,pairs,loadedAt:Date.now()};
+  return window._sharedSearchVotes;
+}
+function getResultVoteStats(q,prod){
+  const pairKey=`${nk(q||'')}|||${nk(prod||'')}`;
+  const serverCounts=(window._sharedSearchVotes?.counts||{})[pairKey]||{up:0,down:0};
+  const serverMyVote=(window._sharedSearchVotes?.myVotes||{})[pairKey]||null;
+  const localMyVote=getSearchResultVotes()[pairKey]||null;
+  let up=Number(serverCounts.up)||0;
+  let down=Number(serverCounts.down)||0;
+  if(localMyVote&&localMyVote!==serverMyVote){
+    if(serverMyVote==='up')up=Math.max(0,up-1);
+    else if(serverMyVote==='down')down=Math.max(0,down-1);
+    if(localMyVote==='up')up++;
+    else if(localMyVote==='down')down++;
+  }
+  return {up,down,myVote:localMyVote||serverMyVote||''};
+}
+window.loadSharedSearchVotes=loadSharedSearchVotes;
+window.getResultVoteStats=getResultVoteStats;
+
 function getQuerySynonyms(qNorm){
   const syns=new Set();
   const eq=getAdminEquivsMap();
+  const ac=getAdminAcronymsMap();
   const addSyns=(term)=>{
     if(SUPERMARKET_SYNONYMS[term])SUPERMARKET_SYNONYMS[term].forEach(s=>syns.add(nk(s)));
+    if(SUPERMARKET_ACRONYMS[term])SUPERMARKET_ACRONYMS[term].forEach(s=>syns.add(nk(s)));
     if(eq[term])eq[term].forEach(s=>syns.add(nk(s)));
+    if(ac[term])ac[term].forEach(s=>syns.add(nk(s)));
     for(const [k,list] of Object.entries(eq)){
+      if(list.includes(term))syns.add(k);
+    }
+    for(const [k,list] of Object.entries(ac)){
       if(list.includes(term))syns.add(k);
     }
   };
   addSyns(qNorm);
-  const words=qNorm.split(/\s+/).filter(w=>w.length>=3);
+  const words=qNorm.split(/\s+/).filter(w=>w.length>=2);
   for(const w of words)addSyns(w);
   return Array.from(syns);
 }
 
-function smartSearchPrices(rawRows,q){
+function getExclusionReason(qNorm,p){
+  const pName=nk(p.product||p.product_name||'');
+  const pCat=nk(p.category||'');
+  const pSub=nk(p.subcategory||'');
+  const adminEx=getAdminExclusionsMap();
+  const checkList=(list)=>{
+    if(!list)return false;
+    for(const exc of list){
+      if(exc&&!qNorm.includes(exc)&&(pName.includes(exc)||pSub.includes(exc)))return true;
+    }
+    return false;
+  };
+  if(checkList(adminEx[qNorm]))return 'Excluido por Admin';
+  const qWords=qNorm.split(/\s+/).filter(w=>w.length>=2);
+  for(const w of qWords){
+    if(checkList(adminEx[w]))return 'Excluido por Admin';
+    const excList=UNRELATED_TERM_EXCLUSIONS[w];
+    if(excList){
+      for(const exc of excList){
+        if(!qNorm.includes(exc)){
+          if(pName.includes(exc)||pSub.includes(exc))return 'Producto no relacionado';
+        }
+      }
+      if(w==='leche'&&!qNorm.includes('golosina')&&!qNorm.includes('chocolate')){
+        if(pCat==='golosinas'||pCat==='limpieza'||pName.includes('golosina')||pName.includes('wafer')||pName.includes('turron')||pName.includes('biscuit')||pName.includes('shampoo')||pName.includes('nugaton'))return 'Producto no relacionado';
+      }
+    }
+  }
+  for(const grp of PRODUCT_EXCLUSIVE_VARIANTS){
+    const hasQ=grp.filter(v=>qNorm.includes(v));
+    const hasP=grp.filter(v=>pName.includes(v)||pSub.includes(v));
+    if(hasQ.length&&hasP.length&&!hasQ.some(v=>hasP.includes(v))){
+      return `Variante distinta (${hasP[0]})`;
+    }
+  }
+  return '';
+}
+
+function smartSearchPrices(rawRows,q,opts={}){
   const qNorm=nk(q);
   if(!qNorm)return [];
+  const includeExcluded=!!(opts&&opts.includeExcluded);
   const qWords=qNorm.split(/\s+/).filter(w=>w.length>=2);
-  const qMult=extractPackMultiplier(qNorm);
   const synonyms=getQuerySynonyms(qNorm);
   const eq=getAdminEquivsMap();
+  const ac=getAdminAcronymsMap();
   const aliases=getAdminProductAliases();
-  const adminTargets=new Set([...(eq[qNorm]||[])]);
-  for(const w of qWords){if(eq[w])eq[w].forEach(t=>adminTargets.add(t));}
+  const adminTargets=new Set([...(eq[qNorm]||[]),...(ac[qNorm]||[])]);
+  for(const w of qWords){
+    if(eq[w])eq[w].forEach(t=>adminTargets.add(t));
+    if(ac[w])ac[w].forEach(t=>adminTargets.add(t));
+  }
+  // Reverse lookup: if query matches target of an acronym/synonym, include acronym key too
+  for(const [k,list] of Object.entries(ac)){
+    if(list.some(v=>qNorm.includes(v)||v.includes(qNorm)))adminTargets.add(k);
+  }
 
   const scored=[];
   for(const origP of rawRows){
     const p={...origP};
-    if(shouldExcludeUnrelated(qNorm,p))continue;
     const rawTitle=p.product||p.product_name||'';
     const pName=nk(rawTitle);
     const alias=aliases[pName];
@@ -4168,12 +4620,14 @@ function smartSearchPrices(rawRows,q){
     p.size_unit=normalizeSizeUnit(p.size_unit)||structured.size_unit||'';
     p.package_type=p.package_type||alias?.package_type||meta.packageType||structured.package_type||'';
     p.pack_count=Math.max(1,Number(p.pack_count)||meta.packCount||structured.pack_count||1);
-    p.store_category=normalizeStoreCategory(p.store_category)||meta.storeCategory||inferStoreCategory(p.store,[p]);
+    p.category=alias?.category||p.category||'otros';
+    p.store_category=normalizeStoreCategory(alias?.storeCategory||p.store_category)||meta.storeCategory||inferStoreCategory(p.store,[p]);
 
     const pNormName=alias?.normalizedName?nk(alias.normalizedName):'';
     const pAliasTags=alias?.tags?nk(alias.tags):'';
     const pSub=nk(p.subcategory||'');
     const pCat=nk(p.category||'');
+    const pStoreCat=nk(p.store_category||'');
     const pDesc=nk(p.description||'');
     const pDescClean=nk(meta.cleanText||'');
     const pBrand=nk(p.brand||'');
@@ -4182,7 +4636,14 @@ function smartSearchPrices(rawRows,q){
     const pSizeTok=(p.size_value&&p.size_unit)?nk(`${p.size_value}${p.size_unit} ${p.size_value} ${p.size_unit}`):'';
     const pPkg=nk(p.package_type||'');
     const pTags=Array.isArray(p.tags)?p.tags.map(nk).join(' '):nk(p.tags||'');
-    const fullText=`${pName} ${pBase} ${pNormName} ${pAliasTags} ${pBrand} ${pVariant} ${pSizeTok} ${pPkg} ${pSub} ${pCat} ${pDesc} ${pDescClean} ${pTags}`;
+
+    // Expand abbreviations/acronyms inside the product title itself
+    const pExpandedTokens=[];
+    for(const pw of `${pName} ${pBase}`.split(/\s+/).filter(Boolean)){
+      if(ac[pw])ac[pw].forEach(t=>pExpandedTokens.push(t));
+      if(SUPERMARKET_ACRONYMS[pw])SUPERMARKET_ACRONYMS[pw].forEach(t=>pExpandedTokens.push(nk(t)));
+    }
+    const fullText=`${pName} ${pBase} ${pNormName} ${pAliasTags} ${pBrand} ${pVariant} ${pSizeTok} ${pPkg} ${pSub} ${pCat} ${pStoreCat} ${pDesc} ${pDescClean} ${pTags} ${pExpandedTokens.join(' ')}`;
     const pMult=Math.max(extractPackMultiplier(pName),p.pack_count||1);
 
     p.pack_multiplier=pMult;
@@ -4196,6 +4657,9 @@ function smartSearchPrices(rawRows,q){
     });
     if(alias?.normalizedName)p.normalized_label=alias.normalizedName;
     if(alias?.tags)p.custom_tags=alias.tags;
+
+    const exclReason=getExclusionReason(qNorm,p);
+    if(exclReason&&!includeExcluded)continue;
 
     let score=0;
     let confidence='baja';
@@ -4251,16 +4715,38 @@ function smartSearchPrices(rawRows,q){
       }
     }
 
+    if(exclReason){
+      p.is_exact=false;
+      p.is_excluded=true;
+      p.exclude_reason=exclReason;
+      p.search_score=score;
+      p.search_confidence='baja';
+      p.search_match_type='excluido';
+      if(includeExcluded)scored.push(p);
+      continue;
+    }
+
     if(score>=40){
       p.is_exact=score>=80;
+      p.is_excluded=false;
+      p.exclude_reason='';
       p.search_score=score;
       p.search_confidence=confidence;
+      p.search_match_type=matchType;
+      scored.push(p);
+    }else if(includeExcluded&&score>=25){
+      p.is_exact=false;
+      p.is_excluded=true;
+      p.exclude_reason='Coincidencia débil';
+      p.search_score=score;
+      p.search_confidence='baja';
       p.search_match_type=matchType;
       scored.push(p);
     }
   }
 
   scored.sort((a,b)=>{
+    if(!!a.is_excluded!==!!b.is_excluded)return a.is_excluded?1:-1;
     if(b.search_score!==a.search_score)return b.search_score-a.search_score;
     return (a.unit_price||0)-(b.unit_price||0);
   });
@@ -4285,34 +4771,7 @@ window.setPrFilter=setPrFilter;
 window.clearPrFilter=clearPrFilter;
 
 function shouldExcludeUnrelated(qNorm,p){
-  const pName=nk(p.product||p.product_name||'');
-  const pCat=nk(p.category||'');
-  const pSub=nk(p.subcategory||'');
-  const adminEx=getAdminExclusionsMap();
-  const checkList=(list)=>{
-    if(!list)return false;
-    for(const exc of list){
-      if(exc&&!qNorm.includes(exc)&&(pName.includes(exc)||pSub.includes(exc)))return true;
-    }
-    return false;
-  };
-  if(checkList(adminEx[qNorm]))return true;
-  const qWords=qNorm.split(/\s+/).filter(w=>w.length>=2);
-  for(const w of qWords){
-    if(checkList(adminEx[w]))return true;
-    const excList=UNRELATED_TERM_EXCLUSIONS[w];
-    if(excList){
-      for(const exc of excList){
-        if(!qNorm.includes(exc)){
-          if(pName.includes(exc)||pSub.includes(exc))return true;
-        }
-      }
-      if(w==='leche'&&!qNorm.includes('golosina')&&!qNorm.includes('chocolate')){
-        if(pCat==='golosinas'||pCat==='limpieza'||pName.includes('golosina')||pName.includes('wafer')||pName.includes('turron')||pName.includes('biscuit')||pName.includes('shampoo')||pName.includes('nugaton'))return true;
-      }
-    }
-  }
-  return false;
+  return !!getExclusionReason(qNorm,p);
 }
 
 async function expand(q){
@@ -4350,7 +4809,6 @@ window.setPrStoreCat=setPrStoreCat;
 function prices(){
   app(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <h1 style="margin:0">Precios</h1>
-    <button class="ghost" onclick="openBenchmarkModal()" style="font-size:.8rem;padding:4px 10px;border-radius:8px">🎯 Validar 50 Búsquedas</button>
   </div>
   <div class="sb"><input id="pq" type="search" placeholder="Buscá por producto, marca o envase (ej: coca 1.5L, leche sachet)" autocomplete="off" oninput="clearTimeout(window._pd);window._pd=setTimeout(()=>pGo(),400)" onkeydown="if(event.key==='Enter')pGo(true)"></div>
   <div class="mu" style="margin:0 0 4px">Distancia máxima</div>
@@ -4386,7 +4844,7 @@ async function pGo(save){
         let qb=sb.from('price_points').select('*');
         if(c)qb=qb.eq('category',c);
         else {
-          const synList=getQuerySynonyms(nk(t)).slice(0,3);
+          const synList=getQuerySynonyms(nk(t)).slice(0,4);
           const terms=[t,...synList];
           const conds=terms.map(tm=>`product_key.ilike.*${tm}*,subcategory.ilike.*${tm}*,product_name.ilike.*${tm}*,description_key.ilike.*${tm}*,brand.ilike.*${tm}*,variant.ilike.*${tm}*`).join(',');
           qb=qb.or(conds);
@@ -4430,14 +4888,14 @@ async function pGo(save){
     const aiOn=!cat&&!!gemKey()&&localStorage.getItem('ai')!=='0';
     prAI=aiOn?'loading':(cat||gemKey()?'off':'nokey');prTerms=[];
     const exP=aiOn?expand(q).catch(()=>[]):null;
-    const {data,error}=await rpcQ(stemQ(q),cat);
+    const [{data,error}]=await Promise.all([rpcQ(stemQ(q),cat),loadSharedSearchVotes().catch(()=>{})]);
     if(tok!==pTok)return;
     if(error){b.innerHTML=`<div class="card">No se pudo buscar: ${esc(error.message)}</div>`;return}
 
-    const cleanRows=smartSearchPrices(data||[],q);
+    const cleanRows=smartSearchPrices(data||[],q,{includeExcluded:true});
     prRows=cleanRows;
 
-    if(save&&prRows.length)localStorage.setItem('rs',JSON.stringify([q,...recents().filter(x=>x!==q)].slice(0,6)));
+    if(save&&prRows.some(x=>!x.is_excluded))localStorage.setItem('rs',JSON.stringify([q,...recents().filter(x=>x!==q)].slice(0,6)));
     pRender(q,r,useR);
     if(!exP)return;
     const terms=await exP;
@@ -4446,18 +4904,20 @@ async function pGo(save){
     const res=await Promise.all(terms.map(t=>rpcQ(stemQ(t)).then(x=>{
       const tNorm=nk(t);
       const tWords=tNorm.split(' ').filter(w=>w.length>=3);
-      const valid=(x.data||[]).filter(y=>{
-        if(shouldExcludeUnrelated(tNorm,y))return false;
+      const rows=(x.data||[]).map(y=>{
+        const exclR=getExclusionReason(q,y)||getExclusionReason(tNorm,y);
         const pName=nk(y.product||y.product_name||'');
         const pSub=nk(y.subcategory||'');
-        if(!pName)return false;
-        return tWords.length>0&&tWords.every(tw=>pName.includes(tw)||pSub.includes(tw));
-      });
-      return {t,rows:valid};
+        if(!pName)return null;
+        const matchesTerm=tWords.length>0&&tWords.every(tw=>pName.includes(tw)||pSub.includes(tw));
+        if(!matchesTerm&&!exclR)return null;
+        return {y,exclR};
+      }).filter(Boolean);
+      return {t,rows};
     },()=>({t,rows:[]}))) );
     if(tok!==pTok)return;
     const seen=new Set(prRows.map(pk));
-    res.forEach(({t,rows})=>{let hit=false;rows.forEach(x=>{const k=pk(x);if(seen.has(k))return;seen.add(k);hit=true;const meta=parseDescriptionKeyMeta(x.description_key);const st=parseStructuredProductText(x.product||x.product_name||'',{brand:x.brand,variant:x.variant,size_value:x.size_value,size_unit:x.size_unit,package_type:meta.packageType,pack_count:meta.packCount,base_name:meta.baseName});prRows.push({...x,...st,store_category:normalizeStoreCategory(x.store_category)||meta.storeCategory||inferStoreCategory(x.store,[x]),is_exact:false,rel:t})});if(hit)prTerms.push(t)});
+    res.forEach(({t,rows})=>{let hit=false;rows.forEach(({y:x,exclR})=>{const k=pk(x);if(seen.has(k))return;seen.add(k);const meta=parseDescriptionKeyMeta(x.description_key);const st=parseStructuredProductText(x.product||x.product_name||'',{brand:x.brand,variant:x.variant,size_value:x.size_value,size_unit:x.size_unit,package_type:meta.packageType,pack_count:meta.packCount,base_name:meta.baseName});const isExcl=!!exclR;if(!isExcl)hit=true;prRows.push({...x,...st,store_category:normalizeStoreCategory(x.store_category)||meta.storeCategory||inferStoreCategory(x.store,[x]),is_exact:false,is_excluded:isExcl,exclude_reason:exclR||'',rel:isExcl?null:t})});if(hit)prTerms.push(t)});
     prAI='done';pRender(q,r,useR);
   }catch(err){
     console.error('Error en búsqueda de precios:',err);
@@ -4465,11 +4925,12 @@ async function pGo(save){
   }
 }
 
-const prCard=(min,avg,anyExact,rank)=>x=>{
+const prCard=(min,avg,anyExact,rank,opts={})=>x=>{
   const disp=dispCur(),cu=x.currency||'ARS',pv=x._p;
+  const isExcluded=!!(opts.excluded||x.is_excluded);
   const isRelated=!!x.rel||x.is_exact===false;
-  const canCompare=!prCat&&!isRelated&&pv!=null;
-  const isRankBest=rank===1;
+  const canCompare=!isExcluded&&!prCat&&!isRelated&&pv!=null;
+  const isRankBest=!isExcluded&&rank===1;
   const diff=canCompare&&min>0?Math.round((pv/min-1)*100):0;
   const diffAvg=canCompare&&avg>0?Math.round((pv/avg-1)*100):0;
   const dest=x.lat!=null?`${x.lat},${x.lng}`:encodeURIComponent(x.store_address||x.store);
@@ -4478,7 +4939,8 @@ const prCard=(min,avg,anyExact,rank)=>x=>{
   const freshBadge=dDiff<=7?'<span class="tag" style="background:#e8f5e9;color:#2e7d32">🟢 Reciente</span>':dDiff>30?'<span class="tag" style="background:#fff3e0;color:#e65100">⚠️ Puede haber variado</span>':'';
   const avgBadge=canCompare?(diffAvg>5?`<span class="tag" style="background:#fee2e2;color:#991b1b">+${diffAvg}% vs promedio</span>`:diffAvg<-5?`<span class="tag" style="background:#e0f2fe;color:#0369a1">${Math.abs(diffAvg)}% bajo promedio</span>`:''):'';
 
-  const rankBadge=rank?`<span class="tag" style="background:${isRankBest?'#dcfce7':'#f1f5f9'};color:${isRankBest?'#15803d':'#334155'};border:1px solid ${isRankBest?'#86efac':'#cbd5e1'};font-weight:800;font-size:.76rem">#${rank} ${isRankBest?'🏆 Más barato':diff>0?`(+${diff}% vs más barato)`:''}</span>`:'';
+  const exclBadge=isExcluded?`<span class="tag" style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;font-weight:700;font-size:.72rem">🚫 ${esc(x.exclude_reason||'Excluido')}</span>`:'';
+  const rankBadge=!isExcluded&&rank?`<span class="tag" style="background:${isRankBest?'#dcfce7':'#f1f5f9'};color:${isRankBest?'#15803d':'#334155'};border:1px solid ${isRankBest?'#86efac':'#cbd5e1'};font-weight:800;font-size:.74rem">#${rank} ${isRankBest?'🏆 Más barato':diff>0?`(+${diff}% vs más barato)`:''}</span>`:exclBadge;
   const meta=parseDescriptionKeyMeta(x.description_key);
   const cleanDesc=cleanFiscalText(x.description);
   const descTag=(!isRelated&&x.desc_match&&cleanDesc)?`<span class="tag">📝 ${esc(cleanDesc)}</span>`:'';
@@ -4514,44 +4976,44 @@ const prCard=(min,avg,anyExact,rank)=>x=>{
 
   const packMult=Math.max(x.pack_multiplier||1,structured.pack_count||1);
   const packBadge=(packMult>1)?`<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-weight:700">📦 Pack x${packMult} (${pv!=null?money(Math.round(pv/packMult),cu):''} c/u)</span>`:'';
-  const confBadge=(x.search_confidence==='alta'&&!x.is_exact)?'<span class="tag" style="background:#f0fdf4;color:#166534;font-size:.7rem">🎯 Alta confianza</span>':(x.search_confidence==='media')?'<span class="tag" style="background:#fefce8;color:#854d0e;font-size:.7rem">🟡 Coincidencia media</span>':'';
+  const confBadge=!isExcluded?((x.search_confidence==='alta'&&!x.is_exact)?'<span class="tag" style="background:#f0fdf4;color:#166534;font-size:.7rem">🎯 Alta confianza</span>':(x.search_confidence==='media')?'<span class="tag" style="background:#fefce8;color:#854d0e;font-size:.7rem">🟡 Coincidencia media</span>':''):'';
   const encQ=encodeURIComponent(prCurrentQ||''), encProd=encodeURIComponent(x.product||''), encStore=encodeURIComponent(x.store||'');
-  const mismatchBtn=(x.search_confidence==='media'||!x.is_exact)?`<button type="button" class="ghost" onclick="openSearchMismatchModal('${encQ}','${encProd}','${encStore}',${Number(x.unit_price||0)},${Number(x.search_score||55)},'${esc(x.search_confidence||'media')}')" style="font-size:.74rem;padding:4px 8px;color:#b45309;border-color:#fde68a;background:#fffbeb">🚩 ¿No es este producto?</button>`:'';
-  const votesMap=getSearchResultVotes();
+  const mismatchBtn=(!isExcluded&&(x.search_confidence==='media'||!x.is_exact))?`<button type="button" class="ghost" onclick="openSearchMismatchModal('${encQ}','${encProd}','${encStore}',${Number(x.unit_price||0)},${Number(x.search_score||55)},'${esc(x.search_confidence||'media')}')" style="font-size:.72rem;padding:4px 8px;color:#b45309;border-color:#fde68a;background:#fffbeb">🚩 ¿No es este producto?</button>`:'';
   const voteKey=`${nk(prCurrentQ||'')}|||${nk(x.product||'')}`;
-  const myVote=votesMap[voteKey]||'';
-  const thumbBoxId='pv-'+Math.abs(Array.from(`${voteKey}|${nk(x.store||'')}|${rank||0}`).reduce((h,ch)=>((h<<5)-h+ch.charCodeAt(0))|0,0));
+  const voteStats=getResultVoteStats(prCurrentQ||'',x.product||'');
+  const myVote=voteStats.myVote;
+  const thumbBoxId='pv-'+Math.abs(Array.from(`${voteKey}|${nk(x.store||'')}|${isExcluded?'ex':'ok'}|${rank||0}`).reduce((h,ch)=>((h<<5)-h+ch.charCodeAt(0))|0,0));
 
-  return `<div class="card" style="text-align:left;border:1.5px solid ${isRankBest?'#86efac':'var(--ln)'};${isRankBest?'box-shadow:0 2px 8px rgba(34,197,94,.12);':''}">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+  return `<div class="card" style="text-align:left;margin-bottom:0;border:1.5px solid ${isExcluded?'#fecaca':(isRankBest?'#86efac':'var(--ln)')};${isExcluded?'background:#fffafa;opacity:.94;':''}${isRankBest?'box-shadow:0 2px 8px rgba(34,197,94,.12);':''}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;flex-wrap:wrap">
       <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
           ${rankBadge}
-          <b style="font-size:1.02rem;color:#0f172a">${esc(x.store)}</b>
+          <b style="font-size:.96rem;color:#0f172a">${esc(x.store)}</b>
         </div>
-        <div style="font-size:.82rem;color:#475569;margin-top:4px">
+        <div style="font-size:.78rem;color:#475569;margin-top:4px">
           ${scInfo.icon} ${esc(scInfo.label)} · 📍 ${esc(x.store_address||'Dirección no registrada')}${x.distance_km!=null?` · <b>${fmtD(x.distance_km)}</b>`:''}
         </div>
-        <div style="font-size:.78rem;color:#64748b;margin-top:2px">
-          📅 Fecha de compra: <b>${dt}</b> (${ago(x.purchased_at)}) ${freshBadge}
+        <div style="font-size:.74rem;color:#64748b;margin-top:2px">
+          📅 <b>${dt}</b> (${ago(x.purchased_at)}) ${freshBadge}
         </div>
       </div>
       <div style="text-align:right;flex-shrink:0">
-        <div class="p2 num" style="font-size:1.32rem;font-weight:800;color:${isRankBest?'#15803d':'#0f172a'}">${money(+x.unit_price,cu)}</div>
-        <div class="mu num" style="font-size:.72rem">${priceSub}</div>
+        <div class="p2 num" style="font-size:1.22rem;font-weight:800;color:${isExcluded?'#64748b':(isRankBest?'#15803d':'#0f172a')}">${money(+x.unit_price,cu)}</div>
+        <div class="mu num" style="font-size:.7rem">${priceSub}</div>
       </div>
     </div>
-    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;margin:8px 0 6px;font-size:.84rem;color:#1e293b">
-      <b>${esc(dispStruct.title||x.normalized_label||x.product)}</b>${x.normalized_label&&x.normalized_label!==x.product?` <span class="mu">(${esc(x.product)})</span>`:''}${x.rel?`<span class="sim" style="background:#e3f2e8;margin-left:6px">✨ relacionado: ${esc(x.rel)}</span>`:x.is_exact?'':'<span class="sim" style="margin-left:6px">similar</span>'}
-      ${dispStruct.specs?`<div class="mu" style="font-size:.76rem;margin-top:2px">${esc(dispStruct.specs)}</div>`:(x.subcategory?`<span class="mu"> · ${esc(x.subcategory)}</span>`:'')}
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;margin:8px 0 6px;font-size:.82rem;color:#1e293b">
+      <b>${esc(dispStruct.title||x.normalized_label||x.product)}</b>${x.normalized_label&&x.normalized_label!==x.product?` <span class="mu">(${esc(x.product)})</span>`:''}${!isExcluded&&x.rel?`<span class="sim" style="background:#e3f2e8;margin-left:6px">✨ relacionado: ${esc(x.rel)}</span>`:(!isExcluded&&!x.is_exact?'<span class="sim" style="margin-left:6px">similar</span>':'')}
+      ${dispStruct.specs?`<div class="mu" style="font-size:.73rem;margin-top:2px">${esc(dispStruct.specs)}</div>`:(x.subcategory?`<span class="mu"> · ${esc(x.subcategory)}</span>`:'')}
     </div>
     <div class="tags" style="margin-bottom:6px">${packBadge}${confBadge}${avgBadge}${descTag}</div>
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">
-      <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none">🗺️ Cómo llegar</a>
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap" id="${thumbBoxId}">
-        <span class="mu" style="font-size:.73rem">¿Acertado?</span>
-        <button type="button" class="ghost" onclick="voteSearchResultFeedback('${encQ}','${encProd}','${encStore}',true,${Number(x.unit_price||0)},${Number(x.search_score||80)},'${esc(x.search_confidence||'alta')}','${thumbBoxId}')" aria-label="Resultado acertado" title="Resultado acertado con la búsqueda" style="min-height:36px;padding:4px 10px;border-radius:10px;font-size:.8rem;${myVote==='up'?'background:#dcfce7;border-color:#22c55e;color:#15803d;font-weight:700':''}">👍${myVote==='up'?' Acertado':''}</button>
-        <button type="button" class="ghost" onclick="voteSearchResultFeedback('${encQ}','${encProd}','${encStore}',false,${Number(x.unit_price||0)},${Number(x.search_score||80)},'${esc(x.search_confidence||'alta')}','${thumbBoxId}')" aria-label="Resultado incorrecto" title="No coincide con lo buscado" style="min-height:36px;padding:4px 10px;border-radius:10px;font-size:.8rem;${myVote==='down'?'background:#fee2e2;border-color:#ef4444;color:#b91c1c;font-weight:700':''}">👎${myVote==='down'?' No coincide':''}</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px">
+      <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${dest}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;font-size:.78rem;padding:6px 10px">🗺️ Cómo llegar</a>
+      <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap" id="${thumbBoxId}">
+        <span class="mu" style="font-size:.71rem">¿Acertado?</span>
+        <button type="button" class="ghost" onclick="voteSearchResultFeedback('${encQ}','${encProd}','${encStore}',true,${Number(x.unit_price||0)},${Number(x.search_score||80)},'${esc(x.search_confidence||'alta')}','${thumbBoxId}')" aria-label="Resultado acertado" title="Resultado acertado con la búsqueda" style="min-height:34px;padding:3px 9px;border-radius:10px;font-size:.78rem;${myVote==='up'?'background:#dcfce7;border-color:#22c55e;color:#15803d;font-weight:700':''}">👍${myVote==='up'?' Acertado':''} <span class="num">(${voteStats.up})</span></button>
+        <button type="button" class="ghost" onclick="voteSearchResultFeedback('${encQ}','${encProd}','${encStore}',false,${Number(x.unit_price||0)},${Number(x.search_score||80)},'${esc(x.search_confidence||'alta')}','${thumbBoxId}')" aria-label="Resultado incorrecto" title="No coincide con lo buscado" style="min-height:34px;padding:3px 9px;border-radius:10px;font-size:.78rem;${myVote==='down'?'background:#fee2e2;border-color:#ef4444;color:#b91c1c;font-weight:700':''}">👎${myVote==='down'?' No coincide':''} <span class="num">(${voteStats.down})</span></button>
         ${mismatchBtn}
       </div>
     </div>
@@ -4572,14 +5034,15 @@ async function voteSearchResultFeedback(encQ,encProd,encStore,isAccurate,unitPri
   const q=decodeURIComponent(encQ||''), prod=decodeURIComponent(encProd||''), store=decodeURIComponent(encStore||'');
   const vote=isAccurate?'up':'down';
   saveSearchResultVote(q,prod,vote);
+  const voteStats=getResultVoteStats(q,prod);
 
   const box=boxId?document.getElementById(boxId):null;
   if(box){
-    const mismatchBtn=(conf==='media'||score<80)?`<button type="button" class="ghost" onclick="openSearchMismatchModal('${encQ}','${encProd}','${encStore}',${Number(unitPrice||0)},${Number(score||55)},'${esc(conf||'media')}')" style="font-size:.74rem;padding:4px 8px;color:#b45309;border-color:#fde68a;background:#fffbeb">🚩 ¿No es este producto?</button>`:'';
+    const mismatchBtn=(conf==='media'||score<80)?`<button type="button" class="ghost" onclick="openSearchMismatchModal('${encQ}','${encProd}','${encStore}',${Number(unitPrice||0)},${Number(score||55)},'${esc(conf||'media')}')" style="font-size:.72rem;padding:4px 8px;color:#b45309;border-color:#fde68a;background:#fffbeb">🚩 ¿No es este producto?</button>`:'';
     box.innerHTML=`
-      <span class="mu" style="font-size:.73rem">¿Acertado?</span>
-      <button type="button" class="ghost" onclick="voteSearchResultFeedback('${encQ}','${encProd}','${encStore}',true,${Number(unitPrice||0)},${Number(score||80)},'${esc(conf||'alta')}','${esc(boxId)}')" aria-label="Resultado acertado" title="Resultado acertado con la búsqueda" style="min-height:36px;padding:4px 10px;border-radius:10px;font-size:.8rem;${vote==='up'?'background:#dcfce7;border-color:#22c55e;color:#15803d;font-weight:700':''}">👍${vote==='up'?' Acertado':''}</button>
-      <button type="button" class="ghost" onclick="voteSearchResultFeedback('${encQ}','${encProd}','${encStore}',false,${Number(unitPrice||0)},${Number(score||80)},'${esc(conf||'alta')}','${esc(boxId)}')" aria-label="Resultado incorrecto" title="No coincide con lo buscado" style="min-height:36px;padding:4px 10px;border-radius:10px;font-size:.8rem;${vote==='down'?'background:#fee2e2;border-color:#ef4444;color:#b91c1c;font-weight:700':''}">👎${vote==='down'?' No coincide':''}</button>
+      <span class="mu" style="font-size:.71rem">¿Acertado?</span>
+      <button type="button" class="ghost" onclick="voteSearchResultFeedback('${encQ}','${encProd}','${encStore}',true,${Number(unitPrice||0)},${Number(score||80)},'${esc(conf||'alta')}','${esc(boxId)}')" aria-label="Resultado acertado" title="Resultado acertado con la búsqueda" style="min-height:34px;padding:3px 9px;border-radius:10px;font-size:.78rem;${vote==='up'?'background:#dcfce7;border-color:#22c55e;color:#15803d;font-weight:700':''}">👍${vote==='up'?' Acertado':''} <span class="num">(${voteStats.up})</span></button>
+      <button type="button" class="ghost" onclick="voteSearchResultFeedback('${encQ}','${encProd}','${encStore}',false,${Number(unitPrice||0)},${Number(score||80)},'${esc(conf||'alta')}','${esc(boxId)}')" aria-label="Resultado incorrecto" title="No coincide con lo buscado" style="min-height:34px;padding:3px 9px;border-radius:10px;font-size:.78rem;${vote==='down'?'background:#fee2e2;border-color:#ef4444;color:#b91c1c;font-weight:700':''}">👎${vote==='down'?' No coincide':''} <span class="num">(${voteStats.down})</span></button>
       ${mismatchBtn}
     `;
   }
@@ -4721,18 +5184,22 @@ function pRender(q,r,useR){
 
   const disp=dispCur();
   rows.forEach(x=>{x._p=conv(+x.unit_price,x.currency||'ARS',disp)});
-  const ex=rows.some(x=>x.is_exact);
-  const nonRelatedRows=rows.filter(x=>!x.rel&&x.is_exact!==false&&x._p!=null);
-  const cand=(nonRelatedRows.length?nonRelatedRows:(rows.some(x=>x.is_exact)?rows.filter(x=>x.is_exact&&x._p!=null):rows.filter(x=>x._p!=null))).map(x=>x._p);
+
+  const acceptedRows=rows.filter(x=>!x.is_excluded);
+  const excludedRows=rows.filter(x=>!!x.is_excluded);
+
+  const ex=acceptedRows.some(x=>x.is_exact);
+  const nonRelatedRows=acceptedRows.filter(x=>!x.rel&&x.is_exact!==false&&x._p!=null);
+  const cand=(nonRelatedRows.length?nonRelatedRows:(acceptedRows.some(x=>x.is_exact)?acceptedRows.filter(x=>x.is_exact&&x._p!=null):acceptedRows.filter(x=>x._p!=null))).map(x=>x._p);
   const min=cand.length?Math.min(...cand):0;
   const max=cand.length?Math.max(...cand):0;
   const avg=cand.length?Math.round(cand.reduce((a,b)=>a+b,0)/cand.length):0;
   const spread=min>0?Math.round(((max-min)/min)*100):0;
 
-  // Calculate inflation ONLY for the EXACT same product matching the user query
+  // Calculate inflation ONLY for the EXACT same accepted product matching the user query
   let infHtml='';
   const qWords=qNorm.split(' ').filter(w=>w.length>=2);
-  const exactCandidates=rows.filter(x=>{
+  const exactCandidates=acceptedRows.filter(x=>{
     if(x.rel||x.is_exact===false||x._p==null||x._p<=0)return false;
     const pName=nk(x.product||''), pSub=nk(x.subcategory||'');
     return qWords.every(qw=>pName.includes(qw)||pSub.includes(qw));
@@ -4774,34 +5241,47 @@ function pRender(q,r,useR){
     infHtml=`<div style="background:#fff;border:1px solid #fed7aa;border-radius:10px;padding:8px 10px;margin-top:8px"><div style="font-size:.82rem;font-weight:700;color:${col}">${icon} ${inf>0?`+${inf}% de aumento (inflación)`:inf<0?`${inf}% de baja`:'Precio estable'} en ${dDays} días</div><div style="font-size:.76rem;color:#1e293b;font-weight:600;margin-top:2px">Mismo producto: <b>${esc(pName)}</b></div><div class="mu" style="font-size:.72rem;margin-top:2px">De ${money(oldest._p,disp)}${uLabel} (${dtOld}) a ${money(newest._p,disp)}${uLabel} (${dtNew}) ${storeInfo}${isPerKg?' (comparado por kilo)':''}</div></div>`;
   }
 
-  const bestStore=(rows.find(x=>x._p===min)||{}).store||'';
+  const bestStore=(acceptedRows.find(x=>x._p===min)||{}).store||'';
   const benchHtml=(min>0)?`<div class="card" style="background:#fcfbf8;border:1.5px solid var(--ln);padding:12px;margin:8px 0 12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:.92rem;color:#1e293b">📊 Comparativa en tu zona: "${esc(prActiveFilter||q)}"${activeCatInfo?` (${esc(activeCatInfo.label)})`:''}</b><span class="tag" style="background:#e8f5e9;color:#2e7d32;font-size:.7rem">${cand.length} ticket${cand.length===1?'':'s'} reportados</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;margin:6px 0"><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS BARATO</div><b class="num" style="color:#2e7d32;font-size:.98rem">${money(min,disp)}</b><div class="mu" style="font-size:.65rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(bestStore)}</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">PROMEDIO ZONA</div><b class="num" style="font-size:.98rem">${money(avg,disp)}</b><div class="mu" style="font-size:.65rem">${cand.length} registros</div></div><div style="background:#fff;border:1px solid var(--ln);border-radius:8px;padding:6px 4px"><div class="mu" style="font-size:.68rem">MÁS CARO</div><b class="num" style="color:#c62828;font-size:.98rem">${money(max,disp)}</b><div class="mu" style="font-size:.65rem">${spread>0?`+${spread}% brecha`:'único'}</div></div></div>${infHtml}</div>`:'';
 
-  // Sort rows based on active view mode
-  if(psort==='near'){
-    rows.sort((a,c)=>(a.distance_km??1e9)-(c.distance_km??1e9));
-  }else if(psort==='recent'){
-    rows.sort((a,c)=>c.purchased_at.localeCompare(a.purchased_at));
-  }else{
-    rows.sort((a,c)=>(c.is_exact-a.is_exact)||((a._p??1e18)-(c._p??1e18)));
-  }
+  const sortList=(arr)=>{
+    if(psort==='near')arr.sort((a,c)=>(a.distance_km??1e9)-(c.distance_km??1e9));
+    else if(psort==='recent')arr.sort((a,c)=>String(c.purchased_at||'').localeCompare(String(a.purchased_at||'')));
+    else arr.sort((a,c)=>(c.is_exact-a.is_exact)||((a._p??1e18)-(c._p??1e18)));
+  };
+  sortList(acceptedRows);
+  sortList(excludedRows);
 
-  const n=new Set(rows.map(x=>x.store.toLowerCase()+'|'+(x.store_address||''))).size;
-  const cardsHtml=rows.map((x,idx)=>prCard(min,avg,ex,psort==='price'||!psort?idx+1:null)(x)).join('');
+  const n=new Set(acceptedRows.map(x=>x.store.toLowerCase()+'|'+(x.store_address||''))).size;
+  const acceptedHtml=acceptedRows.length
+    ?acceptedRows.map((x,idx)=>prCard(min,avg,ex,psort==='price'||!psort?idx+1:null,{excluded:false})(x)).join('')
+    :'<div class="card empty" style="padding:18px 10px;margin:0">Sin resultados aceptados para esta búsqueda.</div>';
+  const excludedHtml=excludedRows.length
+    ?excludedRows.map((x,idx)=>prCard(min,avg,ex,idx+1,{excluded:true})(x)).join('')
+    :'<div class="card mu" style="padding:18px 10px;margin:0;text-align:center;font-size:.82rem">No hubo productos excluidos para esta búsqueda.</div>';
 
   b.innerHTML=`
     ${disambigHtml}
     ${activeCatNote}
     ${benchHtml}
-    <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 6px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 6px;flex-wrap:wrap;gap:6px">
       <div class="mu" style="font-size:.82rem">
         <b>${n} local${n===1?'':'es'}</b>${useR?` a menos de ${r} km`:''} ${prCat||!min?'':` · desde <b class="num" style="color:#15803d">${money(min,disp)}</b>`}
       </div>
-      <div style="font-size:.76rem;color:#475569;font-weight:700">🏆 Ranking de precios</div>
+      <div style="font-size:.76rem;color:#475569;font-weight:700">🏆 Ranking de precios · Aceptados vs Excluidos</div>
     </div>
     ${prNote()}
     <div class="chips">${[['price','Más barato'],['near','Más cerca'],['recent','Más reciente']].map(([k,l])=>`<button class="chip ${psort===k?'on':''}" onclick="psort='${k}';pRender('${q}',${r},${useR})">${l}</button>`).join('')}</div>
-    ${cardsHtml}
+    <div class="pr-cols">
+      <div class="pr-col" id="pr-col-accepted">
+        <div class="pr-col-hdr ok"><span>✅ Aceptados</span><span class="num">${acceptedRows.length}</span></div>
+        ${acceptedHtml}
+      </div>
+      <div class="pr-col" id="pr-col-excluded">
+        <div class="pr-col-hdr ex"><span>🚫 Excluidos</span><span class="num">${excludedRows.length}</span></div>
+        ${excludedHtml}
+      </div>
+    </div>
   `;
 }
 
@@ -5514,10 +5994,9 @@ function isAdminUser(u){
 }
 window.isAdminUser=isAdminUser;
 
-let adminTab='equivs';
+let adminTab='tags';
 let adminTagsQ='';
 let adminTagsFilter='all';
-let adminUnhQ='';
 window._adminAuditCache=null;
 
 async function admin(){
@@ -5531,19 +6010,18 @@ async function admin(){
     return;
   }
 
+  if(!['tags','equivs','downvotes'].includes(adminTab))adminTab='tags';
   await loadSharedSearchRules().catch(()=>{});
 
   app(`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <h1 style="margin:0">🛡️ Panel de Admin</h1>
-      <span class="tag" style="background:#dcfce7;color:#15803d;font-weight:800">Acceso habilitado</span>
+      <span class="tag" style="background:#dcfce7;color:#15803d;font-weight:800">Simple · 3 pestañas</span>
     </div>
     <div class="chips" style="margin-bottom:12px;flex-wrap:wrap;gap:6px">
-      <button class="chip min44 ${adminTab==='equivs'?'on':''}" onclick="adminTab='equivs';admin()">🔗 Equivalencias</button>
-      <button class="chip min44 ${adminTab==='tags'?'on':''}" onclick="adminTab='tags';admin()">🏷️ Tags</button>
-      <button class="chip min44 ${adminTab==='unmatched'?'on':''}" onclick="adminTab='unmatched';admin()">🧩 No homologados</button>
-      <button class="chip min44 ${adminTab==='benchmark'?'on':''}" onclick="adminTab='benchmark';admin()">🎯 Benchmark 50</button>
-      <button class="chip min44 ${adminTab==='feedback'?'on':''}" onclick="adminTab='feedback';admin()">📋 Feedback</button>
+      <button class="chip min44 ${adminTab==='tags'?'on':''}" onclick="adminTab='tags';admin()">🏷️ Tags y Categorías</button>
+      <button class="chip min44 ${adminTab==='equivs'?'on':''}" onclick="adminTab='equivs';admin()">🔤 Sinónimos y Acrónimos</button>
+      <button class="chip min44 ${adminTab==='downvotes'?'on':''}" onclick="adminTab='downvotes';admin()">👎 Manito Abajo</button>
     </div>
     <div id="admin-body"><p class="mu">Cargando datos administrativos…</p></div>
   `);
@@ -5551,16 +6029,12 @@ async function admin(){
   const b=$('#admin-body');
   if(!b)return;
 
-  if(adminTab==='equivs'){
-    await renderAdminEquivs(b);
-  }else if(adminTab==='tags'){
+  if(adminTab==='tags'){
     await renderAdminTags(b);
-  }else if(adminTab==='unmatched'){
-    await renderAdminUnhomologated(b);
-  }else if(adminTab==='benchmark'){
-    renderAdminBenchmark(b);
-  }else if(adminTab==='feedback'){
-    await renderAdminFeedback(b);
+  }else if(adminTab==='equivs'){
+    await renderAdminEquivs(b);
+  }else if(adminTab==='downvotes'){
+    await renderAdminDownvotes(b);
   }
 }
 window.admin=admin;
@@ -5588,7 +6062,7 @@ async function fetchAdminProductsAudit(force){
       const [ppRes,eanRes,fbRes]=await Promise.all([
         sb.from('price_points').select('id,product_name,product_key,brand,variant,size_value,size_unit,category,subcategory,description_key,ean,store,purchased_at,created_at').order('created_at',{ascending:false}).limit(300),
         sb.from('ean_catalog').select('ean,brand,product,variant,size_value,size_unit').limit(500),
-        sb.from('feedback').select('id,screen,status,message,diagnostics,created_at').in('screen',['prices_thumb_up','prices_mismatch']).order('created_at',{ascending:false}).limit(150)
+        sb.from('feedback').select('id,user_id,screen,status,message,diagnostics,created_at').in('screen',['prices_thumb_up','prices_mismatch']).order('created_at',{ascending:false}).limit(300)
       ]);
       pricePoints=Array.isArray(ppRes?.data)?ppRes.data:[];
       eanCatalog=Array.isArray(eanRes?.data)?eanRes.data:[];
@@ -5635,6 +6109,7 @@ async function adminPersistPricePointUpdate(payload){
       if(payload.variant!==undefined)patch.variant=payload.variant||null;
       if(payload.size_value!==undefined)patch.size_value=payload.size_value!=null&&payload.size_value!==''?Number(payload.size_value):null;
       if(payload.size_unit!==undefined)patch.size_unit=payload.size_unit||null;
+      if(payload.category!==undefined)patch.category=payload.category||'otros';
       if(payload.description_key!==undefined)patch.description_key=payload.description_key||null;
       if(Object.keys(patch).length){
         await sb.from('price_points').update(patch).eq('product_name',payload.rawName);
@@ -5644,7 +6119,7 @@ async function adminPersistPricePointUpdate(payload){
 }
 
 async function renderAdminTags(b){
-  b.innerHTML='<p class="mu">Cargando productos y tags asignados…</p>';
+  b.innerHTML='<p class="mu">Cargando productos, tags y categorías…</p>';
   const audit=await fetchAdminProductsAudit();
   const aliases=getAdminProductAliases();
   const rowsByKey={};
@@ -5652,13 +6127,17 @@ async function renderAdminTags(b){
   for(const [k,al] of Object.entries(aliases)){
     const rawName=al.raw||k;
     const tagList=extractTagsFromProductRow(null,al);
-    if(!tagList.length&&!al.normalizedName)continue;
+    const cat=al.category||'';
+    const storeCat=al.storeCategory||'';
+    if(!tagList.length&&!al.normalizedName&&!cat&&!storeCat)continue;
     rowsByKey[k]={
       key:k,
       rawName,
       normalizedName:al.normalizedName||'',
       tags:tagList,
       tagsStr:al.tags||tagList.join(', '),
+      category:cat||'otros',
+      storeCategory:storeCat||'',
       source:'Regla guardada',
       count:0,
       stores:new Set(),
@@ -5674,7 +6153,9 @@ async function renderAdminTags(b){
     if(!k)continue;
     const al=aliases[k];
     const rowTags=extractTagsFromProductRow(p,al);
-    if(!rowsByKey[k]&&!rowTags.length)continue;
+    const meta=parseDescriptionKeyMeta(p.description_key);
+    const rowCat=nk(al?.category||p.category||'')||'otros';
+    const rowStoreCat=normalizeStoreCategory(al?.storeCategory||meta.storeCategory||p.store_category||'');
     if(!rowsByKey[k]){
       rowsByKey[k]={
         key:k,
@@ -5682,6 +6163,8 @@ async function renderAdminTags(b){
         normalizedName:al?.normalizedName||'',
         tags:rowTags,
         tagsStr:rowTags.join(', '),
+        category:rowCat,
+        storeCategory:rowStoreCat,
         source:'Tickets',
         count:0,
         stores:new Set(),
@@ -5692,6 +6175,8 @@ async function renderAdminTags(b){
     }else{
       rowTags.forEach(t=>{if(!rowsByKey[k].tags.includes(t))rowsByKey[k].tags.push(t);});
       if(!rowsByKey[k].tagsStr&&rowsByKey[k].tags.length)rowsByKey[k].tagsStr=rowsByKey[k].tags.join(', ');
+      if((!rowsByKey[k].category||rowsByKey[k].category==='otros')&&rowCat)rowsByKey[k].category=rowCat;
+      if(!rowsByKey[k].storeCategory&&rowStoreCat)rowsByKey[k].storeCategory=rowStoreCat;
       if(!rowsByKey[k].description_key&&p.description_key)rowsByKey[k].description_key=p.description_key;
     }
     rowsByKey[k].count++;
@@ -5703,15 +6188,18 @@ async function renderAdminTags(b){
   const qNorm=nk(adminTagsQ);
   const filtered=allEntries.filter(e=>{
     if(adminTagsFilter==='rules'&&e.source!=='Regla guardada')return false;
-    if(adminTagsFilter==='tickets'&&e.source!=='Tickets')return false;
+    if(adminTagsFilter==='tagged'&&!e.tags.length)return false;
+    if(adminTagsFilter==='untagged'&&e.tags.length>0)return false;
     if(!qNorm)return true;
-    const hay=nk(`${e.rawName} ${e.normalizedName} ${e.tags.join(' ')} ${e.brand} ${e.variant}`);
+    const hay=nk(`${e.rawName} ${e.normalizedName} ${e.tags.join(' ')} ${e.category} ${e.storeCategory} ${e.brand} ${e.variant}`);
     return hay.includes(qNorm);
   });
 
+  const catKeys=Object.keys(CAT);
   const listHtml=filtered.length?filtered.slice(0,80).map((item,idx)=>{
     const encRaw=encodeURIComponent(item.rawName);
     const storesTxt=item.stores.size?Array.from(item.stores).slice(0,3).join(', '):'';
+    const scInfo=STORE_CAT_MAP[item.storeCategory];
     return `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:8px;background:#fff">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
         <div style="flex:1;min-width:0">
@@ -5719,22 +6207,35 @@ async function renderAdminTags(b){
           ${item.normalizedName?`<div style="font-size:.76rem;color:#15803d;font-weight:600">➔ ${esc(item.normalizedName)}</div>`:''}
           <div class="mu" style="font-size:.73rem;margin-top:2px">${esc(item.source)}${item.count?` · ${item.count} registro${item.count===1?'':'s'}`:''}${storesTxt?` (${esc(storesTxt)})`:''}</div>
         </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          <span class="tag" style="background:#eff6ff;color:#1e40af;font-size:.72rem">${CAT[item.category]||'🛒'} ${esc(item.category||'otros')}</span>
+          ${scInfo?`<span class="tag" style="background:#fefce8;color:#854d0e;font-size:.72rem">${scInfo.icon} ${esc(scInfo.label)}</span>`:''}
+        </div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0">${item.tags.length?item.tags.map(t=>`<span class="tag" style="background:#eef6f0;color:#166534;font-size:.74rem">🏷️ ${esc(t)}</span>`).join(''):'<span class="mu" style="font-size:.74rem">Sin tags asignados</span>'}</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">
-        <input id="adm-tags-inp-${idx}" type="text" value="${esc(item.tags.join(', '))}" placeholder="Tags separados por coma (ej: lacteo, leche entera)" style="flex:1;min-width:180px;font-size:.8rem">
-        <button type="button" onclick="adminSaveProductTags('${encRaw}',${idx})" style="font-size:.76rem;min-height:40px;padding:6px 12px">💾 Guardar tags</button>
-        <button type="button" class="ghost" onclick="adminClearProductTags('${encRaw}')" style="font-size:.76rem;min-height:40px;padding:6px 10px;color:#b91c1c;border-color:#fecaca">✕ Quitar</button>
+      <div style="display:grid;grid-template-columns:1fr 135px 135px;gap:6px;align-items:center;margin-top:6px">
+        <input id="adm-tags-inp-${idx}" type="text" value="${esc(item.tags.join(', '))}" placeholder="Tags (ej: lacteo, leche entera)" style="font-size:.8rem">
+        <select id="adm-cat-inp-${idx}" aria-label="Categoría producto" style="font-size:.78rem">
+          ${catKeys.map(ck=>`<option value="${ck}"${item.category===ck?' selected':''}>${CAT[ck]} ${ck}</option>`).join('')}
+        </select>
+        <select id="adm-storecat-inp-${idx}" aria-label="Categoría comercio" style="font-size:.78rem">
+          <option value="">Rubro auto</option>
+          ${STORE_CATEGORIES.map(sc=>`<option value="${sc.key}"${item.storeCategory===sc.key?' selected':''}>${sc.icon} ${sc.label}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button type="button" onclick="adminSaveProductTags('${encRaw}',${idx})" style="font-size:.76rem;min-height:38px;padding:6px 12px">💾 Guardar cambios</button>
+        <button type="button" class="ghost" onclick="adminClearProductTags('${encRaw}')" style="font-size:.76rem;min-height:38px;padding:6px 10px;color:#b91c1c;border-color:#fecaca">🗑️ Sacar tags</button>
       </div>
     </div>`;
-  }).join(''):'<div class="empty">No encontramos productos con tags para ese filtro.</div>';
+  }).join(''):'<div class="empty">No encontramos productos para ese filtro.</div>';
 
   b.innerHTML=`
     <div class="card" style="text-align:left">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
         <div>
-          <h2 style="margin:0">Revisión de Productos y Tags</h2>
-          <p class="mu" style="font-size:.8rem;margin:3px 0 0">Revisá, corregí o quitá los tags asignados a cada nombre de producto para mejorar el buscador.</p>
+          <h2 style="margin:0">Tags y Categorías</h2>
+          <p class="mu" style="font-size:.8rem;margin:3px 0 0">Agregá, cambiá o sacá tags y categorías de productos y comercios para mejorar las búsquedas.</p>
         </div>
         <button type="button" class="ghost" onclick="fetchAdminProductsAudit(true).then(()=>admin())" style="font-size:.76rem;min-height:38px">🔄 Actualizar</button>
       </div>
@@ -5745,19 +6246,28 @@ async function renderAdminTags(b){
       </div>
 
       <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:10px;padding:10px;margin-bottom:12px">
-        <label style="font-size:.78rem;font-weight:700;display:block;margin-bottom:4px">➕ Asignar tags a un producto:</label>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <input id="adm-new-tag-prod" type="text" placeholder="Nombre del producto (ej: FILET MERLUZA)" style="flex:1;min-width:150px;font-size:.8rem">
-          <input id="adm-new-tag-val" type="text" placeholder="Tags (ej: pescado fresco, merluza)" style="flex:1;min-width:150px;font-size:.8rem">
-          <button type="button" onclick="adminAddManualProductTags()" style="min-height:40px;font-size:.78rem">Asignar</button>
+        <label style="font-size:.78rem;font-weight:700;display:block;margin-bottom:6px">➕ Agregar / asignar tags y categoría a un producto:</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+          <input id="adm-new-tag-prod" type="text" placeholder="Producto (ej: FILET MERLUZA)" style="font-size:.8rem">
+          <input id="adm-new-tag-val" type="text" placeholder="Tags (ej: pescado fresco, merluza)" style="font-size:.8rem">
+          <select id="adm-new-tag-cat" style="font-size:.8rem">
+            <option value="">Categoría producto (opcional)</option>
+            ${catKeys.map(ck=>`<option value="${ck}">${CAT[ck]} ${ck}</option>`).join('')}
+          </select>
+          <select id="adm-new-tag-storecat" style="font-size:.8rem">
+            <option value="">Categoría comercio (opcional)</option>
+            ${STORE_CATEGORIES.map(sc=>`<option value="${sc.key}">${sc.icon} ${sc.label}</option>`).join('')}
+          </select>
         </div>
+        <button type="button" onclick="adminAddManualProductTags()" style="min-height:40px;font-size:.78rem">➕ Agregar / Asignar</button>
       </div>
 
-      <input id="adm-tags-q" type="search" value="${esc(adminTagsQ)}" oninput="adminTagsQ=this.value;renderAdminTags($('#admin-body'))" placeholder="Filtrar por producto o tag…" style="margin-bottom:8px;font-size:.84rem">
-      <div class="chips" style="margin-bottom:10px">
+      <input id="adm-tags-q" type="search" value="${esc(adminTagsQ)}" oninput="adminTagsQ=this.value;renderAdminTags($('#admin-body'))" placeholder="Filtrar por producto, categoría o tag…" style="margin-bottom:8px;font-size:.84rem">
+      <div class="chips" style="margin-bottom:10px;flex-wrap:wrap">
         <button type="button" class="chip ${adminTagsFilter==='all'?'on':''}" onclick="adminTagsFilter='all';renderAdminTags($('#admin-body'))">Todos (${allEntries.length})</button>
+        <button type="button" class="chip ${adminTagsFilter==='tagged'?'on':''}" onclick="adminTagsFilter='tagged';renderAdminTags($('#admin-body'))">Con tags</button>
+        <button type="button" class="chip ${adminTagsFilter==='untagged'?'on':''}" onclick="adminTagsFilter='untagged';renderAdminTags($('#admin-body'))">Sin tags</button>
         <button type="button" class="chip ${adminTagsFilter==='rules'?'on':''}" onclick="adminTagsFilter='rules';renderAdminTags($('#admin-body'))">Reglas guardadas</button>
-        <button type="button" class="chip ${adminTagsFilter==='tickets'?'on':''}" onclick="adminTagsFilter='tickets';renderAdminTags($('#admin-body'))">Desde tickets</button>
       </div>
       ${listHtml}
     </div>
@@ -5767,30 +6277,46 @@ async function renderAdminTags(b){
 async function adminSaveProductTags(encRaw,idx){
   const rawName=decodeURIComponent(encRaw||'');
   const inp=document.getElementById('adm-tags-inp-'+idx);
+  const catEl=document.getElementById('adm-cat-inp-'+idx);
+  const storeCatEl=document.getElementById('adm-storecat-inp-'+idx);
   const tags=String(inp?.value||'').split(/[,;|]+/).map(s=>nk(s)).filter(Boolean).join(', ');
+  const category=catEl?nk(catEl.value||''):undefined;
+  const storeCategory=storeCatEl?normalizeStoreCategory(storeCatEl.value||''):undefined;
   if(!rawName)return;
-  await saveProductAliasRule(rawName,{tags});
+  await saveProductAliasRule(rawName,{tags,category,storeCategory});
   const meta=parseDescriptionKeyMeta((window._adminAuditCache?.pricePoints||[]).find(p=>nk(p.product_name)===nk(rawName))?.description_key);
   const descKeyCombined=buildDescriptionKeyMeta({
     description:meta.cleanText,
     tags:tags?tags.split(/,\s*/):[],
-    storeCategory:meta.storeCategory,
+    storeCategory:storeCategory!==undefined?storeCategory:meta.storeCategory,
     packageType:meta.packageType,
     packCount:meta.packCount,
     baseName:meta.baseName
   });
-  await adminPersistPricePointUpdate({rawName,tags,description_key:descKeyCombined});
-  toast(`✓ Tags guardados para "${rawName}"`);
+  await adminPersistPricePointUpdate({rawName,tags,category,storeCategory,description_key:descKeyCombined});
+  toast(`✓ Tags y categorías guardados para "${rawName}"`);
   window._adminAuditCache=null;
   return await admin();
 }
 async function adminAddManualProductTags(){
   const prod=$('#adm-new-tag-prod')?.value?.trim();
-  const tags=$('#adm-new-tag-val')?.value?.trim();
-  if(!prod||!tags)return toast('Completá el nombre del producto y al menos un tag.');
-  await saveProductAliasRule(prod,{tags});
-  await adminPersistPricePointUpdate({rawName:prod,tags});
-  toast(`✓ Tags asignados a "${prod}"`);
+  const tagsRaw=$('#adm-new-tag-val')?.value?.trim()||'';
+  const category=$('#adm-new-tag-cat')?.value?.trim()||'';
+  const storeCategory=$('#adm-new-tag-storecat')?.value?.trim()||'';
+  if(!prod||(!tagsRaw&&!category&&!storeCategory))return toast('Completá el producto y al menos un tag o categoría.');
+  const tags=tagsRaw.split(/[,;|]+/).map(s=>nk(s)).filter(Boolean).join(', ');
+  await saveProductAliasRule(prod,{
+    tags,
+    ...(category?{category}:{}),
+    ...(storeCategory?{storeCategory}:{})
+  });
+  await adminPersistPricePointUpdate({
+    rawName:prod,
+    ...(tags?{tags}:{}),
+    ...(category?{category}:{}),
+    ...(storeCategory?{storeCategory}:{})
+  });
+  toast(`✓ Guardado para "${prod}"`);
   window._adminAuditCache=null;
   return await admin();
 }
@@ -5800,464 +6326,314 @@ async function adminClearProductTags(encRaw){
   const al=getAdminProductAliases();
   const existing=al[nk(rawName)];
   if(existing&&existing.normalizedName){
-    await saveProductAliasRule(rawName,{tags:''});
+    await saveProductAliasRule(rawName,{tags:'',category:'',storeCategory:''});
   }else{
     await removeProductAliasRule(rawName);
   }
   await adminPersistPricePointUpdate({rawName,tags:''});
-  toast(`Tags limpiados para "${rawName}"`);
+  toast(`Tags removidos para "${rawName}"`);
   window._adminAuditCache=null;
   return await admin();
 }
+window.renderAdminTags=renderAdminTags;
 window.adminSaveProductTags=adminSaveProductTags;
 window.adminAddManualProductTags=adminAddManualProductTags;
 window.adminClearProductTags=adminClearProductTags;
 
-async function renderAdminUnhomologated(b){
-  b.innerHTML='<p class="mu">Analizando nombres de productos no homologados…</p>';
-  const audit=await fetchAdminProductsAudit();
-  const aliases=getAdminProductAliases();
-  const eanNames=new Set();
-  for(const e of (audit.eanCatalog||[])){
-    const pN=nk(e.product||''), bN=nk(e.brand||'');
-    if(pN)eanNames.add(pN);
-    if(bN&&pN)eanNames.add(`${bN} ${pN}`.trim());
+async function renderAdminEquivs(b){
+  const eq=getAdminEquivsMap();
+  const ac=getAdminAcronymsMap();
+
+  const eqPairs=Object.entries(eq).flatMap(([k,list])=>list.map(v=>({k,v})));
+  const eqItems=eqPairs.length?eqPairs.map((pair,idx)=>{
+    const ek=encodeURIComponent(pair.k), ev=encodeURIComponent(pair.v);
+    return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid #f1f5f9">
+      <input id="eq-edit-from-${idx}" type="text" value="${esc(pair.k)}" style="flex:1;min-width:110px;font-size:.8rem">
+      <span class="mu" style="font-size:.8rem">➔</span>
+      <input id="eq-edit-to-${idx}" type="text" value="${esc(pair.v)}" style="flex:1;min-width:110px;font-size:.8rem">
+      <button type="button" onclick="adminEditEquiv(${idx},'${ek}','${ev}')" style="font-size:.74rem;min-height:36px;padding:4px 10px">💾 Cambiar</button>
+      <button type="button" class="ghost" onclick="adminRemoveEquiv('${ek}','${ev}')" style="font-size:.74rem;min-height:36px;padding:4px 10px;color:#b91c1c;border-color:#fecaca">🗑️ Eliminar</button>
+    </div>`;
+  }).join(''):'<p class="mu" style="font-size:.78rem;margin:4px 0">Sin sinónimos personalizados cargados aún.</p>';
+
+  const acPairs=Object.entries(ac).flatMap(([k,list])=>list.map(v=>({k,v})));
+  const acItems=acPairs.length?acPairs.map((pair,idx)=>{
+    const ek=encodeURIComponent(pair.k), ev=encodeURIComponent(pair.v);
+    return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid #f1f5f9">
+      <input id="ac-edit-from-${idx}" type="text" value="${esc(pair.k)}" style="flex:1;min-width:95px;font-size:.8rem">
+      <span class="mu" style="font-size:.8rem">➔</span>
+      <input id="ac-edit-to-${idx}" type="text" value="${esc(pair.v)}" style="flex:1;min-width:130px;font-size:.8rem">
+      <button type="button" onclick="adminEditAcronym(${idx},'${ek}','${ev}')" style="font-size:.74rem;min-height:36px;padding:4px 10px">💾 Cambiar</button>
+      <button type="button" class="ghost" onclick="adminRemoveAcronym('${ek}','${ev}')" style="font-size:.74rem;min-height:36px;padding:4px 10px;color:#b91c1c;border-color:#fecaca">🗑️ Eliminar</button>
+    </div>`;
+  }).join(''):'<p class="mu" style="font-size:.78rem;margin:4px 0">Sin acrónimos personalizados cargados aún (los acrónimos base como ddl, galles, choc, desc ya están activos).</p>';
+
+  b.innerHTML=`
+    <div class="card" style="text-align:left">
+      <h2 style="margin-top:0">Sinónimos</h2>
+      <p class="mu" style="font-size:.8rem">Agregá, cambiá o eliminá equivalencias entre palabras que significan lo mismo al buscar.</p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 10px">
+        <input id="eq-from" type="text" placeholder="Ej: fideos cinta" style="flex:1;min-width:130px;font-size:.82rem">
+        <input id="eq-to" type="text" placeholder="Ej: tallarines" style="flex:1;min-width:130px;font-size:.82rem">
+        <button type="button" onclick="addAdminEquiv()" style="white-space:nowrap;font-size:.8rem;min-height:40px">➕ Agregar sinónimo</button>
+      </div>
+      <div>${eqItems}</div>
+    </div>
+
+    <div class="card" style="text-align:left">
+      <h2 style="margin-top:0">Acrónimos y Abreviaturas</h2>
+      <p class="mu" style="font-size:.8rem">Mapeá abreviaturas de tickets o siglas que usan los usuarios (ej: <b>ddl</b> ➔ <b>dulce de leche</b>, <b>galles</b> ➔ <b>galletitas</b>).</p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 10px">
+        <input id="ac-from" type="text" placeholder="Sigla/abreviatura (ej: choco)" style="flex:1;min-width:130px;font-size:.82rem">
+        <input id="ac-to" type="text" placeholder="Palabra completa (ej: chocolate)" style="flex:1;min-width:130px;font-size:.82rem">
+        <button type="button" onclick="adminAddAcronym()" style="white-space:nowrap;font-size:.8rem;min-height:40px">➕ Agregar acrónimo</button>
+      </div>
+      <div>${acItems}</div>
+    </div>
+  `;
+}
+
+async function addAdminEquiv(){
+  const f=$('#eq-from')?.value?.trim(), t=$('#eq-to')?.value?.trim();
+  if(!f||!t)return toast('Ingresá ambos términos para el sinónimo.');
+  await addAdminEquivRule(f,t);
+  toast(`✓ Sinónimo agregado: "${f}" ➔ "${t}"`);
+  return await admin();
+}
+async function adminEditEquiv(idx,encOldF,encOldT){
+  const oldF=decodeURIComponent(encOldF||''), oldT=decodeURIComponent(encOldT||'');
+  const newF=document.getElementById('eq-edit-from-'+idx)?.value?.trim();
+  const newT=document.getElementById('eq-edit-to-'+idx)?.value?.trim();
+  if(!newF||!newT)return toast('Completá ambos campos para cambiar el sinónimo.');
+  await editAdminEquivRule(oldF,oldT,newF,newT);
+  toast(`✓ Sinónimo actualizado: "${newF}" ➔ "${newT}"`);
+  return await admin();
+}
+async function adminRemoveEquiv(encF,encT){
+  await removeAdminEquivRule(decodeURIComponent(encF||''),decodeURIComponent(encT||''));
+  toast('Sinónimo eliminado');
+  return await admin();
+}
+async function adminAddAcronym(){
+  const f=$('#ac-from')?.value?.trim(), t=$('#ac-to')?.value?.trim();
+  if(!f||!t)return toast('Ingresá la sigla y el término completo.');
+  await addAdminAcronymRule(f,t);
+  toast(`✓ Acrónimo agregado: "${f}" ➔ "${t}"`);
+  return await admin();
+}
+async function adminEditAcronym(idx,encOldF,encOldT){
+  const oldF=decodeURIComponent(encOldF||''), oldT=decodeURIComponent(encOldT||'');
+  const newF=document.getElementById('ac-edit-from-'+idx)?.value?.trim();
+  const newT=document.getElementById('ac-edit-to-'+idx)?.value?.trim();
+  if(!newF||!newT)return toast('Completá sigla y término completo.');
+  await editAdminAcronymRule(oldF,oldT,newF,newT);
+  toast(`✓ Acrónimo actualizado: "${newF}" ➔ "${newT}"`);
+  return await admin();
+}
+async function adminRemoveAcronym(encF,encT){
+  await removeAdminAcronymRule(decodeURIComponent(encF||''),decodeURIComponent(encT||''));
+  toast('Acrónimo eliminado');
+  return await admin();
+}
+window.renderAdminEquivs=renderAdminEquivs;
+window.addAdminEquiv=addAdminEquiv;
+window.adminEditEquiv=adminEditEquiv;
+window.adminRemoveEquiv=adminRemoveEquiv;
+window.adminAddAcronym=adminAddAcronym;
+window.adminEditAcronym=adminEditAcronym;
+window.adminRemoveAcronym=adminRemoveAcronym;
+
+async function renderAdminDownvotes(b){
+  b.innerHTML='<p class="mu">Cargando ítems con manito abajo y exclusiones…</p>';
+  const [shared,audit]=await Promise.all([
+    loadSharedSearchVotes(true).catch(()=>({counts:{},pairs:[]})),
+    fetchAdminProductsAudit(true).catch(()=>({searchVotes:[]}))
+  ]);
+  const exMap=getAdminExclusionsMap();
+  const byPair={};
+
+  for(const p of (shared.pairs||[])){
+    const qN=nk(p.query||''), prodN=nk(p.product||'');
+    if(!qN||!prodN)continue;
+    const key=`${qN}|||${prodN}`;
+    byPair[key]={
+      key,
+      query:p.query||qN,
+      product:p.product||prodN,
+      up:Number(p.up)||0,
+      down:Number(p.down)||0,
+      stores:Array.isArray(p.stores)?[...p.stores]:[],
+      notes:Array.isArray(p.notes)?[...p.notes]:[],
+      unresolvedIds:Array.isArray(p.unresolvedIds)?[...p.unresolvedIds]:[],
+      _fromShared:true
+    };
   }
 
-  const downCounts={};
+  const seenAuditVoter=new Set();
   for(const v of (audit.searchVotes||[])){
     const d=v?.diagnostics||{};
-    if(v.screen==='prices_mismatch'||d.is_accurate===false){
-      const k=nk(d.product||'');
-      if(k)downCounts[k]=(downCounts[k]||0)+1;
+    const qRaw=String(d.query||'').trim(), pRaw=String(d.product||'').trim();
+    const qN=nk(qRaw), pN=nk(pRaw);
+    if(!qN||!pN)continue;
+    const key=`${qN}|||${pN}`;
+    const isUp=v.screen==='prices_thumb_up'||d.is_accurate===true;
+    if(!byPair[key]){
+      byPair[key]={key,query:qRaw,product:pRaw,up:0,down:0,stores:[],notes:[],unresolvedIds:[],_fromShared:false};
+    }
+    if(!byPair[key]._fromShared){
+      const vk=`${v.user_id||v.id||Math.random()}::${key}`;
+      if(!seenAuditVoter.has(vk)){
+        seenAuditVoter.add(vk);
+        if(isUp)byPair[key].up++;
+        else byPair[key].down++;
+      }
+    }
+    if(d.store&&!byPair[key].stores.includes(String(d.store)))byPair[key].stores.push(String(d.store));
+    if(d.note&&!byPair[key].notes.includes(String(d.note)))byPair[key].notes.push(String(d.note));
+    if(!isUp&&v.status!=='resuelto'&&v.id&&!byPair[key].unresolvedIds.includes(v.id)){
+      byPair[key].unresolvedIds.push(v.id);
     }
   }
 
-  const grouped={};
-  let homologatedCount=0;
-  for(const p of (audit.pricePoints||[])){
-    const rawName=String(p.product_name||p.product||'').trim();
-    const k=nk(rawName);
-    if(!k)continue;
-    const al=aliases[k];
-    const isAliased=!!(al&&(al.normalizedName||al.homologated));
-    const inEan=!!p.ean||eanNames.has(k);
-    if(isAliased||inEan){
-      if(!grouped[k])homologatedCount++;
-      continue;
-    }
-    if(!grouped[k]){
-      const parsed=parseStructuredProductText(rawName,{
-        brand:p.brand,
-        variant:p.variant,
-        size_value:p.size_value,
-        size_unit:p.size_unit
-      });
-      grouped[k]={
-        key:k,
-        rawName,
-        count:0,
-        stores:new Set(),
-        category:p.category||'otros',
-        parsed,
-        downVotes:downCounts[k]||0
-      };
-    }
-    grouped[k].count++;
-    if(p.store)grouped[k].stores.add(p.store);
-  }
+  const downItems=Object.values(byPair)
+    .filter(item=>item.down>0||item.unresolvedIds.length>0)
+    .sort((a,b)=>(b.unresolvedIds.length-a.unresolvedIds.length)||(b.down-a.down)||a.query.localeCompare(b.query));
 
-  const allUnhom=Object.values(grouped).sort((a,b)=>(b.downVotes-a.downVotes)||(b.count-a.count)||a.rawName.localeCompare(b.rawName));
-  const qNorm=nk(adminUnhQ);
-  const filtered=allUnhom.filter(u=>!qNorm||nk(`${u.rawName} ${u.parsed.brand} ${u.category}`).includes(qNorm));
-
-  const listHtml=filtered.length?filtered.slice(0,60).map((item,idx)=>{
-    const encRaw=encodeURIComponent(item.rawName);
-    const storesTxt=Array.from(item.stores).slice(0,3).join(', ');
-    const st=item.parsed;
-    return `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:8px;background:#fff">
+  const downHtml=downItems.length?downItems.map(item=>{
+    const qN=nk(item.query), prodN=nk(item.product);
+    const isEx=!!getExclusionReason(qN,{product:item.product})||!!(exMap[qN]&&exMap[qN].some(ex=>prodN.includes(ex)||ex===prodN));
+    const isPending=item.unresolvedIds.length>0;
+    const encQ=encodeURIComponent(item.query);
+    const encProd=encodeURIComponent(item.product);
+    const encIds=encodeURIComponent(JSON.stringify(item.unresolvedIds));
+    return `<div style="border:1px solid ${isEx?'#fecaca':(isPending?'#fed7aa':'#e2e8f0')};border-radius:10px;padding:10px;margin-bottom:8px;background:#fff">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
         <div style="flex:1;min-width:0">
-          <b style="font-size:.9rem;color:#0f172a">${esc(item.rawName)}</b>
-          <div class="mu" style="font-size:.73rem;margin-top:2px">${item.count} registro${item.count===1?'':'s'}${storesTxt?` · ${esc(storesTxt)}`:''} · ${CAT[item.category]||'🛒'} ${esc(item.category)}</div>
-          ${item.downVotes?`<div style="font-size:.73rem;color:#b91c1c;font-weight:700;margin-top:2px">👎 ${item.downVotes} reporte${item.downVotes===1?'':'s'} de búsqueda incorrecta</div>`:''}
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button type="button" class="ghost" onclick="adminSuggestSepaForUnhomologated('${encRaw}',${idx})" style="font-size:.74rem;min-height:36px;padding:4px 10px">✨ Sugerir SEPA</button>
-          <button type="button" class="ghost" onclick="adminToggleHomologEditor(${idx})" style="font-size:.74rem;min-height:36px;padding:4px 10px">🔧 Homologar</button>
-          <button type="button" onclick="adminApproveProductAsIs('${encRaw}')" style="font-size:.74rem;min-height:36px;padding:4px 10px">✓ Aprobar</button>
-        </div>
-      </div>
-      <div id="adm-unh-sepa-${idx}" style="display:none;margin-top:6px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px"></div>
-      <div id="adm-unh-ed-${idx}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #cbd5e1">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
-          <input id="adm-unh-name-${idx}" type="text" value="${esc(st.base_name||item.rawName)}" placeholder="Nombre limpio producto" style="font-size:.8rem">
-          <input id="adm-unh-brand-${idx}" type="text" value="${esc(st.brand||'')}" placeholder="Marca" style="font-size:.8rem">
-          <input id="adm-unh-var-${idx}" type="text" value="${esc(st.variant||'')}" placeholder="Modelo / Variante" style="font-size:.8rem">
-          <div style="display:flex;gap:4px">
-            <input id="adm-unh-sz-${idx}" type="number" step="any" value="${st.size_value??''}" placeholder="Peso/Vol" style="font-size:.8rem;flex:1">
-            <select id="adm-unh-unit-${idx}" style="font-size:.8rem;width:72px">${SIZE_UNITS.map(u=>`<option value="${u}"${st.size_unit===u?' selected':''}>${u||'u.'}</option>`).join('')}</select>
+          <div style="font-size:.86rem;color:#0f172a">Búsqueda: <b>"${esc(item.query)}"</b> ➔ <b>"${esc(item.product)}"</b></div>
+          <div class="mu" style="font-size:.73rem;margin-top:2px">
+            <span style="color:#b91c1c;font-weight:700">👎 ${item.down}</span> ·
+            <span style="color:#15803d;font-weight:700">👍 ${item.up}</span>
+            ${item.stores.length?` · ${esc(item.stores.slice(0,3).join(', '))}`:''}
+            ${item.notes.length?` · "${esc(item.notes[0])}"`:''}
           </div>
         </div>
-        <input id="adm-unh-tags-${idx}" type="text" placeholder="Tags buscables (ej: leche entera, serenisima)" style="font-size:.8rem;margin-bottom:6px">
-        <button type="button" onclick="adminSaveHomologation('${encRaw}',${idx})" style="min-height:40px;font-size:.8rem">💾 Guardar homologación</button>
+        <span class="tag" style="font-size:.7rem;font-weight:700;background:${isEx?'#fef2f2':(isPending?'#fff7ed':'#f0fdf4')};color:${isEx?'#b91c1c':(isPending?'#9a3412':'#15803d')}">
+          ${isEx?'🚫 Excluido':(isPending?'⏳ Por revisar':'✓ Permitido')}
+        </span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+        <button type="button" onclick="adminDecideDownvote('${encQ}','${encProd}','exclude','${encIds}')" style="font-size:.74rem;min-height:36px;padding:4px 10px;background:#b91c1c">🚫 Excluir asociación</button>
+        <button type="button" class="ghost" onclick="adminDecideDownvote('${encQ}','${encProd}','allow','${encIds}')" style="font-size:.74rem;min-height:36px;padding:4px 10px;color:#15803d;border-color:#bbf7d0">✓ No excluir (Permitir)</button>
+        <button type="button" class="ghost" onclick="adminDecideDownvote('${encQ}','${encProd}','synonym','${encIds}')" style="font-size:.74rem;min-height:36px;padding:4px 10px;color:#1e40af;border-color:#bfdbfe">🔤 Vincular sinónimo</button>
       </div>
     </div>`;
-  }).join(''):'<div class="empty">🎉 ¡Todos los productos revisados están homologados!</div>';
+  }).join(''):'<div class="empty">No hay ítems con manito abajo para revisar por ahora.</div>';
+
+  const exPairs=Object.entries(exMap).flatMap(([k,list])=>list.map(v=>({k,v})));
+  const exItems=exPairs.length?exPairs.map((pair,idx)=>{
+    const ek=encodeURIComponent(pair.k), ev=encodeURIComponent(pair.v);
+    return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid #f1f5f9">
+      <input id="ex-edit-from-${idx}" type="text" value="${esc(pair.k)}" style="flex:1;min-width:110px;font-size:.8rem">
+      <span class="mu" style="font-size:.78rem">excluye</span>
+      <input id="ex-edit-to-${idx}" type="text" value="${esc(pair.v)}" style="flex:1;min-width:110px;font-size:.8rem">
+      <button type="button" onclick="adminEditExclusion(${idx},'${ek}','${ev}')" style="font-size:.74rem;min-height:36px;padding:4px 10px">💾 Cambiar</button>
+      <button type="button" class="ghost" onclick="adminRemoveExclusion('${ek}','${ev}')" style="font-size:.74rem;min-height:36px;padding:4px 10px;color:#b91c1c;border-color:#fecaca">🗑️ Eliminar</button>
+    </div>`;
+  }).join(''):'<p class="mu" style="font-size:.78rem;margin:4px 0">Sin exclusiones manuales activas.</p>';
 
   b.innerHTML=`
     <div class="card" style="text-align:left">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
         <div>
-          <h2 style="margin:0">Productos No Homologados</h2>
-          <p class="mu" style="font-size:.8rem;margin:3px 0 0">Nombres crudos de tickets sin equivalencia aprobada ni coincidencia exacta en el catálogo.</p>
+          <h2 style="margin:0">Ítems con Manito Abajo (👎)</h2>
+          <p class="mu" style="font-size:.8rem;margin:3px 0 0">Revisá las asociaciones reportadas por los usuarios en Precios y decidí si se excluyen o se permiten.</p>
         </div>
-        <button type="button" class="ghost" onclick="fetchAdminProductsAudit(true).then(()=>admin())" style="font-size:.76rem;min-height:38px">🔄 Actualizar</button>
+        <button type="button" class="ghost" onclick="loadSharedSearchVotes(true).then(()=>fetchAdminProductsAudit(true)).then(()=>admin())" style="font-size:.76rem;min-height:38px">🔄 Actualizar</button>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;text-align:center;margin:8px 0 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px">
-        <div><div class="mu" style="font-size:.66rem">PENDIENTES DE HOMOLOGAR</div><b class="num" style="color:#b45309">${allUnhom.length}</b></div>
-        <div><div class="mu" style="font-size:.66rem">HOMOLOGADOS / EN CATÁLOGO</div><b class="num" style="color:#15803d">${homologatedCount}</b></div>
+      ${downHtml}
+    </div>
+
+    <div class="card" style="text-align:left">
+      <h2 style="margin-top:0">🚫 Reglas de Exclusión Activas</h2>
+      <p class="mu" style="font-size:.8rem">Al excluir una asociación, esos resultados pasan automáticamente a la columna Excluidos en Precios.</p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 10px">
+        <input id="ex-from" type="text" placeholder="Al buscar (ej: leche)" style="flex:1;min-width:130px;font-size:.82rem">
+        <input id="ex-to" type="text" placeholder="Excluir (ej: chocolate)" style="flex:1;min-width:130px;font-size:.82rem">
+        <button type="button" class="ghost" onclick="addAdminExclusion()" style="white-space:nowrap;font-size:.8rem;min-height:40px;color:#b91c1c;border-color:#fecaca">🚫 Excluir</button>
       </div>
-      <input id="adm-unh-q" type="search" value="${esc(adminUnhQ)}" oninput="adminUnhQ=this.value;renderAdminUnhomologated($('#admin-body'))" placeholder="Filtrar producto no homologado…" style="margin-bottom:10px;font-size:.84rem">
-      ${listHtml}
+      <div>${exItems}</div>
     </div>
   `;
 }
 
-function adminToggleHomologEditor(idx){
-  const el=document.getElementById('adm-unh-ed-'+idx);
-  if(el)el.style.display=el.style.display==='none'?'block':'none';
-}
-async function adminSuggestSepaForUnhomologated(encRaw,idx){
-  const rawName=decodeURIComponent(encRaw||'');
-  const box=document.getElementById('adm-unh-sepa-'+idx);
-  if(!box)return;
-  box.style.display='block';
-  box.innerHTML='<span class="mu" style="font-size:.76rem">✨ Buscando en diccionario…</span>';
-  const matches=await searchSepaCatalog(rawName);
-  if(!matches.length){
-    box.innerHTML='<span class="mu" style="font-size:.76rem">Sin coincidencias directas en diccionario SEPA. Podés homologarlo manualmente con 🔧 Homologar.</span>';
-    return;
-  }
-  box._matches=matches;
-  box.innerHTML=`<div style="font-size:.74rem;font-weight:700;color:#166534;margin-bottom:4px">Tocá una sugerencia para completar los campos:</div>`+matches.slice(0,4).map((m,mi)=>`
-    <button type="button" class="ghost" onclick="adminApplySepaToUnhomologated(${idx},${mi})" style="display:block;width:100%;text-align:left;margin-bottom:4px;font-size:.76rem;padding:6px 8px;background:#fff">
-      <b>${esc(m.brand||'')}</b> ${esc(m.product||'')}${m.variant?' · '+esc(m.variant):''}${m.size_value?` · ${m.size_value}${m.size_unit||''}`:''}
-    </button>
-  `).join('');
-}
-function adminApplySepaToUnhomologated(idx,mi){
-  const box=document.getElementById('adm-unh-sepa-'+idx);
-  const m=box?._matches?.[mi];
-  if(!m)return;
-  const ed=document.getElementById('adm-unh-ed-'+idx);
-  if(ed)ed.style.display='block';
-  const setVal=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v??'';};
-  setVal('adm-unh-name-'+idx,m.product||'');
-  setVal('adm-unh-brand-'+idx,m.brand||'');
-  setVal('adm-unh-var-'+idx,m.variant||'');
-  setVal('adm-unh-sz-'+idx,m.size_value??'');
-  setVal('adm-unh-unit-'+idx,normalizeSizeUnit(m.size_unit));
-}
-async function adminSaveHomologation(encRaw,idx){
-  const rawName=decodeURIComponent(encRaw||'');
-  const baseName=$('#adm-unh-name-'+idx)?.value?.trim()||rawName;
-  const brand=$('#adm-unh-brand-'+idx)?.value?.trim()||'';
-  const variant=$('#adm-unh-var-'+idx)?.value?.trim()||'';
-  const svRaw=$('#adm-unh-sz-'+idx)?.value;
-  const size_value=svRaw!==''&&svRaw!=null?Number(svRaw):null;
-  const size_unit=normalizeSizeUnit($('#adm-unh-unit-'+idx)?.value||'');
-  const tags=$('#adm-unh-tags-'+idx)?.value?.trim()||'';
-  const normalizedName=[brand,baseName,variant,size_value&&size_unit?`${size_value}${size_unit}`:''].filter(Boolean).join(' ').trim();
-  await saveProductAliasRule(rawName,{normalizedName,brand,variant,size_value,size_unit,tags,homologated:true});
-  await adminPersistPricePointUpdate({rawName,normalizedName,brand,variant,size_value,size_unit,tags});
-  toast(`✓ Producto homologado: ${normalizedName}`);
-  window._adminAuditCache=null;
-  return await admin();
-}
-async function adminApproveProductAsIs(encRaw){
-  const rawName=decodeURIComponent(encRaw||'');
-  if(!rawName)return;
-  const st=parseStructuredProductText(rawName);
-  await saveProductAliasRule(rawName,{
-    normalizedName:rawName,
-    brand:st.brand||'',
-    variant:st.variant||'',
-    size_value:st.size_value,
-    size_unit:st.size_unit,
-    homologated:true
-  });
-  toast(`✓ "${rawName}" aprobado como nombre válido`);
-  window._adminAuditCache=null;
-  return await admin();
-}
-window.renderAdminTags=renderAdminTags;
-window.renderAdminUnhomologated=renderAdminUnhomologated;
-window.adminToggleHomologEditor=adminToggleHomologEditor;
-window.adminSuggestSepaForUnhomologated=adminSuggestSepaForUnhomologated;
-window.adminApplySepaToUnhomologated=adminApplySepaToUnhomologated;
-window.adminSaveHomologation=adminSaveHomologation;
-window.adminApproveProductAsIs=adminApproveProductAsIs;
-
-async function fetchCommunityMismatches(){
-  let rows=[];
+async function resolveFeedbackIds(ids){
+  const cleanIds=Array.isArray(ids)?ids.filter(Boolean):[];
+  if(!cleanIds.length)return;
   try{
     const sess=sb?.auth?.getSession?await sb.auth.getSession():null;
     const token=sess?.data?.session?.access_token;
     if(token){
-      const r=await fetch('/api/canasta/admin/feedback',{headers:{Authorization:'Bearer '+token}});
-      if(r.ok){
-        const j=await r.json();
-        if(Array.isArray(j.tickets))rows=j.tickets;
-      }
-    }
-  }catch(_){}
-  if(!rows.length&&sb){
-    try{
-      const {data=[]}=await sb.from('feedback').select('id,ticket,type,status,message,screen,diagnostics,created_at').eq('screen','prices_mismatch').order('created_at',{ascending:false}).limit(30);
-      if(Array.isArray(data))rows=data;
-    }catch(_){}
-  }
-  return rows.filter(x=>(x.screen==='prices_mismatch'||x.diagnostics?.kind==='search_mismatch')&&x.status!=='resuelto');
-}
-
-async function renderAdminEquivs(b){
-  const eq=getAdminEquivsMap();
-  const ex=getAdminExclusionsMap();
-  const al=getAdminProductAliases();
-
-  const eqItems=Object.entries(eq).flatMap(([k,list])=>list.map(v=>`
-    <div class="row" style="font-size:.8rem">
-      <span><b>${esc(k)}</b> ➔ ${esc(v)}</span>
-      <button type="button" class="ghost" onclick="removeAdminEquivRule('${esc(k)}','${esc(v)}').then(()=>admin())" style="font-size:.7rem;padding:2px 8px">✕</button>
-    </div>`)).join('')||'<p class="mu" style="font-size:.78rem;margin:4px 0">Sin sinónimos personalizados cargados aún.</p>';
-
-  const exItems=Object.entries(ex).flatMap(([k,list])=>list.map(v=>`
-    <div class="row" style="font-size:.8rem">
-      <span>Al buscar <b>${esc(k)}</b> ocultar <b>"${esc(v)}"</b></span>
-      <button type="button" class="ghost" onclick="removeAdminExclusionRule('${esc(k)}','${esc(v)}').then(()=>admin())" style="font-size:.7rem;padding:2px 8px">✕</button>
-    </div>`)).join('')||'<p class="mu" style="font-size:.78rem;margin:4px 0">Sin exclusiones negativas cargadas aún.</p>';
-
-  const alItems=Object.entries(al).map(([k,v])=>`
-    <div class="row" style="font-size:.8rem">
-      <span><b>${esc(v.raw||k)}</b> ➔ ${esc(v.normalizedName||'-')} ${v.tags?`(${esc(v.tags)})`:''}</span>
-      <button type="button" class="ghost" onclick="removeProductAliasRule('${esc(k)}').then(()=>admin())" style="font-size:.7rem;padding:2px 8px">✕</button>
-    </div>`).join('')||'<p class="mu" style="font-size:.78rem;margin:4px 0">Sin normalizaciones manuales aún.</p>';
-
-  b.innerHTML=`
-    <div class="card" style="text-align:left">
-      <h2 style="margin-top:0">Auditoría y Corrección de Asociaciones</h2>
-      <p class="mu" style="font-size:.82rem">Todas las equivalencias, exclusiones y tags se aplican en tiempo real al motor de búsqueda inteligente.</p>
-      
-      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:10px;margin-bottom:10px">
-        <b style="color:#166534;font-size:.84rem">✓ Regla Estricta Multi-Pack Activada (CAN-00016 / Rumba):</b>
-        <p style="font-size:.78rem;color:#14532d;margin:4px 0 0">Los paquetes individuales (108g / 1u) y multipacks (Pack x3) nunca se mezclan en el mismo ranking.</p>
-      </div>
-
-      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--ln)">
-        <label style="font-size:.82rem;font-weight:700">➕ Agregar sinónimo / equivalencia:</label>
-        <div style="display:flex;gap:6px;margin-top:4px">
-          <input id="eq-from" type="text" placeholder="Ej: fideos cinta" style="font-size:.82rem">
-          <input id="eq-to" type="text" placeholder="Ej: tallarines" style="font-size:.82rem">
-          <button onclick="addAdminEquiv()" style="white-space:nowrap;font-size:.8rem">Vincular</button>
-        </div>
-        <div style="margin-top:8px">${eqItems}</div>
-      </div>
-
-      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--ln)">
-        <label style="font-size:.82rem;font-weight:700">🚫 Agregar exclusión negativa (evitar falsos positivos):</label>
-        <div style="display:flex;gap:6px;margin-top:4px">
-          <input id="ex-from" type="text" placeholder="Al buscar (ej: leche)" style="font-size:.82rem">
-          <input id="ex-to" type="text" placeholder="Ocultar (ej: chocolate)" style="font-size:.82rem">
-          <button class="ghost" onclick="addAdminExclusion()" style="white-space:nowrap;font-size:.8rem;color:#b91c1c;border-color:#fecaca">Excluir</button>
-        </div>
-        <div style="margin-top:8px">${exItems}</div>
-      </div>
-
-      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--ln)">
-        <label style="font-size:.82rem;font-weight:700">✏️ Productos normalizados / con tags personalizados:</label>
-        <div style="margin-top:6px">${alItems}</div>
-      </div>
-    </div>
-
-    <div class="card" style="text-align:left" id="admin-mismatches-box">
-      <h2 style="margin-top:0">📥 Sugerencias de la comunidad</h2>
-      <p class="mu" style="font-size:.8rem">Cargando reportes de asociaciones desde Precios…</p>
-    </div>
-  `;
-
-  const mBox=$('#admin-mismatches-box');
-  if(mBox){
-    const mismatches=await fetchCommunityMismatches();
-    mBox.innerHTML=`
-      <h2 style="margin-top:0">📥 Sugerencias de la comunidad (${mismatches.length})</h2>
-      ${mismatches.length?mismatches.map(m=>{
-        const d=m.diagnostics||{};
-        const q=d.query||'', prod=d.product||'';
-        return `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:8px;background:#f8fafc">
-          <div style="font-size:.82rem;font-weight:700;color:#0f172a">Búsqueda "${esc(q)}" ➔ "${esc(prod)}"</div>
-          <div class="mu" style="font-size:.75rem;margin:2px 0 6px">${esc(m.message||'')}</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button type="button" class="ghost" onclick="adminApplyMismatchRule('${esc(m.id||'')}','exclude','${encodeURIComponent(q)}','${encodeURIComponent(prod)}')" style="font-size:.72rem;padding:4px 8px;color:#b91c1c;border-color:#fecaca">🚫 Excluir</button>
-            <button type="button" class="ghost" onclick="adminApplyMismatchRule('${esc(m.id||'')}','synonym','${encodeURIComponent(q)}','${encodeURIComponent(prod)}')" style="font-size:.72rem;padding:4px 8px;color:#1e40af;border-color:#bfdbfe">➕ Vincular sinónimo</button>
-            <button type="button" class="ghost" onclick="adminResolveMismatch('${esc(m.id||'')}')" style="font-size:.72rem;padding:4px 8px">✓ Descartar</button>
-          </div>
-        </div>`;
-      }).join(''):'<p class="mu" style="font-size:.8rem;margin:0">No hay reportes pendientes desde Precios.</p>'}
-    `;
-  }
-}
-
-async function adminApplyMismatchRule(id,kind,encQ,encProd){
-  const q=decodeURIComponent(encQ||''), prod=decodeURIComponent(encProd||'');
-  if(kind==='exclude')await addAdminExclusionRule(q,prod);
-  else await addAdminEquivRule(q,prod);
-  if(id)await adminResolveMismatch(id,true);
-  toast(kind==='exclude'?'Exclusión aplicada al buscador':'Sinónimo vinculado');
-  admin();
-}
-async function adminResolveMismatch(id,silent){
-  try{
-    const sess=sb?.auth?.getSession?await sb.auth.getSession():null;
-    const token=sess?.data?.session?.access_token;
-    if(token&&id){
       await fetch('/api/canasta/admin/feedback-resolve',{
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-        body:JSON.stringify({id,status:'resuelto'})
+        body:JSON.stringify({ids:cleanIds,status:'resuelto'})
       });
-    }else if(sb&&id){
-      await sb.from('feedback').update({status:'resuelto'}).eq('id',id);
+      return;
     }
   }catch(_){}
-  if(!silent){toast('Sugerencia marcada como resuelta');admin();}
+  if(sb){
+    for(const fid of cleanIds){
+      try{await sb.from('feedback').update({status:'resuelto'}).eq('id',fid);}catch(_){}
+    }
+  }
 }
-window.adminApplyMismatchRule=adminApplyMismatchRule;
-window.adminResolveMismatch=adminResolveMismatch;
 
-async function addAdminEquiv(){
-  const f=$('#eq-from')?.value?.trim(), t=$('#eq-to')?.value?.trim();
-  if(!f||!t)return toast('Ingresá ambos términos para asociar.');
-  await addAdminEquivRule(f,t);
-  toast(`Vinculado: "${f}" ➔ "${t}"`);
-  admin();
+async function adminDecideDownvote(encQ,encProd,decision,encIds){
+  const q=decodeURIComponent(encQ||''), prod=decodeURIComponent(encProd||'');
+  let ids=[];
+  try{ids=JSON.parse(decodeURIComponent(encIds||'[]'));}catch(_){}
+  if(decision==='exclude'){
+    await addAdminExclusionRule(q,prod);
+    toast(`🚫 Excluido "${prod}" al buscar "${q}"`);
+  }else if(decision==='allow'){
+    await removeAdminExclusionRule(q,prod);
+    toast(`✓ Permitido "${prod}" al buscar "${q}"`);
+  }else if(decision==='synonym'){
+    await addAdminEquivRule(q,prod);
+    toast(`🔤 Sinónimo vinculado: "${q}" ➔ "${prod}"`);
+  }
+  await resolveFeedbackIds(ids);
+  window._adminAuditCache=null;
+  window._sharedSearchVotes.loadedAt=0;
+  return await admin();
 }
+
 async function addAdminExclusion(){
   const f=$('#ex-from')?.value?.trim(), t=$('#ex-to')?.value?.trim();
   if(!f||!t)return toast('Ingresá el término buscado y el producto a excluir.');
   await addAdminExclusionRule(f,t);
-  toast(`Excluido "${t}" al buscar "${f}"`);
-  admin();
+  toast(`🚫 Excluido "${t}" al buscar "${f}"`);
+  return await admin();
 }
-window.addAdminEquiv=addAdminEquiv;
+async function adminEditExclusion(idx,encOldQ,encOldEx){
+  const oldQ=decodeURIComponent(encOldQ||''), oldEx=decodeURIComponent(encOldEx||'');
+  const newQ=document.getElementById('ex-edit-from-'+idx)?.value?.trim();
+  const newEx=document.getElementById('ex-edit-to-'+idx)?.value?.trim();
+  if(!newQ||!newEx)return toast('Completá ambos campos para editar la exclusión.');
+  await editAdminExclusionRule(oldQ,oldEx,newQ,newEx);
+  toast(`✓ Exclusión actualizada: "${newQ}" ➔ "${newEx}"`);
+  return await admin();
+}
+async function adminRemoveExclusion(encQ,encEx){
+  await removeAdminExclusionRule(decodeURIComponent(encQ||''),decodeURIComponent(encEx||''));
+  toast('Exclusión eliminada');
+  return await admin();
+}
+window.renderAdminDownvotes=renderAdminDownvotes;
+window.adminDecideDownvote=adminDecideDownvote;
 window.addAdminExclusion=addAdminExclusion;
-
-function renderAdminBenchmark(b){
-  const ratings=getBenchmarkRatings();
-  const highCount=Object.values(ratings).filter(x=>x.level==='alta').length;
-  const midCount=Object.values(ratings).filter(x=>x.level==='media').length;
-  const lowCount=Object.values(ratings).filter(x=>x.level==='baja').length;
-  const ratedCount=Object.keys(ratings).length;
-  const issueCount=midCount+lowCount;
-
-  b.innerHTML=`
-    <div class="card" style="text-align:left">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2 style="margin:0">Validador de 50 Consultas de Prueba</h2>
-        <button onclick="openBenchmarkModal(0)" style="font-size:.82rem;padding:6px 12px">▶ Iniciar Validación</button>
-      </div>
-      <p class="mu" style="font-size:.82rem;margin:6px 0 10px">Permite al administrador evaluar 1 por 1 los resultados del nuevo motor de búsqueda:</p>
-
-      <div style="background:#f8fafc;border:1.5px solid var(--ln);border-radius:10px;padding:12px;margin-bottom:12px;display:grid;grid-template-columns:repeat(4,1fr);text-align:center;gap:6px">
-        <div><div class="mu" style="font-size:.7rem">TOTAL CONSULTAS</div><b style="font-size:1.15rem">50</b></div>
-        <div><div class="mu" style="font-size:.7rem">CALIFICADOS</div><b style="font-size:1.15rem">${ratedCount}</b></div>
-        <div><div class="mu" style="font-size:.7rem">ALTA CONFIANZA</div><b style="font-size:1.15rem;color:#15803d">${highCount}</b></div>
-        <div><div class="mu" style="font-size:.7rem">MEDIA / BAJA</div><b style="font-size:1.15rem;color:#b45309">${issueCount}</b></div>
-      </div>
-
-      <div class="mact">
-        ${issueCount>0?`<button onclick="renderBenchmarkSummaryModal('issues')" style="background:#b45309">🔧 Corregir Media / Baja (${issueCount})</button>`:''}
-        <button class="ghost" onclick="renderBenchmarkSummaryModal('all')">📋 Ver Matriz Detallada</button>
-        <button class="ghost" onclick="if(confirm('¿Reiniciar benchmark?')){localStorage.removeItem('benchmark_50_ratings');admin()}">🔄 Reiniciar Evaluaciones</button>
-      </div>
-    </div>
-  `;
-}
-
-async function renderAdminFeedback(b){
-  b.innerHTML='<p class="mu">Consultando tickets de usuarios…</p>';
-  try{
-    let tickets=[];
-    let loadedViaApi=false;
-    try{
-      const sess=await sb.auth.getSession();
-      const token=sess?.data?.session?.access_token;
-      if(token){
-        const r=await fetch('/api/canasta/admin/feedback',{headers:{Authorization:'Bearer '+token}});
-        if(r.ok){
-          const j=await r.json();
-          if(Array.isArray(j.tickets)){tickets=j.tickets;loadedViaApi=true;}
-        }
-      }
-    }catch(_){}
-
-    if(!loadedViaApi){
-      const {data=[],error}=await sb.from('feedback').select('id,ticket,type,status,message,screen,app_version,diagnostics,created_at,user_id').order('created_at',{ascending:false}).limit(40);
-      if(error){
-        b.innerHTML=`<div class="card" style="color:#b91c1c">Error cargando feedback: ${esc(error.message)}</div>`;
-        return;
-      }
-      tickets=data||[];
-    }
-
-    if(!tickets.length){
-      b.innerHTML='<div class="empty">No hay tickets de feedback registrados.</div>';
-      return;
-    }
-
-    const tHtml=tickets.map(t=>{
-      const diag=t.diagnostics||{};
-      const primaryImg=diag.screenshot||t.screenshot||t.manual_screenshot;
-      const extraAtts=Array.isArray(diag.attachments)?diag.attachments:[];
-      const dt=fmtDateDMY(t.created_at);
-      const tkNum=t.ticket||t.ticket_number||(t.id?t.id.slice(0,8):'TICKET');
-      const tkType=t.type||t.category||'bug';
-      const tkStatus=t.status||'nuevo';
-
-      const attButtons=[
-        ...(primaryImg?[`<button class="ghost" type="button" onclick="previewTicketScreenshot('${encodeURIComponent(primaryImg)}')" style="font-size:.76rem;padding:3px 8px;display:inline-flex;align-items:center;gap:4px">📷 Ver captura adjunta</button>`]:[]),
-        ...extraAtts.map((att,i)=>att.type&&att.type.startsWith('image/')?
-          `<button class="ghost" type="button" onclick="previewTicketScreenshot('${encodeURIComponent(att.dataUrl)}')" style="font-size:.76rem;padding:3px 8px;display:inline-flex;align-items:center;gap:4px">🖼️ ${esc(att.name||'Adjunto '+(i+1))}</button>`:
-          `<a class="btn sm" href="${att.dataUrl}" download="${esc(att.name||'adjunto.pdf')}" style="font-size:.74rem;padding:3px 8px;display:inline-flex;align-items:center;gap:4px;text-decoration:none">📄 ${esc(att.name||'Archivo PDF')}</a>`
-        )
-      ].join('');
-
-      return `
-        <div class="card" style="text-align:left;margin-bottom:10px;border-left:4px solid ${tkType==='bug'?'#ef4444':'#3b82f6'}">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-            <div>
-              <b style="font-size:.92rem;color:#0f172a">#${esc(tkNum)}</b>
-              <div class="mu" style="font-size:.76rem">Comunidad Canasta · 📅 ${dt} · <span class="tag" style="font-size:.68rem">${esc(tkStatus)}</span></div>
-            </div>
-            <span class="tag" style="background:#eff6ff;color:#1e40af;font-size:.7rem;font-weight:700">${esc(tkType)}</span>
-          </div>
-          <div style="margin:8px 0;font-size:.84rem;color:#1e293b;background:#f8fafc;padding:8px;border-radius:6px;border:1px solid #e2e8f0;white-space:pre-wrap">${esc(t.message||t.comments||'')}</div>
-          ${attButtons?`<div style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap">${attButtons}</div>`:''}
-        </div>
-      `;
-    }).join('');
-
-    b.innerHTML=`
-      <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
-        <h2 style="margin:0;font-size:1.1rem">Bugs y Feedback Recientes</h2>
-        <span class="mu" style="font-size:.82rem">${tickets.length} tickets</span>
-      </div>
-      ${tHtml}
-    `;
-  }catch(err){
-    b.innerHTML=`<div class="card" style="color:#b91c1c">Error inesperado: ${esc(err?.message||err)}</div>`;
-  }
-}
+window.adminEditExclusion=adminEditExclusion;
+window.adminRemoveExclusion=adminRemoveExclusion;
 
 function previewTicketScreenshot(encData){
   const data=decodeURIComponent(encData);
