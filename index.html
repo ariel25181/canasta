@@ -2838,29 +2838,29 @@ addEventListener('resize',()=>{if(tourOpen)tourShow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
 
 /* ---------- Novedades y Agradecimientos (Guided Tour Popup) ---------- */
-let NOVEDADES_VER="2026-11-15-canasta-v36-7vzz";
-const PR_NOVEDADES_NOTE="Precios en 2 columnas (Aceptados vs Excluidos), contadores 👍/👎 compartidos, palabras completas en carga y Admin simple en 3 pestañas.";
+let NOVEDADES_VER="2026-11-15-canasta-v37-fgwx";
+const PR_NOVEDADES_NOTE="Búsqueda tolerante a errores de tipeo (rhumba, yoghurt, lexe), exclusión por consenso comunitario 👎, 2 columnas y Admin simple en 3 pestañas.";
 let novedadesStep=0;
 
 const NOVEDADES_SLIDES=[
   {
     icon:'🚀',
-    tag:'Novedades de hoy · PR canasta-v36',
-    title:'Búsqueda en 2 Columnas, Contadores 👍/👎 y Carga sin Abreviaturas',
+    tag:'Novedades de hoy · PR canasta-v37',
+    title:'Búsqueda Tolerante a Errores, 2 Columnas y Contadores 👍/👎',
     body:`
       <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:12px;margin:10px 0;text-align:left;font-size:.8rem;color:#14532d">
         ${PR_NOVEDADES_NOTE?`<div style="background:#fff;border:1px solid #86efac;border-radius:8px;padding:8px;margin-bottom:8px;font-weight:700;color:#166534">📌 ${esc(PR_NOVEDADES_NOTE)}</div>`:''}
         <div style="margin-bottom:8px">
-          <b>📊 Resultados en 2 columnas (Aceptados y Excluidos):</b><br>
-          <span class="mu" style="color:#166534">En <b>Precios</b> ahora ves a la izquierda los resultados <b>Aceptados</b> y a la derecha los <b>Excluidos</b>, junto con contadores compartidos de <b>👍 / 👎</b> entre todos los usuarios.</span>
+          <b>🧠 Búsqueda tolerante a errores y consenso comunitario 👎:</b><br>
+          <span class="mu" style="color:#166534">Ahora el buscador encuentra productos aunque haya errores de tipeo (ej: <i>rhumba</i>, <i>yoghurt</i>, <i>lexe</i>) o palabras cambiadas de orden, y excluye automáticamente asociaciones con consenso de <b>👎</b>.</span>
         </div>
         <div style="border-top:1px dashed #86efac;padding-top:8px;margin-bottom:8px">
-          <b>✍️ Nombres completos al cargar compras:</b><br>
-          <span class="mu" style="color:#166534">Detectamos palabras parciales o abreviaturas de ticket (ej: <i>GALL.CHOC.RUM</i>) al cargar y te ayudamos a completarlas para que todos encuentren el producto.</span>
+          <b>📊 Resultados en 2 columnas (Aceptados y Excluidos):</b><br>
+          <span class="mu" style="color:#166534">En <b>Precios</b> ves a la izquierda los <b>Aceptados</b> y a la derecha los <b>Excluidos</b>, con contadores compartidos de <b>👍 / 👎</b> entre todos los usuarios.</span>
         </div>
         <div style="border-top:1px dashed #86efac;padding-top:8px">
-          <b>🏬 Categorías y Producto separado:</b><br>
-          <span class="mu" style="color:#166534">5 categorías de comercio, anatomía separada (Marca, Modelo, Peso, Envase) y SEPA solo como ayuda ortográfica en carga.</span>
+          <b>✍️ Nombres completos al cargar compras:</b><br>
+          <span class="mu" style="color:#166534">Detectamos palabras parciales o abreviaturas de ticket (ej: <i>GALL.CHOC.RUM</i>) y te ayudamos a completarlas antes de guardar.</span>
         </div>
       </div>
     `
@@ -4082,6 +4082,32 @@ function levenshteinDistance(a,b){
   }
   return v1[b.length];
 }
+function phoneticNk(w){
+  return nk(w||'')
+    .replace(/h/g,'')
+    .replace(/x/g,'ch')
+    .replace(/v/g,'b')
+    .replace(/z/g,'s')
+    .replace(/qu/g,'k')
+    .replace(/k/g,'c')
+    .replace(/ll/g,'y')
+    .replace(/y/g,'i')
+    .replace(/(.)\1+/g,'$1')
+    .replace(/t$/,'');
+}
+function getQueryCategoryIntent(qNorm){
+  const q=nk(qNorm||'');
+  if(!q)return '';
+  if(/\b(leche|yogur|yogurt|yoghurt|queso|manteca|crema|dulce de leche|ddl|ricota)\b/.test(q))return 'lacteos';
+  if(/\b(pollo|suprema|pechuga|carne|asado|vacio|milanesa|bife|picada|merluza|pescado|cerdo)\b/.test(q))return 'carnes';
+  if(/\b(coca|gaseosa|agua|jugo|cerveza|birra|vino|fernet|soda)\b/.test(q))return 'bebidas';
+  if(/\b(lavandina|detergente|jabon|shampoo|suavizante|desodorante|papel higienico|rollo)\b/.test(q))return 'limpieza';
+  if(/\b(manzana|banana|naranja|pera|mandarina|frutilla|uva|limon|kiw|durazno)\b/.test(q))return 'frutas';
+  if(/\b(papa|tomate|cebolla|zanahoria|lechuga|zapallo|calabaza|morron|palta|rucula)\b/.test(q))return 'verduras';
+  if(/\b(pan|factura|medialuna|tostada|baguette|bizcocho)\b/.test(q))return 'panaderia';
+  if(/\b(galletita|galletitas|galles|rumba|arroz|fideos|aceite|yerba|azucar|harina|cafe|te|atun|pure|mermelada)\b/.test(q))return 'almacen';
+  return '';
+}
 
 const SUPERMARKET_SYNONYMS={
   suprema:['pechuga','pollo','suprema de pollo','milanesa de pollo','pechuga deshuesada'],
@@ -4174,6 +4200,20 @@ function getAdminExclusionsMap(){
 function saveAdminExclusionsMap(map){
   try{localStorage.setItem('admin_exclusions',JSON.stringify(map||{}))}catch(e){}
 }
+function getAdminAllowedPairs(){
+  try{
+    const raw=JSON.parse(localStorage.getItem('admin_allowed_pairs')||'{}');
+    return (raw&&typeof raw==='object')?raw:{};
+  }catch(e){return {}}
+}
+function markAdminAllowedPair(q,prod,allow){
+  const key=`${nk(q||'')}|||${nk(prod||'')}`;
+  if(!key||key==='|||')return;
+  const map=getAdminAllowedPairs();
+  if(allow)map[key]=true;
+  else delete map[key];
+  try{localStorage.setItem('admin_allowed_pairs',JSON.stringify(map))}catch(e){}
+}
 function getAdminProductAliases(){
   try{
     const raw=JSON.parse(localStorage.getItem('admin_product_aliases')||'{}');
@@ -4191,6 +4231,7 @@ function saveAdminProductAliases(map){
 window.getAdminEquivsMap=getAdminEquivsMap;
 window.getAdminAcronymsMap=getAdminAcronymsMap;
 window.getAdminExclusionsMap=getAdminExclusionsMap;
+window.getAdminAllowedPairs=getAdminAllowedPairs;
 window.getAdminProductAliases=getAdminProductAliases;
 
 async function persistSearchRule(payload){
@@ -4575,6 +4616,18 @@ function getExclusionReason(qNorm,p){
       return `Variante distinta (${hasP[0]})`;
     }
   }
+  // Community consensus auto-exclusion when users strongly vote 👎 (>=3 downvotes and >=60% negative) unless Admin allowed it
+  const pairKey=`${nk(qNorm||'')}|||${pName}`;
+  const allowed=getAdminAllowedPairs();
+  if(!allowed[pairKey]){
+    const cVotes=(window._sharedSearchVotes?.counts||{})[pairKey];
+    if(cVotes){
+      const up=Number(cVotes.up)||0, down=Number(cVotes.down)||0, total=up+down;
+      if(down>=3&&total>0&&(down/total)>=0.6){
+        return 'Excluido por consenso comunitario (👎)';
+      }
+    }
+  }
   return '';
 }
 
@@ -4661,6 +4714,9 @@ function smartSearchPrices(rawRows,q,opts={}){
     const exclReason=getExclusionReason(qNorm,p);
     if(exclReason&&!includeExcluded)continue;
 
+    const qIntentCat=getQueryCategoryIntent(qNorm);
+    const qHasUnit=qWords.some(w=>/^\d+(?:[.,]\d+)?(?:l|lt|ml|cc|g|gr|kg|k)$/.test(w));
+
     let score=0;
     let confidence='baja';
     let matchType='';
@@ -4687,15 +4743,19 @@ function smartSearchPrices(rawRows,q,opts={}){
       let hasFuzzy=false;
 
       for(const qw of qWords){
+        const qwPhon=phoneticNk(qw);
         if(pWords.some(pw=>pw.includes(qw)||qw.includes(pw))){
           matchedCount++;
-        }else{
+        }else if(qw.length>=3&&pWords.some(pw=>{
+          const pwPhon=phoneticNk(pw);
+          if(qwPhon===pwPhon)return true;
           const maxDist=qw.length<=4?1:2;
-          const close=pWords.some(pw=>Math.abs(pw.length-qw.length)<=maxDist&&levenshteinDistance(qw,pw)<=maxDist);
-          if(close){
-            matchedCount++;
-            hasFuzzy=true;
-          }
+          if(Math.abs(pw.length-qw.length)<=maxDist&&levenshteinDistance(qw,pw)<=maxDist)return true;
+          if(qwPhon.length>=4&&pwPhon.length>=4&&Math.abs(pwPhon.length-qwPhon.length)<=1&&levenshteinDistance(qwPhon,pwPhon)<=1)return true;
+          return false;
+        })){
+          matchedCount++;
+          hasFuzzy=true;
         }
       }
 
@@ -4713,6 +4773,12 @@ function smartSearchPrices(rawRows,q,opts={}){
         confidence='baja';
         matchType='debil';
       }
+    }
+
+    // Intent & Category / Size re-ranking boost without bypassing exclusion rules
+    if(score>=40){
+      if(qIntentCat&&pCat===qIntentCat)score=Math.min(100,score+4);
+      if(qHasUnit&&pSizeTok&&qWords.some(w=>pSizeTok.includes(w)))score=Math.min(100,score+3);
     }
 
     if(exclReason){
@@ -4835,54 +4901,102 @@ async function pGo(save){
   try{
     await getPos();pLoc();
     const r=rad(),useR=r>0&&!!pos;
+    const mapRawRows=(raw,t)=>{
+      let mapped=(raw||[]).map(p=>{
+        const dkm=(pos&&p.lat!=null)?hav(pos,{lat:p.lat,lng:p.lng}):null;
+        const meta=parseDescriptionKeyMeta(p.description_key);
+        return {
+          product:p.product||p.product_name||'',
+          unit_price:p.unit_price,
+          currency:p.currency||'ARS',
+          store:p.store,
+          store_address:p.store_address,
+          lat:p.lat,
+          lng:p.lng,
+          category:p.category,
+          subcategory:p.subcategory,
+          description:p.description,
+          description_key:p.description_key,
+          brand:p.brand||'',
+          variant:p.variant||'',
+          size_value:p.size_value??null,
+          size_unit:p.size_unit||'',
+          package_type:meta.packageType||'',
+          pack_count:meta.packCount||1,
+          base_name:meta.baseName||'',
+          store_category:p.store_category||meta.storeCategory||inferStoreCategory(p.store,[p]),
+          purchased_at:p.purchased_at,
+          is_exact:nk(p.product_key||p.product||p.product_name).includes(nk(t)),
+          distance_km:dkm!=null?dkm:(p.distance_km??null),
+          tags:p.tags||p.description_key
+        };
+      });
+      if(useR&&r>0)mapped=mapped.filter(x=>x.distance_km==null||x.distance_km<=r);
+      return mapped;
+    };
     const rpcQ=async(t,c)=>{
+      let collected=[];
+      const seenRows=new Set();
+      const pushRows=(list)=>{
+        for(const item of list||[]){
+          const k=pk(item)+'|'+(item.unit_price||0);
+          if(seenRows.has(k))continue;
+          seenRows.add(k);
+          collected.push(item);
+        }
+      };
       try{
         const res=await T(sb.rpc('search_prices',{q:t,user_lat:pos?pos.lat:null,user_lng:pos?pos.lng:null,radius_km:useR?r:null,cat:c||null}),9000);
-        if(!res.error)return res;
+        if(!res.error&&Array.isArray(res.data)){
+          pushRows(res.data);
+          if(collected.length>=8)return {data:collected,error:null};
+        }
       }catch(e){}
+      // Server-side error-tolerant fuzzy proxy when running under Express host
+      try{
+        if(typeof fetch==='function'&&!/github\.io$/i.test(location?.hostname||'')){
+          const qs=new URLSearchParams({q:t||'',cat:c||''});
+          if(pos){qs.set('lat',String(pos.lat));qs.set('lng',String(pos.lng));}
+          if(useR&&r>0)qs.set('radiusKm',String(r));
+          const apiRes=await fetch('/api/canasta/search-prices?'+qs.toString());
+          if(apiRes.ok){
+            const j=await apiRes.json();
+            if(Array.isArray(j?.data)&&j.data.length){
+              pushRows(mapRawRows(j.data,t));
+              if(collected.length>=8)return {data:collected,error:null};
+            }
+          }
+        }
+      }catch(e){}
+      // Direct Supabase multi-token + 3-char prefix + phonetic stem fallback (works on GitHub Pages too)
       try{
         let qb=sb.from('price_points').select('*');
         if(c)qb=qb.eq('category',c);
         else {
-          const synList=getQuerySynonyms(nk(t)).slice(0,4);
-          const terms=[t,...synList];
+          const tNorm=nk(t);
+          const synList=getQuerySynonyms(tNorm).slice(0,4);
+          const tokenPrefixes=[];
+          for(const w of tNorm.split(/\s+/).filter(x=>x.length>=2).slice(0,4)){
+            tokenPrefixes.push(w);
+            if(w.length>=4)tokenPrefixes.push(w.slice(0,3));
+            const ph=phoneticNk(w);
+            if(ph.length>=3&&ph!==w)tokenPrefixes.push(ph.slice(0,Math.min(4,ph.length)));
+          }
+          const terms=[...new Set([tNorm,...tokenPrefixes,...synList].filter(Boolean))].slice(0,8);
           const conds=terms.map(tm=>`product_key.ilike.*${tm}*,subcategory.ilike.*${tm}*,product_name.ilike.*${tm}*,description_key.ilike.*${tm}*,brand.ilike.*${tm}*,variant.ilike.*${tm}*`).join(',');
           qb=qb.or(conds);
         }
-        const {data:raw,error:err2}=await T(qb.order('unit_price',{ascending:true}).limit(80),9000);
-        if(err2||!raw)return {data:[],error:null};
-        let mapped=raw.map(p=>{
-          const dkm=(pos&&p.lat!=null)?hav(pos,{lat:p.lat,lng:p.lng}):null;
-          const meta=parseDescriptionKeyMeta(p.description_key);
-          return {
-            product:p.product_name,
-            unit_price:p.unit_price,
-            currency:p.currency||'ARS',
-            store:p.store,
-            store_address:p.store_address,
-            lat:p.lat,
-            lng:p.lng,
-            category:p.category,
-            subcategory:p.subcategory,
-            description:p.description,
-            description_key:p.description_key,
-            brand:p.brand||'',
-            variant:p.variant||'',
-            size_value:p.size_value??null,
-            size_unit:p.size_unit||'',
-            package_type:meta.packageType||'',
-            pack_count:meta.packCount||1,
-            base_name:meta.baseName||'',
-            store_category:p.store_category||meta.storeCategory||inferStoreCategory(p.store,[p]),
-            purchased_at:p.purchased_at,
-            is_exact:nk(p.product_key||p.product_name).includes(nk(t)),
-            distance_km:dkm,
-            tags:p.tags||p.description_key
-          };
-        });
-        if(useR&&r>0)mapped=mapped.filter(x=>x.distance_km==null||x.distance_km<=r);
-        return {data:mapped,error:null};
-      }catch(e){return {data:[],error:null};}
+        const {data:raw,error:err2}=await T(qb.order('unit_price',{ascending:true}).limit(90),9000);
+        if(!err2&&Array.isArray(raw))pushRows(mapRawRows(raw,t));
+      }catch(e){}
+      // Recent catalog safety net when typos return < 8 rows from strict .ilike
+      if(!c&&collected.length<8){
+        try{
+          const {data:recentRaw,error:err3}=await T(sb.from('price_points').select('*').order('purchased_at',{ascending:false}).limit(150),9000);
+          if(!err3&&Array.isArray(recentRaw))pushRows(mapRawRows(recentRaw,t));
+        }catch(e){}
+      }
+      return {data:collected,error:null};
     };
     const cat=catOf(q),was=prCat;prCat=!!cat;if(prCat!==was)psort=prCat?(pos?'near':'recent'):'price';
     const aiOn=!cat&&!!gemKey()&&localStorage.getItem('ai')!=='0';
@@ -6593,12 +6707,15 @@ async function adminDecideDownvote(encQ,encProd,decision,encIds){
   let ids=[];
   try{ids=JSON.parse(decodeURIComponent(encIds||'[]'));}catch(_){}
   if(decision==='exclude'){
+    markAdminAllowedPair(q,prod,false);
     await addAdminExclusionRule(q,prod);
     toast(`🚫 Excluido "${prod}" al buscar "${q}"`);
   }else if(decision==='allow'){
+    markAdminAllowedPair(q,prod,true);
     await removeAdminExclusionRule(q,prod);
     toast(`✓ Permitido "${prod}" al buscar "${q}"`);
   }else if(decision==='synonym'){
+    markAdminAllowedPair(q,prod,true);
     await addAdminEquivRule(q,prod);
     toast(`🔤 Sinónimo vinculado: "${q}" ➔ "${prod}"`);
   }
