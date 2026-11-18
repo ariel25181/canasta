@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-11-14T22:00">
+<meta name="app-version" content="2026-11-18T21:00">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -287,7 +287,8 @@ window.r2=r2;
 const PUBLIC_CANASTA_URL='https://ariel25181.github.io/canasta/';
 const appUrl=()=>PUBLIC_CANASTA_URL;
 const DEFAULT_GEMINI_KEY=atob('QVEuQWI4Uk42S0ZIb2Rydi1EUHNoZEdWcGJxWGdZVUdxZGNrMkdlZ1JfTEVPUnBlcDB4Tmc=');
-const gemKey=()=>(localStorage.getItem('gk')||'').trim()||DEFAULT_GEMINI_KEY;
+const RETIRED_GEMINI_KEYS=new Set([atob('QVEuQWI4Uk42S1dkWnBISUtCMzU0UUcyTVFaWmNvdklJejJJNjdHZDVuOVRtcTBaZXpGNlE='),atob('QVEuQWI4Uk42TFE0aHVIeFduOEZ0ZEc1aEx5bUl4SklCa2NCU3p0dlpaZVY1X0xuMk8xcHc='),atob('QVEuQWI4Uk42SjZVaGZrR1VZMml0ZTBYcmoyRWVmeXcyWk9fYkxWYzgxekZ1X3Q4SjYzcXc=')]);
+const gemKey=()=>{const k=(localStorage.getItem('gk')||'').trim();if(k&&RETIRED_GEMINI_KEYS.has(k)){try{localStorage.removeItem('gk')}catch(_){}return DEFAULT_GEMINI_KEY}return k||DEFAULT_GEMINI_KEY};
 const DEFAULT_MAPS_KEY=atob('QUl6YVN5QWFkYzV3YWxHSFYzTktoQlc2a2I2Vm5tSkZFTDFxdjhF');
 const mapsKey=()=>(localStorage.getItem('mk')||'').trim()||DEFAULT_MAPS_KEY;
 const CUR={ARS:{flag:'🇦🇷',name:'Pesos'},USD:{flag:'🇺🇸',name:'Dólares'},BRL:{flag:'🇧🇷',name:'Reales'}};
@@ -1524,29 +1525,41 @@ function readFailModal(e){
   }
   else if(st>=500)msg='Gemini está saturado en este momento. Reintentá en unos segundos.';
   else if(!navigator.onLine||/aborted|timeout|Failed to fetch|NetworkError|Load failed/i.test(m)){t='Sin conexión o demasiado lento';msg='No pudimos comunicarnos con Gemini a tiempo. Revisá tu conexión y reintentá.'}
-  const actHtml=isQuota?`<button onclick="closeModal();manual()">✍️ Cargar ticket a mano</button><button class="ghost" onclick="closeModal();scanUI()">Cancelar</button>`:(key?`<button onclick="closeModal();go('settings')">Ir a Ajustes</button>`:`<button onclick="closeModal();run(pendParts)">🔁 Reintentar</button>`)+`<button class="ghost" onclick="closeModal();scanUI()">Revisar o editar las fotos</button><button class="ghost" onclick="closeModal();manual()">Cargar a mano</button>`;
+  const hasCustomGk=!!((localStorage.getItem('gk')||'').trim()&&(localStorage.getItem('gk')||'').trim()!==DEFAULT_GEMINI_KEY);
+  const actHtml=isQuota?`<button onclick="closeModal();manual()">✍️ Cargar ticket a mano</button><button class="ghost" onclick="closeModal();scanUI()">Cancelar</button>`:(key?(hasCustomGk?`<button onclick="localStorage.removeItem('gk');closeModal();run(pendParts)">🔄 Usar clave compartida</button><button class="ghost" onclick="closeModal();go('settings')">Ir a Ajustes</button>`:`<button onclick="closeModal();go('settings')">Ir a Ajustes</button>`):`<button onclick="closeModal();run(pendParts)">🔁 Reintentar</button>`)+`<button class="ghost" onclick="closeModal();scanUI()">Revisar o editar las fotos</button><button class="ghost" onclick="closeModal();manual()">Cargar a mano</button>`;
   modal(`<div class="ic bad">⚠️</div><h2>${esc(t)}</h2><p>${esc(msg)}</p><p class="mu">${isQuota?'Tus fotos se conservan por si querés consultarlas mientras cargás.':'Tus fotos siguen acá: no hace falta volver a sacarlas.'}</p><div class="mact">${actHtml}</div>`);
 }
 const resize=f=>new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(f);const clean=()=>{try{URL.revokeObjectURL(u)}catch(e){}};i.onerror=()=>{clean();no(Error('No se pudo abrir la imagen'))};i.onload=()=>{clean();try{const k=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);let q={blur:100,bright:150,min:Math.min(i.width,i.height)};try{q=quality(i)}catch(qe){}ok({b64:c.toDataURL('image/jpeg',.8).split(',')[1],q})}catch(err){no(Error('Error al procesar la imagen'))}};i.src=u});
 async function extract(parts){
-  const key=gemKey();
+  let key=gemKey();
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
   const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (supermercado, almacén, verdulería, restaurant, farmacia o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_category":"supermercado|almacen|verduleria|restaurant|farmacia","store_address":string,"candidate_addresses":[string],"total":number,"description":string,"quality":{"legible":boolean,"issues":[string]},"uncertain_fields":[string],"unidentified_amounts":[{"amount":number,"raw_text":string}],"date":"YYYY-MM-DD","items":[{"name":string,"brand":string,"variant":string,"qty":number,"size_value":number,"size_unit":"g|kg|ml|l|u","package_type":"botella|lata|tetra|sachet|paquete|pouch|frasco|caja|suelto","pack_count":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|farmacia|descuentos|otros","subcategory":string,"confidence":"alta|baja"}]}. store_category es obligatorio: elegí exactamente uno de supermercado, almacen, verduleria, restaurant o farmacia según el rubro del local. En items, además del nombre legible en name, separá marca en brand (ej: "La Serenísima"), modelo o variante en variant (ej: "Clásica Entera" o "Sin Azúcar"), peso/volumen neto por ítem vendido en size_value + size_unit ("g", "kg", "ml", "l" o "u"), envase en package_type si se deduce (botella, lata, tetra, sachet, paquete, pouch, frasco, caja, suelto), y unidades internas en pack_count (1 si es unidad individual, o 3, 6, etc. si es multipack). total es el importe total general final del ticket. En items, extraé los productos con su precio de lista oficial. En comprobantes de farmacia o supermercado, identificá con precisión los descuentos de Obra Social, Coseguro y prepagas (ej: 'O. SOCIAL', 'OBRA SOCIAL', 'COSEG.', 'COSEGURO', 'DESC. RECETA', 'OSDE', 'SWISS MEDICAL', 'PAMI', 'IOMA', 'GALENO', '2DA UNIDAD 70%', 'DESC. COMUNIDAD', 'BONIF.'): extraelos en items con category 'descuentos' y total_price negativo (ej: -1450), para que el precio de lista original no se altere y el descuento quede registrado por separado. Si en la foto detectás números o importes aislados cuyo concepto no puedas identificar con certeza, agregalos en unidentified_amounts. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. En productos pesables o vendidos al peso (frutas, verduras, carnes, fiambres, etc.), en qty poné el peso en kilogramos con decimales (por ejemplo 1.845 para 1,845 kg) y en total_price el importe total de ese renglón, para que el precio unitario sea exactamente el precio por kilo. En description poné, como texto libre, los comentarios, notas, leyendas o anotaciones manuscritas que aparezcan en el ticket; si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español qué problema tiene la foto. IMPORTANTE: Si partes del comprobante no están muy visibles o la confianza de detección no es alta, CONTINUÁ IGUAL extrayendo todo lo que alcances a leer; NO te detengas. Listá los campos con dudas o baja visibilidad en uncertain_fields (ej: 'store', 'date', 'address', 'total'). Para cada producto en items, si el nombre o el precio no se distinguen bien asigná confidence: 'baja'; si se leen bien, 'alta'. En store_address poné la dirección del local principal tal como figura impresa en el ticket (calle, número y localidad); si en el ticket figuran varias sucursales o direcciones, incluilas en candidate_addresses. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante. store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
   const models=[{m:'gemini-4-hydrogen',th:{thinkingLevel:'LOW'}},{m:'gemini-3.1-flash-lite',th:{thinkingLevel:'LOW'}},{m:'gemini-3.1-flash-lite',th:null}];
+  const keysToTry=key!==DEFAULT_GEMINI_KEY&&DEFAULT_GEMINI_KEY?[key,DEFAULT_GEMINI_KEY]:[key];
   let lastErr=null;
-  for(const model of models){
-    try{
-      const body={contents:[{parts:[{text:prompt},...parts.map(x=>({inline_data:{mime_type:x.mime||'image/jpeg',data:x.b64}}))]}],generationConfig:{responseMimeType:'application/json',...(model.th?{thinkingConfig:model.th}:{})}};
-      const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.m}:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(25000),body:JSON.stringify(body)});
-      const j=await r.json();
-      if(!r.ok){const e=Error(j.error?.message||'Error al leer el comprobante');e.status=r.status;lastErr=e;if(r.status===429||r.status>=500||r.status===404)continue;throw e}
-      const c0=j.candidates&&j.candidates[0];
-      const part=c0?.content?.parts?.find(p=>p.text&&!p.thought)||c0?.content?.parts?.[c0.content.parts.length-1];
-      const tx=part&&part.text;
-      if(!tx)throw Error('Respuesta vacía de Gemini');
-      const clean=tx.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
-      return JSON.parse(clean);
-    }catch(err){lastErr=err;if(err.name==='AbortError'||/timeout/i.test(err.message))continue;if(!navigator.onLine)throw err}
+  for(const kTry of keysToTry){
+    let authFail=false;
+    for(const model of models){
+      try{
+        const body={contents:[{parts:[{text:prompt},...parts.map(x=>({inline_data:{mime_type:x.mime||'image/jpeg',data:x.b64}}))]}],generationConfig:{responseMimeType:'application/json',...(model.th?{thinkingConfig:model.th}:{})}};
+        const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.m}:generateContent?key=${kTry}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(25000),body:JSON.stringify(body)});
+        const j=await r.json();
+        if(!r.ok){
+          const e=Error(j.error?.message||'Error al leer el comprobante');e.status=r.status;lastErr=e;
+          if(r.status===401||r.status===402||r.status===403||(r.status===400&&/API key/i.test(e.message))){authFail=true;break}
+          if(r.status===429||r.status>=500||r.status===404)continue;
+          throw e;
+        }
+        const c0=j.candidates&&j.candidates[0];
+        const part=c0?.content?.parts?.find(p=>p.text&&!p.thought)||c0?.content?.parts?.[c0.content.parts.length-1];
+        const tx=part&&part.text;
+        if(!tx)throw Error('Respuesta vacía de Gemini');
+        const clean=tx.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
+        if(kTry===DEFAULT_GEMINI_KEY&&key!==DEFAULT_GEMINI_KEY){try{localStorage.removeItem('gk')}catch(_){}}
+        return JSON.parse(clean);
+      }catch(err){lastErr=err;if(err.name==='AbortError'||/timeout/i.test(err.message))continue;if(!navigator.onLine)throw err}
+    }
+    if(!authFail)break;
   }
   throw lastErr||Error('No se pudo leer el comprobante con Gemini.');
 }
@@ -3175,7 +3188,7 @@ addEventListener('resize',()=>{if(tourOpen)tourShow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
 
 /* ---------- Novedades y Agradecimientos (Guided Tour Popup) ---------- */
-let NOVEDADES_VER="2026-11-18-canasta-v38-emgh";
+let NOVEDADES_VER="2026-11-18-canasta-v39-wgu8";
 const PR_NOVEDADES_NOTE="Jerarquía Rubro ➔ Categoría ➔ Subcategoría ➔ Tags en vivo, exclusiones 100% manuales en Admin, fix suprema de pollo y tickets CAN-00016 al CAN-00020.";
 let novedadesStep=0;
 
