@@ -286,7 +286,7 @@ const r2=n=>Math.round(((Number(n)||0)+Number.EPSILON)*100)/100;
 window.r2=r2;
 const PUBLIC_CANASTA_URL='https://ariel25181.github.io/canasta/';
 const appUrl=()=>PUBLIC_CANASTA_URL;
-const DEFAULT_GEMINI_KEY=atob('QVEuQWI4Uk42SjZVaGZrR1VZMml0ZTBYcmoyRWVmeXcyWk9fYkxWYzgxekZ1X3Q4SjYzcXc=');
+const DEFAULT_GEMINI_KEY=atob('QVEuQWI4Uk42S0ZIb2Rydi1EUHNoZEdWcGJxWGdZVUdxZGNrMkdlZ1JfTEVPUnBlcDB4Tmc=');
 const gemKey=()=>(localStorage.getItem('gk')||'').trim()||DEFAULT_GEMINI_KEY;
 const DEFAULT_MAPS_KEY=atob('QUl6YVN5QWFkYzV3YWxHSFYzTktoQlc2a2I2Vm5tSkZFTDFxdjhF');
 const mapsKey=()=>(localStorage.getItem('mk')||'').trim()||DEFAULT_MAPS_KEY;
@@ -3175,7 +3175,7 @@ addEventListener('resize',()=>{if(tourOpen)tourShow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
 
 /* ---------- Novedades y Agradecimientos (Guided Tour Popup) ---------- */
-let NOVEDADES_VER="2026-11-18-canasta-v38-ykev";
+let NOVEDADES_VER="2026-11-18-canasta-v38-emgh";
 const PR_NOVEDADES_NOTE="Jerarquía Rubro ➔ Categoría ➔ Subcategoría ➔ Tags en vivo, exclusiones 100% manuales en Admin, fix suprema de pollo y tickets CAN-00016 al CAN-00020.";
 let novedadesStep=0;
 
