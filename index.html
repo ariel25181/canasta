@@ -1348,9 +1348,33 @@ async function boot(){
     try{sessionStorage.setItem('tourOff','1')}catch(_){}
     window._tourOff=true;
   }
-  if(user?.user_metadata?.seen_novedades_ver){
-    try{localStorage.setItem('seen_novedades_ver',String(user.user_metadata.seen_novedades_ver))}catch(_){}
-    try{sessionStorage.setItem('seen_novedades_ver',String(user.user_metadata.seen_novedades_ver))}catch(_){}
+  try{localStorage.removeItem('novedadesOff');sessionStorage.removeItem('novedadesOff')}catch(_){}
+  const metaNovVer=user?.user_metadata?.seen_novedades_ver?String(user.user_metadata.seen_novedades_ver):'';
+  let localNovVer='';
+  try{localNovVer=window._seenNovVer||localStorage.getItem('seen_novedades_ver')||sessionStorage.getItem('seen_novedades_ver')||''}catch(_){}
+  if(metaNovVer && (!localNovVer || metaNovVer===NOVEDADES_VER)){
+    window._seenNovVer=metaNovVer;
+    try{localStorage.setItem('seen_novedades_ver',metaNovVer)}catch(_){}
+    try{sessionStorage.setItem('seen_novedades_ver',metaNovVer)}catch(_){}
+  }else if(localNovVer===NOVEDADES_VER && metaNovVer!==NOVEDADES_VER){
+    window._seenNovVer=NOVEDADES_VER;
+    if(!user.user_metadata)user.user_metadata={};
+    user.user_metadata.seen_novedades_ver=NOVEDADES_VER;
+    try{sb.auth.updateUser({data:{seen_novedades_ver:NOVEDADES_VER}}).catch(()=>{})}catch(_){}
+    try{
+      if(!/github\.io$/i.test(location.hostname)&&user.id){
+        fetch('/api/canasta/user/set-tour-preference',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,email:user.email,novedadesVer:NOVEDADES_VER})}).catch(()=>{});
+      }
+    }catch(_){}
+  }
+  if(sb?.auth&&typeof sb.auth.getUser==='function'){
+    sb.auth.getUser().then(({data:ud})=>{
+      const m=ud?.user?.user_metadata;
+      if(!m)return;
+      if(!user.user_metadata)user.user_metadata={};
+      if(m.tour_off||m.tour_seen){window._tourOff=true;user.user_metadata.tour_off=true;try{localStorage.setItem('tourOff','1')}catch(_){}}
+      if(m.seen_novedades_ver===NOVEDADES_VER){window._seenNovVer=NOVEDADES_VER;user.user_metadata.seen_novedades_ver=NOVEDADES_VER;try{localStorage.setItem('seen_novedades_ver',NOVEDADES_VER);sessionStorage.setItem('seen_novedades_ver',NOVEDADES_VER)}catch(_){}}
+    }).catch(()=>{});
   }
   $('#nav').hidden=false;const g=sessionStorage.getItem('goto');sessionStorage.removeItem('goto');window._manualOut=false;loadSharedSearchRules().catch(()=>{});loadSharedStoreCats().catch(()=>{});go(wantAdmin?'admin':(g||'home'));fixCoords();fixSubcats();autoFx();offerRestore();setTimeout(tourAuto,900);setTimeout(()=>{if(!tourOpen)checkNovedadesAuto()},1400);
 }
@@ -3175,9 +3199,7 @@ function tourEnd(dest){
   const r=$('#tour');if(r)r.remove();tourOpen=false;
   setTourOffPreference(tourNo!==false);
   go(dest||'home');
-  if(localStorage.getItem('seen_novedades_ver')!=='2026-11-04'){
-    setTimeout(checkNovedadesAuto,600);
-  }
+  setTimeout(checkNovedadesAuto,600);
 }
 function tourAuto(){
   if(isTourOff()||!user||draft||window._exp||tourOpen)return;
@@ -3188,7 +3210,7 @@ addEventListener('resize',()=>{if(tourOpen)tourShow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
 
 /* ---------- Novedades y Agradecimientos (Guided Tour Popup) ---------- */
-let NOVEDADES_VER="2026-11-18-canasta-v39-wgu8";
+let NOVEDADES_VER="2026-11-18-canasta-v39-lxyo";
 const PR_NOVEDADES_NOTE="Jerarquía Rubro ➔ Categoría ➔ Subcategoría ➔ Tags en vivo, exclusiones 100% manuales en Admin, fix suprema de pollo y tickets CAN-00016 al CAN-00020.";
 let novedadesStep=0;
 
@@ -3311,36 +3333,42 @@ function showNovedadesModal(manual,step=0){
   `,{lock:false});
 }
 
-function dontShowNovedadesAgain(){
-  try{localStorage.setItem('seen_novedades_ver',NOVEDADES_VER)}catch(_){}
-  try{sessionStorage.setItem('seen_novedades_ver',NOVEDADES_VER)}catch(_){}
-  if(user?.user_metadata)user.user_metadata.seen_novedades_ver=NOVEDADES_VER;
-  if(user?.id){
-    try{sb.auth.updateUser({data:{seen_novedades_ver:NOVEDADES_VER}}).catch(()=>{})}catch(_){}
-    try{fetch('/api/canasta/user/set-tour-preference',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,email:user.email,novedadesVer:NOVEDADES_VER})}).catch(()=>{})}catch(_){}
+function persistNovedadesPref(ver){
+  if(!ver)return;
+  window._seenNovVer=ver;
+  try{localStorage.setItem('seen_novedades_ver',ver)}catch(_){}
+  try{sessionStorage.setItem('seen_novedades_ver',ver)}catch(_){}
+  if(user){
+    if(!user.user_metadata)user.user_metadata={};
+    user.user_metadata.seen_novedades_ver=ver;
+    if(user.id){
+      try{if(sb?.auth&&typeof sb.auth.updateUser==='function')sb.auth.updateUser({data:{seen_novedades_ver:ver}}).catch(()=>{})}catch(_){}
+      try{
+        if(!/github\.io$/i.test(location.hostname)){
+          fetch('/api/canasta/user/set-tour-preference',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,email:user.email,novedadesVer:ver})}).catch(()=>{});
+        }
+      }catch(_){}
+    }
   }
+}
+function dontShowNovedadesAgain(){
+  persistNovedadesPref(NOVEDADES_VER);
   closeModal();
   toast('Listo: no volverá a aparecer hasta que haya nuevas novedades.');
 }
 
 function closeNovedadesModal(markSeen=true){
-  if(markSeen){
-    try{localStorage.setItem('seen_novedades_ver',NOVEDADES_VER)}catch(_){}
-    try{sessionStorage.setItem('seen_novedades_ver',NOVEDADES_VER)}catch(_){}
-    if(user?.user_metadata)user.user_metadata.seen_novedades_ver=NOVEDADES_VER;
-    if(user?.id){
-      try{sb.auth.updateUser({data:{seen_novedades_ver:NOVEDADES_VER}}).catch(()=>{})}catch(_){}
-      try{fetch('/api/canasta/user/set-tour-preference',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,email:user.email,novedadesVer:NOVEDADES_VER})}).catch(()=>{})}catch(_){}
-    }
-  }
+  if(markSeen)persistNovedadesPref(NOVEDADES_VER);
   closeModal();
 }
 
 function checkNovedadesAuto(){
   if(window._exp||draft||tourOpen||view==='admin')return;
   if(user?.user_metadata?.seen_novedades_ver===NOVEDADES_VER)return;
-  const seen=localStorage.getItem('seen_novedades_ver')||sessionStorage.getItem('seen_novedades_ver');
+  let seen='';
+  try{seen=localStorage.getItem('seen_novedades_ver')||sessionStorage.getItem('seen_novedades_ver')||''}catch(_){}
   if(seen===NOVEDADES_VER)return;
+  if(!seen&&window._seenNovVer===NOVEDADES_VER)return;
   const ov=$('#ov');
   if(ov&&!ov.hidden)return;
   showNovedadesModal(false,0);
