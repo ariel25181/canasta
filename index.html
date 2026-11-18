@@ -286,7 +286,7 @@ const r2=n=>Math.round(((Number(n)||0)+Number.EPSILON)*100)/100;
 window.r2=r2;
 const PUBLIC_CANASTA_URL='https://ariel25181.github.io/canasta/';
 const appUrl=()=>PUBLIC_CANASTA_URL;
-const DEFAULT_GEMINI_KEY=atob('QVEuQWI4Uk42S1dkWnBISUtCMzU0UUcyTVFaWmNvdklJejJJNjdHZDVuOVRtcTBaZXpGNlE=');
+const DEFAULT_GEMINI_KEY=atob('QVEuQWI4Uk42TFE0aHVIeFduOEZ0ZEc1aEx5bUl4SklCa2NCU3p0dlpaZVY1X0xuMk8xcHc=');
 const gemKey=()=>(localStorage.getItem('gk')||'').trim()||DEFAULT_GEMINI_KEY;
 const DEFAULT_MAPS_KEY=atob('QUl6YVN5QWFkYzV3YWxHSFYzTktoQlc2a2I2Vm5tSkZFTDFxdjhF');
 const mapsKey=()=>(localStorage.getItem('mk')||'').trim()||DEFAULT_MAPS_KEY;
@@ -1516,8 +1516,8 @@ function readFailModal(e){
   const m=String(e&&e.message||''),st=e&&e.status;
   let t='No pudimos leer el comprobante',msg='Gemini no pudo leer las fotos. Probá de nuevo; si sigue fallando, mejorá las fotos o cargá los datos a mano.',key=false,isQuota=false;
   if(/Falta la clave/i.test(m)){msg='Falta la clave de Gemini. Cargala en Ajustes para poder leer tickets.';key=true}
-  else if(st===403||(st===400&&/API key/i.test(m))){msg='La clave de Gemini no es válida o no tiene permiso. Revisala en Ajustes.';key=true}
-  else if(st===429||/quota|resource_exhausted|alcanzo el maximo|limite/i.test(m)){
+  else if(st===401||st===403||(st===400&&/API key/i.test(m))||/ACCOUNT_STATE_INVALID|service account|UNAUTHENTICATED/i.test(m)){msg='La clave de Gemini está deshabilitada o no es válida. Cargá una clave activa en Ajustes para leer tickets con IA.';key=true}
+  else if(st===402||st===429||/quota|resource_exhausted|prepayment|credits|billing|alcanzo el maximo|limite/i.test(m)){
     isQuota=true;
     t='Límite de escaneo alcanzado';
     msg='El escáner automático con IA alcanzó su límite temporal de consultas. Podés ingresar los datos de tu compra manualmente.';
@@ -1532,7 +1532,7 @@ async function extract(parts){
   const key=gemKey();
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
   const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (supermercado, almacén, verdulería, restaurant, farmacia o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_category":"supermercado|almacen|verduleria|restaurant|farmacia","store_address":string,"candidate_addresses":[string],"total":number,"description":string,"quality":{"legible":boolean,"issues":[string]},"uncertain_fields":[string],"unidentified_amounts":[{"amount":number,"raw_text":string}],"date":"YYYY-MM-DD","items":[{"name":string,"brand":string,"variant":string,"qty":number,"size_value":number,"size_unit":"g|kg|ml|l|u","package_type":"botella|lata|tetra|sachet|paquete|pouch|frasco|caja|suelto","pack_count":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|farmacia|descuentos|otros","subcategory":string,"confidence":"alta|baja"}]}. store_category es obligatorio: elegí exactamente uno de supermercado, almacen, verduleria, restaurant o farmacia según el rubro del local. En items, además del nombre legible en name, separá marca en brand (ej: "La Serenísima"), modelo o variante en variant (ej: "Clásica Entera" o "Sin Azúcar"), peso/volumen neto por ítem vendido en size_value + size_unit ("g", "kg", "ml", "l" o "u"), envase en package_type si se deduce (botella, lata, tetra, sachet, paquete, pouch, frasco, caja, suelto), y unidades internas en pack_count (1 si es unidad individual, o 3, 6, etc. si es multipack). total es el importe total general final del ticket. En items, extraé los productos con su precio de lista oficial. En comprobantes de farmacia o supermercado, identificá con precisión los descuentos de Obra Social, Coseguro y prepagas (ej: 'O. SOCIAL', 'OBRA SOCIAL', 'COSEG.', 'COSEGURO', 'DESC. RECETA', 'OSDE', 'SWISS MEDICAL', 'PAMI', 'IOMA', 'GALENO', '2DA UNIDAD 70%', 'DESC. COMUNIDAD', 'BONIF.'): extraelos en items con category 'descuentos' y total_price negativo (ej: -1450), para que el precio de lista original no se altere y el descuento quede registrado por separado. Si en la foto detectás números o importes aislados cuyo concepto no puedas identificar con certeza, agregalos en unidentified_amounts. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. En productos pesables o vendidos al peso (frutas, verduras, carnes, fiambres, etc.), en qty poné el peso en kilogramos con decimales (por ejemplo 1.845 para 1,845 kg) y en total_price el importe total de ese renglón, para que el precio unitario sea exactamente el precio por kilo. En description poné, como texto libre, los comentarios, notas, leyendas o anotaciones manuscritas que aparezcan en el ticket; si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español qué problema tiene la foto. IMPORTANTE: Si partes del comprobante no están muy visibles o la confianza de detección no es alta, CONTINUÁ IGUAL extrayendo todo lo que alcances a leer; NO te detengas. Listá los campos con dudas o baja visibilidad en uncertain_fields (ej: 'store', 'date', 'address', 'total'). Para cada producto en items, si el nombre o el precio no se distinguen bien asigná confidence: 'baja'; si se leen bien, 'alta'. En store_address poné la dirección del local principal tal como figura impresa en el ticket (calle, número y localidad); si en el ticket figuran varias sucursales o direcciones, incluilas en candidate_addresses. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante. store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
-  const models=[{m:'gemini-2.5-flash',th:{thinkingBudget:0}},{m:'gemini-3.5-flash',th:{thinkingLevel:'LOW'}},{m:'gemini-2.5-flash',th:null}];
+  const models=[{m:'gemini-4-hydrogen',th:{thinkingLevel:'LOW'}},{m:'gemini-2.5-flash',th:{thinkingBudget:0}},{m:'gemini-2.5-flash',th:null}];
   let lastErr=null;
   for(const model of models){
     try{
@@ -3175,7 +3175,7 @@ addEventListener('resize',()=>{if(tourOpen)tourShow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
 
 /* ---------- Novedades y Agradecimientos (Guided Tour Popup) ---------- */
-let NOVEDADES_VER="2026-11-18-canasta-v38-847y";
+let NOVEDADES_VER="2026-11-18-canasta-v38-k61t";
 const PR_NOVEDADES_NOTE="Jerarquía Rubro ➔ Categoría ➔ Subcategoría ➔ Tags en vivo, exclusiones 100% manuales en Admin, fix suprema de pollo y tickets CAN-00016 al CAN-00020.";
 let novedadesStep=0;
 
