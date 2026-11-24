@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#3E8E5A">
-<meta name="app-version" content="2026-11-18T21:00">
+<meta name="app-version" content="2026-11-22T18:00">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -1343,6 +1343,8 @@ async function boot(){
     try{history.replaceState(null,'',location.pathname+location.search)}catch(_){}
   }
   if(!user)return login();
+  window._lastUid=user.id;
+  try{localStorage.setItem('last_uid',user.id)}catch(_){}
   if(user?.user_metadata?.tour_off || user?.user_metadata?.tour_seen){
     try{localStorage.setItem('tourOff','1')}catch(_){}
     try{sessionStorage.setItem('tourOff','1')}catch(_){}
@@ -1381,6 +1383,7 @@ async function boot(){
 
 /* ---------- Navigation ---------- */
 function go(v){
+  if(!user){expired();return;}
   draft=null;mapShown=false;found=null;
   if(pendingReload&&v!=='scan'&&safe()){sessionStorage.setItem('goto',v);location.reload();return}
   view=v;
@@ -1388,8 +1391,9 @@ function go(v){
   if(mEl)mEl.classList.remove('wide');
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   ({home,prices,scan,history,settings,help,admin})[v]?.();
+  if(v==='scan')verifyLiveSession({forceServerCheck:true});
 }
-$('#nav').onclick=e=>{const b=e.target.closest('button');if(b){clearBk();go(b.dataset.v)}};
+$('#nav').onclick=e=>{const b=e.target.closest('button');if(b){if(!user){expired();return;}clearBk();go(b.dataset.v)}};
 
 /* ---------- Home ---------- */
 let hm=0;
@@ -1479,12 +1483,18 @@ async function addFiles(e){
   scanUI();
   if(cam&&use.length===1&&pages.length&&pages[pages.length-1].mime!=='application/pdf')editPage(pages.length-1,true);
 }
-function readPages(){
+async function readPages(){
   if(!pages.length)return;
   if(pages.reduce((t,x)=>t+x.b64.length,0)>18e6)return toast('Los archivos pesan demasiado juntos: sacá menos fotos o usá un PDF más liviano.');
+  const ok=await verifyLiveSession({forceServerCheck:true,immediate:true});
+  if(!ok)return;
   run(pages);
 }
-function manual(){mapShown=false;draft={store:'',storeCategory:'supermercado',_storeCatManual:false,date:today(),currency:'ARS',docType:'ticket',docNumber:'',taxId:'',description:'',address:'',candidateAddresses:[],lat:null,lng:null,items:[{name:'',base_name:'',brand:'',variant:'',qty:1,size_value:null,size_unit:'',package_type:'',pack_count:1,total_price:0,category:'otros',subcategory:'',_expanded:false}]};renderReceiptForm()}
+async function manual(){
+  const ok=await verifyLiveSession({forceServerCheck:true,immediate:true});
+  if(!ok)return;
+  mapShown=false;draft={store:'',storeCategory:'supermercado',_storeCatManual:false,date:today(),currency:'ARS',docType:'ticket',docNumber:'',taxId:'',description:'',address:'',candidateAddresses:[],lat:null,lng:null,items:[{name:'',base_name:'',brand:'',variant:'',qty:1,size_value:null,size_unit:'',package_type:'',pack_count:1,total_price:0,category:'otros',subcategory:'',_expanded:false}]};renderReceiptForm()
+}
 function quality(i){
   const k=Math.min(1,1000/Math.max(i.width,i.height)),w=Math.round(i.width*k),h=Math.round(i.height*k),c=document.createElement('canvas');
   c.width=w;c.height=h;const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(i,0,0,w,h);
@@ -1557,7 +1567,7 @@ const resize=f=>new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(
 async function extract(parts){
   let key=gemKey();
   if(!key)throw Error('Falta la clave de Gemini en Ajustes');
-  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (supermercado, almacén, verdulería, restaurant, farmacia o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_category":"supermercado|almacen|verduleria|restaurant|farmacia","store_address":string,"candidate_addresses":[string],"total":number,"description":string,"quality":{"legible":boolean,"issues":[string]},"uncertain_fields":[string],"unidentified_amounts":[{"amount":number,"raw_text":string}],"date":"YYYY-MM-DD","items":[{"name":string,"brand":string,"variant":string,"qty":number,"size_value":number,"size_unit":"g|kg|ml|l|u","package_type":"botella|lata|tetra|sachet|paquete|pouch|frasco|caja|suelto","pack_count":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|farmacia|descuentos|otros","subcategory":string,"confidence":"alta|baja"}]}. store_category es obligatorio: elegí exactamente uno de supermercado, almacen, verduleria, restaurant o farmacia según el rubro del local. En items, además del nombre legible en name, separá marca en brand (ej: "La Serenísima"), modelo o variante en variant (ej: "Clásica Entera" o "Sin Azúcar"), peso/volumen neto por ítem vendido en size_value + size_unit ("g", "kg", "ml", "l" o "u"), envase en package_type si se deduce (botella, lata, tetra, sachet, paquete, pouch, frasco, caja, suelto), y unidades internas en pack_count (1 si es unidad individual, o 3, 6, etc. si es multipack). total es el importe total general final del ticket. En items, extraé los productos con su precio de lista oficial. En comprobantes de farmacia o supermercado, identificá con precisión los descuentos de Obra Social, Coseguro y prepagas (ej: 'O. SOCIAL', 'OBRA SOCIAL', 'COSEG.', 'COSEGURO', 'DESC. RECETA', 'OSDE', 'SWISS MEDICAL', 'PAMI', 'IOMA', 'GALENO', '2DA UNIDAD 70%', 'DESC. COMUNIDAD', 'BONIF.'): extraelos en items con category 'descuentos' y total_price negativo (ej: -1450), para que el precio de lista original no se altere y el descuento quede registrado por separado. Si en la foto detectás números o importes aislados cuyo concepto no puedas identificar con certeza, agregalos en unidentified_amounts. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. En productos pesables o vendidos al peso (frutas, verduras, carnes, fiambres, etc.), en qty poné el peso en kilogramos con decimales (por ejemplo 1.845 para 1,845 kg) y en total_price el importe total de ese renglón, para que el precio unitario sea exactamente el precio por kilo. En description poné, como texto libre, los comentarios, notas, leyendas o anotaciones manuscritas que aparezcan en el ticket; si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español qué problema tiene la foto. IMPORTANTE: Si partes del comprobante no están muy visibles o la confianza de detección no es alta, CONTINUÁ IGUAL extrayendo todo lo que alcances a leer; NO te detengas. Listá los campos con dudas o baja visibilidad en uncertain_fields (ej: 'store', 'date', 'address', 'total'). Para cada producto en items, si el nombre o el precio no se distinguen bien asigná confidence: 'baja'; si se leen bien, 'alta'. En store_address poné la dirección del local principal tal como figura impresa en el ticket (calle, número y localidad); si en el ticket figuran varias sucursales o direcciones, incluilas en candidate_addresses. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante. store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
+  const prompt=`${parts.length>1?`Recibís ${parts.length} archivos: son partes del MISMO comprobante, en orden. Unilos en un solo comprobante: no repitas renglones que aparezcan en dos fotos por superposición, y tomá los datos de cabecera (local, fecha, CUIT) y los totales de donde figuren. `:''}Extraé los datos de este comprobante de compra argentino (supermercado, almacén, verdulería, restaurant, farmacia o factura A, B o C, en foto o PDF). Respondé solo JSON: {"doc_type":"ticket|factura","currency":"ARS|USD|BRL","doc_number":string,"store_tax_id":string,"store":string,"store_category":"supermercado|almacen|verduleria|restaurant|farmacia","store_address":string,"candidate_addresses":[string],"total":number,"description":string,"quality":{"legible":boolean,"issues":[string]},"uncertain_fields":[string],"unidentified_amounts":[{"amount":number,"raw_text":string}],"date":"YYYY-MM-DD","items":[{"name":string,"brand":string,"variant":string,"qty":number,"size_value":number,"size_unit":"g|kg|ml|l|u","package_type":"botella|lata|tetra|sachet|paquete|pouch|frasco|caja|suelto","pack_count":number,"total_price":number,"category":"lacteos|carnes|panaderia|verduras|frutas|bebidas|limpieza|almacen|farmacia|descuentos|otros","subcategory":string,"confidence":"alta|baja"}]}. store_category es obligatorio: elegí exactamente uno de supermercado, almacen, verduleria, restaurant o farmacia según el rubro del local. En items, además del nombre legible en name, separá marca en brand (ej: "La Serenísima"), modelo o variante en variant (ej: "Clásica Entera" o "Sin Azúcar"), peso/volumen neto por ítem vendido en size_value + size_unit ("g", "kg", "ml", "l" o "u"), envase en package_type si se deduce (botella, lata, tetra, sachet, paquete, pouch, frasco, caja, suelto), y unidades internas en pack_count (1 si es unidad individual, o 3, 6, etc. si es multipack). total es el importe total general final del ticket. En items, extraé los productos con su precio de lista oficial. En comprobantes de farmacia o supermercado, identificá con precisión los descuentos de Obra Social, Coseguro y prepagas (ej: 'O. SOCIAL', 'OBRA SOCIAL', 'COSEG.', 'COSEGURO', 'DESC. RECETA', 'OSDE', 'SWISS MEDICAL', 'PAMI', 'IOMA', 'GALENO', '2DA UNIDAD 70%', 'DESC. COMUNIDAD', 'BONIF.'): extraelos en items con category 'descuentos', total_price negativo (ej: -1450.50), brand "", variant "", size_value null, size_unit "", package_type "", pack_count 1 y confidence "alta" si el concepto y el monto se leen (no los marques como baja confianza por faltar marca o peso). Respetá el formato numérico argentino: el punto es separador de miles y la coma es decimal (ej: 11.772,00 es 11772 y 2.746,77 es 2746.77). Si en la foto detectás números o importes aislados cuyo concepto no puedas identificar con certeza, agregalos en unidentified_amounts. subcategory es una subcategoría corta del producto, en singular, minúsculas y sin tildes (por ejemplo: citrico, vino tinto, leche, queso, gaseosa, papa, detergente). Los precios son números en pesos (punto decimal, sin símbolo). total_price es el total de la línea. En productos pesables o vendidos al peso (frutas, verduras, carnes, fiambres, etc.), en qty poné el peso en kilogramos con decimales (por ejemplo 1.845 para 1,845 kg) y en total_price el importe total de ese renglón, para que el precio unitario sea exactamente el precio por kilo. En description poné, como texto libre, los comentarios, notas, leyendas o anotaciones manuscritas que aparezcan en el ticket; si no hay, dejalo vacío. En quality.legible poné false si el ticket está borroso, cortado, con reflejos, muy oscuro o ilegible; en issues describí en español qué problema tiene la foto. IMPORTANTE: Si partes del comprobante no están muy visibles o la confianza de detección no es alta, CONTINUÁ IGUAL extrayendo todo lo que alcances a leer; NO te detengas. Listá los campos con dudas o baja visibilidad en uncertain_fields (ej: 'store', 'date', 'address', 'total'). Para cada producto en items, si el nombre o el precio no se distinguen bien asigná confidence: 'baja'; si se leen bien, 'alta'. En store_address poné la dirección del local principal tal como figura impresa en el ticket (calle, número y localidad); si en el ticket figuran varias sucursales o direcciones, incluilas en candidate_addresses. doc_type es factura si el comprobante dice FACTURA (o tiene CAE y letra A, B o C); si no, ticket. doc_number es el número del comprobante. store_tax_id es el CUIT del emisor, solo números y guiones. En una factura con IVA discriminado, el total_price de cada renglón debe incluir el IVA. currency es la moneda del comprobante: ARS (pesos, símbolo $), USD (dólares, U$S o USD) o BRL (reales, R$); si no se indica, ARS.`;
   const models=[{m:'gemini-4-hydrogen',th:{thinkingLevel:'LOW'}},{m:'gemini-3.1-flash-lite',th:{thinkingLevel:'LOW'}},{m:'gemini-3.1-flash-lite',th:null}];
   const keysToTry=key!==DEFAULT_GEMINI_KEY&&DEFAULT_GEMINI_KEY?[key,DEFAULT_GEMINI_KEY]:[key];
   let lastErr=null;
@@ -1620,11 +1630,12 @@ const norm=d=>{
   const items=(d.items||[]).map(i=>{
     const name=String(i.name||'').trim();
     const isDisc=isDiscountOrObraSocialItem({name,category:i.category,total_price:i.total_price});
-    const isUncertain=i.confidence==='baja'||!name||Number(i.total_price)===0;
+    const isUncertain=isDisc?(!name||Number(i.total_price)===0):(i.confidence==='baja'||!name||Number(i.total_price)===0);
     const cat=isDisc?'descuentos':(CAT[i.category]?i.category:(/ibuprof|paracet|amoxid|medicam/i.test(name)?'farmacia':'otros'));
-    const rawSub=nk(i.subcategory||'');
+    const discSub=/coseguro|coseg|bono/i.test(name)?'coseguro':(/obra\s*social|o\.?s\.?|osde|swiss|pami|ioma|galeno|mutual|prepaga/i.test(name)?'obra social':'descuento');
+    const rawSub=isDisc?discSub:nk(i.subcategory||'');
     const sub=rawSub||inferSubcategoryFromName(name,cat);
-    const parsed=parseStructuredProductText(name,{
+    const parsed=isDisc?{name,base_name:name,brand:'',variant:'',size_value:null,size_unit:'',package_type:'',pack_count:1}:parseStructuredProductText(name,{
       name,
       brand:i.brand,
       variant:i.variant,
@@ -1634,22 +1645,23 @@ const norm=d=>{
       pack_count:i.pack_count
     });
     const subTags=sub?getTagsForSubcategory(cat,sub):[];
+    const totalPriceNum=isDisc?(Number(i.total_price)>0?-Number(i.total_price):(Number(i.total_price)||0)):(Number(i.total_price)||0);
     return {
       name:parsed.name,
       base_name:parsed.base_name,
       brand:parsed.brand,
       variant:parsed.variant,
-      qty:Number(i.qty)||1,
+      qty:isDisc?1:(Number(i.qty)||1),
       size_value:parsed.size_value,
       size_unit:parsed.size_unit,
       package_type:parsed.package_type,
       pack_count:parsed.pack_count,
-      total_price:Number(i.total_price)||0,
+      total_price:totalPriceNum,
       category:cat,
       subcategory:sub,
-      tags:Array.isArray(i.tags)&&i.tags.length?i.tags:(subTags.length?subTags.slice(0,5):deriveSuggestedTags(name,cat,sub,parsed.brand)),
+      tags:isDisc?[discSub,'descuento'].filter((v,idx,a)=>a.indexOf(v)===idx):(Array.isArray(i.tags)&&i.tags.length?i.tags:(subTags.length?subTags.slice(0,5):deriveSuggestedTags(name,cat,sub,parsed.brand))),
       uncertain:isUncertain,
-      _expanded:isUncertain
+      _expanded:isDisc?false:isUncertain
     };
   });
   const unidentAmounts=Array.isArray(d.unidentified_amounts)?d.unidentified_amounts.map(u=>({
@@ -2075,6 +2087,10 @@ function toggleItemDetails(k){
 window.toggleItemDetails=toggleItemDetails;
 
 function getItemSummaryHtml(i){
+  if(isDiscountOrObraSocialItem(i)){
+    const kind=/coseguro|coseg|bono/i.test(i.name||i.subcategory||'')?'Coseguro / Bono':'Descuento / Obra Social';
+    return `<span style="color:#065f46;font-weight:700">💊 ${kind}</span> <span class="mu">(se descuenta del total, sin datos de producto)</span>`;
+  }
   const dispCurCode=(draft&&draft.currency)||'ARS';
   const specParts=[];
   if(i.brand)specParts.push(i.brand);
@@ -2253,10 +2269,10 @@ window.setDraftItemSubcategory=setDraftItemSubcategory;
     const subOpts=getValidSubcategoriesForCategory(i.category||'otros');
     const curSub=nk(i.subcategory||'');
     if(curSub && (!i.tags || !i.tags.length)) i.tags = getTagsForSubcategory(i.category, curSub);
-    const expanded = !!i._expanded;
-    return `<div class="it-card ${isItemUncertain?'unc':''}">
+    const expanded = !isDisc && !!i._expanded;
+    return `<div class="it-card ${isItemUncertain?'unc':''}" ${isDisc?'style="background:#f0fdf4;border-color:#bbf7d0"':''}>
       <div class="it">
-        <input id="item-name-${k}" value="${esc(i.name)}" oninput="onItemNameInput(${k},this.value,this);draft.items[${k}].name=this.value;if(this.value.trim()&&draft.items[${k}].total_price>0)draft.items[${k}].uncertain=false" style="${redBorder}" aria-label="Nombre del producto" placeholder="${isDisc?'Descripción del descuento / Obra Social':'Nombre completo del producto (sin abreviaturas)'}" autocomplete="off">
+        <input id="item-name-${k}" value="${esc(i.name)}" oninput="onItemNameInput(${k},this.value,this);draft.items[${k}].name=this.value;if(this.value.trim()&&draft.items[${k}].total_price!=0)draft.items[${k}].uncertain=false" style="${redBorder}" aria-label="Nombre del producto" placeholder="${isDisc?'Descripción del descuento / Obra Social':'Nombre completo del producto (sin abreviaturas)'}" autocomplete="off">
         <input type="number" min="0" step="any" value="${i.qty}" oninput="draft.items[${k}].qty=+this.value;updateItemSummaryEl(${k})" aria-label="Cantidad">
         <input type="number" step="any" value="${i.total_price}" onchange="draft.items[${k}].total_price=+this.value;if(this.value!=0&&draft.items[${k}].name.trim())draft.items[${k}].uncertain=false;renderReceiptForm()" style="${(i.uncertain||Number(i.total_price)===0)?'border:2px solid #ef4444 !important;background:#fff5f5 !important;':''}" aria-label="Total">
         <button type="button" class="x" onclick="delItem(${k})" aria-label="Quitar">✕</button>
@@ -2265,10 +2281,10 @@ window.setDraftItemSubcategory=setDraftItemSubcategory;
       <div id="sepa-sugg-${k}" style="display:none;background:#ffffff;border:1.5px solid #86efac;border-radius:10px;margin:3px 0 6px;overflow:hidden;box-shadow:0 4px 10px rgba(0,0,0,0.08);max-height:200px;overflow-y:auto"></div>
       <div class="it-summary">
         <span id="item-sum-${k}" style="flex:1;min-width:0">${getItemSummaryHtml(i)}</span>
-        <span style="display:inline-flex;gap:6px;flex-shrink:0">
+        ${isDisc?'':`<span style="display:inline-flex;gap:6px;flex-shrink:0">
           <button type="button" class="ghost" onclick="triggerSepaSuggest(${k})" style="padding:4px 8px;font-size:.74rem;border-radius:8px;min-height:36px">✨ Sugerir nombre</button>
           <button type="button" class="ghost" onclick="toggleItemDetails(${k})" style="padding:4px 8px;font-size:.74rem;border-radius:8px;min-height:36px">${expanded?'▴ Ocultar':'✏️ Detallar'}</button>
-        </span>
+        </span>`}
       </div>
       ${expanded?`<div class="it-details">
         <div class="it-grid2">
@@ -2318,12 +2334,12 @@ window.setDraftItemSubcategory=setDraftItemSubcategory;
           </select>
         </div>
       </div>`:''}
-      <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:3px 0 4px">
+      ${isDisc?'':`<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:3px 0 4px">
         <span class="mu" style="font-size:.68rem">🏷️ Tags:${curSub?` (${esc(curSub)})`:' (elegí Subcategoría)'}</span>
         ${(i.tags||[]).map(tg=>`<span class="tag sm" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:1px 6px;border-radius:4px;font-size:.7rem;display:inline-flex;align-items:center;gap:3px">${esc(tg)} <b onclick="removeDraftTag(${k},'${esc(tg)}')" style="cursor:pointer;color:#94a3b8;font-size:.76rem" title="Quitar tag">×</b></span>`).join('')}
         ${curSub?(draft._tagInputIdx===k?`<span style="display:inline-flex;align-items:center;gap:4px"><input id="draft-tag-in-${k}" type="text" placeholder="Nuevo tag de subcategoría" onkeydown="if(event.key==='Enter'){event.preventDefault();addDraftTagPrompt(${k},this.value)}" style="font-size:.72rem;padding:2px 6px;height:24px;width:155px;margin:0"><button type="button" onclick="addDraftTagPrompt(${k},document.getElementById('draft-tag-in-${k}')?.value)" style="padding:2px 7px;font-size:.68rem;height:24px">Agregar</button><button type="button" class="ghost" onclick="draft._tagInputIdx=null;renderReceiptForm()" style="padding:2px 5px;font-size:.68rem;height:24px">✕</button></span>`:`<button type="button" class="ghost" onclick="draft._tagInputIdx=${k};renderReceiptForm();setTimeout(()=>document.getElementById('draft-tag-in-${k}')?.focus(),20)" style="padding:1px 6px;font-size:.68rem;height:auto;border:1px dashed #94a3b8;border-radius:4px" title="Agregar tag a la subcategoría">+ tag</button>`):''}
-      </div>
-      ${isItemUncertain ? `<div style="color:#dc2626;font-size:.72rem;font-weight:700;margin:2px 0 4px 4px">⚠️ Producto o precio poco visible: verificar o cargar manualmente</div>` : ''}
+      </div>`}
+      ${isItemUncertain ? `<div style="color:#dc2626;font-size:.72rem;font-weight:700;margin:2px 0 4px 4px">⚠️ ${isDisc?'Completá el nombre y monto del descuento':'Producto o precio poco visible: verificar o cargar manualmente'}</div>` : ''}
     </div>`;
   }).join('')}
   <p><button type="button" class="ghost" onclick="addItem()">+ Agregar producto</button></p>
@@ -2447,11 +2463,11 @@ function explain(e){
   const m=String((e&&e.message)||e||''),c=String((e&&e.code)||'');
   if(m==='timeout')return{title:'Tardó demasiado',msg:'El servidor no respondió a tiempo. Es posible que la compra ya se haya guardado: podés reintentar sin riesgo de duplicarla, o revisar en Mis compras.'};
   if(!navigator.onLine||/Failed to fetch|NetworkError|Load failed/i.test(m))return{title:'Sin conexión',msg:'No pudimos comunicarnos con el servidor. Revisá tu conexión a internet y volvé a intentar.'};
-  if(/JWT|token.*(expired|invalid)|PGRST30/i.test(m+c)||(e&&e.status===401))return{kind:'auth',title:'Sesión vencida',msg:''};
-  if(c==='42501'||/row-level security|permission denied/i.test(m))return{title:'Sin permiso',msg:'Tu cuenta no tiene permiso para guardar esta compra. Cerrá sesión y volvé a entrar.'};
+  if(/JWT|token.*(expired|invalid)|PGRST30|session.*(not_found|missing|expired)|AuthSessionMissing/i.test(m+c)||(e&&e.status===401))return{kind:'auth',title:'Sesión vencida',msg:''};
+  if(c==='42501'||/row-level security|permission denied/i.test(m))return{kind:'perm',title:'Sesión vencida o sin permiso',msg:'Tu sesión pudo haberse cerrado o vencido. Volvé a iniciar sesión para guardar tu compra (tus datos quedan guardados en este dispositivo).'};
   return{title:'No se pudo guardar',msg:'Ocurrió un error inesperado: '+m};
 }
-const errHtml=(t,m,o={})=>`<div class="ic bad">⚠️</div><h2>${esc(t)}</h2><p>${esc(m)}</p>${o.retry?'<p class="mu">Tus datos siguen en pantalla: no se perdió nada.</p>':''}<div class="mact">${o.retry?'<button onclick="closeModal();save()">Reintentar</button>':''}${o.retry?'<button class="ghost" onclick="openFeedback(\'bug\',window._fbPre)">🐞 Reportar este problema</button>':''}<button class="ghost" onclick="closeModal();${o.focus?`var f=document.querySelector('${o.focus}');if(f)f.focus()`:''}">${o.retry?'Volver al formulario':'Entendido'}</button></div>`;
+const errHtml=(t,m,o={})=>`<div class="ic bad">⚠️</div><h2>${esc(t)}</h2><p>${esc(m)}</p>${o.retry?'<p class="mu">Tus datos siguen en pantalla: no se perdió nada.</p>':''}<div class="mact">${o.relogin?'<button onclick="backupAndRelogin()">🔐 Iniciar sesión</button>':''}${o.retry?`<button ${o.relogin?'class="ghost"':''} onclick="closeModal();save()">Reintentar</button>`:''}${o.retry?'<button class="ghost" onclick="openFeedback(\'bug\',window._fbPre)">🐞 Reportar este problema</button>':''}<button class="ghost" onclick="closeModal();${o.focus?`var f=document.querySelector('${o.focus}');if(f)f.focus()`:''}">${o.retry?'Volver al formulario':'Entendido'}</button></div>`;
 function okModal(r){
   modal(`<div class="ic ok">✅</div><h2>${r.edit?'¡Cambios guardados!':r.fact?'¡Factura guardada!':'¡Ticket guardado!'}</h2>
   <p><b>${esc(r.store)}</b><br>${r.n} producto${r.n===1?'':'s'} · <b>${money(r.total,r.cur)}</b></p>
@@ -2965,6 +2981,8 @@ async function save(){
   if(window._saving)return;
   const v=validate();
   if(v)return modal(errHtml(v.title,v.msg,{focus:v.focus}));
+  const liveOk=await verifyLiveSession({forceServerCheck:true,immediate:true});
+  if(!liveOk)return;
   window._saving=true;
   const edit=!!draft.id;
   modal(`<div class="spin"></div><h2>${edit?'Guardando cambios…':'Guardando tu compra…'}</h2><p class="mu">Un momento, no cierres la app.</p>`,{lock:true});
@@ -2979,7 +2997,12 @@ async function save(){
   if(!err)return okModal(res);
   const x=explain(err);
   if(x.kind==='auth'){backupNow();return expired()}
-  window._fbPre='Error al guardar: '+x.title+' — '+x.msg;modal(errHtml(x.title,x.msg,{retry:true}));
+  if(x.kind==='perm'){
+    const stillValid=await verifyLiveSession({forceServerCheck:true,immediate:true,silent:true});
+    if(!stillValid){backupNow();return expired()}
+    backupNow();
+  }
+  window._fbPre='Error al guardar: '+x.title+' — '+x.msg;modal(errHtml(x.title,x.msg,{retry:true,relogin:x.kind==='perm'}));
 }
 async function _save(){
   const round2 = n => (typeof r2 === 'function' ? r2(n) : Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100);
@@ -3081,7 +3104,12 @@ async function _save(){
 
 /* ---------- Sesión vencida y borrador ---------- */
 const bkOk=d=>d&&!d.saved&&(d.store||(d.items||[]).some(i=>i.name));
-function backupNow(){try{if(user&&draft&&bkOk(draft))localStorage.setItem('draftBk',JSON.stringify({uid:user.id,t:Date.now(),draft}))}catch(e){}}
+function backupNow(){
+  try{
+    const uid=user?.id||window._lastUid||localStorage.getItem('last_uid')||'';
+    if(uid&&draft&&bkOk(draft))localStorage.setItem('draftBk',JSON.stringify({uid,t:Date.now(),draft}));
+  }catch(e){}
+}
 const readBk=()=>{try{const b=JSON.parse(localStorage.getItem('draftBk')||'null');if(b&&Date.now()-b.t<864e5)return b}catch(e){}return null};
 const clearBk=()=>{try{localStorage.removeItem('draftBk')}catch(e){}};
 setInterval(backupNow,4000);
@@ -3093,18 +3121,58 @@ function expired(){
   modal(`<div class="ic warn">⏱️</div><h2>Tu sesión expiró</h2><p>Por seguridad cerramos tu sesión.${has?' <b>El ticket que estabas cargando quedó guardado en este dispositivo</b>: al volver a entrar vas a poder recuperarlo.':''}</p><div class="mact"><button onclick="relogin()">Iniciar sesión</button></div>`,{lock:true});
 }
 function relogin(){closeModal();window._exp=false;draft=null;login()}
-async function checkSession(){
-  if(!user||window._exp)return;
+function backupAndRelogin(){backupNow();closeModal();window._exp=false;draft=null;user=null;login('Iniciá sesión nuevamente. Si estabas cargando un ticket, lo vas a poder recuperar al entrar.');}
+window.backupAndRelogin=backupAndRelogin;
+let _lastLiveAuthCheck=0;
+async function verifyLiveSession(opts={}){
+  if(window._exp)return false;
   try{
     const {data,error}=await sb.auth.getSession();
-    if(!data.session){
-      if(error&&(!navigator.onLine||/fetch|network/i.test(error.message||'')))return;
-      expired();
+    let sess=data?.session||null;
+    if(!sess){
+      if(error&&(!navigator.onLine||/fetch|network/i.test(error.message||'')))return true;
+      if(!opts.silent)expired();
+      return false;
     }
-  }catch(e){}
+    const expMs=(sess.expires_at||0)*1000;
+    if(expMs&&expMs<=Date.now()+60000&&typeof sb.auth.refreshSession==='function'){
+      const rf=await sb.auth.refreshSession();
+      if(rf?.error){
+        const em=String(rf.error.message||'');
+        if(navigator.onLine&&!/fetch|network/i.test(em)){
+          if(!opts.silent)expired();
+          return false;
+        }
+      }else if(rf?.data?.session){
+        sess=rf.data.session;
+      }
+    }
+    const now=Date.now();
+    if((opts.forceServerCheck&&(opts.immediate||now-_lastLiveAuthCheck>10000))&&typeof sb.auth.getUser==='function'){
+      _lastLiveAuthCheck=now;
+      const uRes=await sb.auth.getUser();
+      if(uRes?.error||!uRes?.data?.user){
+        const em=String(uRes?.error?.message||'');
+        const st=uRes?.error?.status;
+        if(navigator.onLine&&(st===401||st===403||/JWT|token|session|invalid|expired|AuthSessionMissing|user_not_found/i.test(em)||(!uRes?.error&&!uRes?.data?.user))){
+          if(!opts.silent)expired();
+          return false;
+        }
+      }else{
+        user=uRes.data.user;
+        window._lastUid=user.id;
+      }
+    }
+    return true;
+  }catch(e){return true;}
+}
+window.verifyLiveSession=verifyLiveSession;
+async function checkSession(){
+  if(!user||window._exp)return;
+  await verifyLiveSession({forceServerCheck:true});
 }
 sb.auth.onAuthStateChange(ev=>{if(ev==='PASSWORD_RECOVERY')newPasswordUI();else if(ev==='SIGNED_OUT'&&user&&!window._manualOut)expired()});
-setInterval(()=>{if(draft)checkSession()},30000);
+setInterval(()=>{if(user&&!window._exp)checkSession()},30000);
 function offerRestore(){
   const b=readBk();if(!b||!user||b.uid!==user.id)return;
   const n=(b.draft.items||[]).filter(i=>i.name).length;
@@ -3210,7 +3278,7 @@ addEventListener('resize',()=>{if(tourOpen)tourShow()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tourOpen)tourEnd()});
 
 /* ---------- Novedades y Agradecimientos (Guided Tour Popup) ---------- */
-let NOVEDADES_VER="2026-11-18-canasta-v39-lxyo";
+let NOVEDADES_VER="2026-11-24-canasta-v40-3x2i";
 const PR_NOVEDADES_NOTE="Jerarquía Rubro ➔ Categoría ➔ Subcategoría ➔ Tags en vivo, exclusiones 100% manuales en Admin, fix suprema de pollo y tickets CAN-00016 al CAN-00020.";
 let novedadesStep=0;
 
@@ -3867,8 +3935,9 @@ async function fbSend(){
   }catch(e){
     x.sending=false;
     const w=explain(e),raw=String(e&&e.message||'')+String(e&&e.code||'');
-    const msg=w.kind==='auth'?'Tu sesión venció. Iniciá sesión de nuevo y volvé a intentar.':/row-level security|42501/i.test(raw)?'Enviaste muchos comentarios en poco tiempo. Probá de nuevo en un rato.':(w.msg||'Ocurrió un error inesperado.');
-    modal(`<div class="ic bad">⚠️</div><h2>No se pudo enviar</h2><p>${esc(msg)}</p><p class="mu">Tu mensaje no se perdió.</p><div class="mact"><button onclick="fbRender()">Volver a intentar</button><button class="ghost" onclick="closeModal()">Cerrar</button></div>`);
+    const isAuthFb=w.kind==='auth'||w.kind==='perm'||/row-level security|42501/i.test(raw);
+    const msg=w.kind==='auth'?'Tu sesión venció. Iniciá sesión de nuevo y volvé a intentar.':/row-level security|42501/i.test(raw)?'Tu sesión venció o no tenés permiso en este momento. Probá volver a iniciar sesión o intentá en un rato.':(w.msg||'Ocurrió un error inesperado.');
+    modal(`<div class="ic bad">⚠️</div><h2>No se pudo enviar</h2><p>${esc(msg)}</p><p class="mu">Tu mensaje no se perdió.</p><div class="mact">${isAuthFb?'<button onclick="backupAndRelogin()">🔐 Iniciar sesión</button>':''}<button ${isAuthFb?'class="ghost"':''} onclick="fbRender()">Volver a intentar</button><button class="ghost" onclick="closeModal()">Cerrar</button></div>`);
   }
 }
 window.triggerFeedbackSnapshot=triggerFeedbackSnapshot;
@@ -4269,34 +4338,46 @@ function cleanFiscalText(s){
 }
 
 async function geocodeAddr(a, multi=false){
-  const q=cleanTicketAddress(a);
+  let q=cleanTicketAddress(a);
   if(q.length<4)return multi?[]:null;
+  q=q.replace(/\bsantafe\b/gi,'Santa Fe');
   const candidates=[];
   try{
-    const pCoords=(typeof pos!=='undefined'&&pos)?pos:{lat:-34.6037,lng:-58.3816};
-    const r=await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${pCoords.lat}&lon=${pCoords.lng}&limit=4`,{signal:AbortSignal.timeout(5000)});
+    const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=4&countrycodes=ar&accept-language=es&addressdetails=1&q='+encodeURIComponent(q),{signal:AbortSignal.timeout(5000)});
     if(r.ok){
-      const data=await r.json();
-      for(const f of (data.features||[])){
-        if(f&&f.geometry&&f.geometry.coordinates){
-          const [lng,lat]=f.geometry.coordinates;
-          const p=f.properties||{};
-          const name=[p.street,p.housenumber].filter(Boolean).join(' ')||p.name||q;
-          const details=[p.city,p.state].filter(Boolean).join(', ');
-          if(!candidates.some(c=>c.name===name||(Math.abs(c.lat-lat)<0.001&&Math.abs(c.lng-lng)<0.001))){
-            candidates.push({lat,lng,name,details});
-          }
+      const list=await r.json();
+      for(const x of (list||[])){
+        const addr=x.address||{};
+        const name=[addr.road||addr.pedestrian,addr.house_number].filter(Boolean).join(' ')||String(x.display_name||'').split(',')[0]||q;
+        const details=[addr.city||addr.town||addr.village||addr.suburb,addr.state].filter(Boolean).join(', ');
+        const lat=+x.lat,lng=+x.lon;
+        if(!candidates.some(c=>c.name===name||(Math.abs(c.lat-lat)<0.001&&Math.abs(c.lng-lng)<0.001))){
+          candidates.push({lat,lng,name,details});
         }
       }
     }
   }catch(e){}
   if(!candidates.length){
     try{
-      const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&countrycodes=ar&accept-language=es&q='+encodeURIComponent(q),{signal:AbortSignal.timeout(6000)});
+      const pCoords=(typeof pos!=='undefined'&&pos)?pos:{lat:-34.6037,lng:-58.3816};
+      const r=await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q+', Argentina')}&lat=${pCoords.lat}&lon=${pCoords.lng}&limit=6`,{signal:AbortSignal.timeout(5000)});
       if(r.ok){
-        const list=await r.json();
-        for(const x of (list||[])){
-          candidates.push({lat:+x.lat,lng:+x.lon,name:x.display_name,details:''});
+        const data=await r.json();
+        const feats=(data.features||[]).filter(f=>{
+          const cc=String(f?.properties?.countrycode||'').toUpperCase();
+          const cn=String(f?.properties?.country||'').toLowerCase();
+          return !cc&&!cn?true:(cc==='AR'||cn==='argentina');
+        });
+        for(const f of feats){
+          if(f&&f.geometry&&f.geometry.coordinates){
+            const [lng,lat]=f.geometry.coordinates;
+            const p=f.properties||{};
+            const name=[p.street,p.housenumber].filter(Boolean).join(' ')||p.name||q;
+            const details=[p.city,p.state].filter(Boolean).join(', ');
+            if(!candidates.some(c=>c.name===name||(Math.abs(c.lat-lat)<0.001&&Math.abs(c.lng-lng)<0.001))){
+              candidates.push({lat,lng,name,details});
+            }
+          }
         }
       }
     }catch(e){}
@@ -8391,12 +8472,13 @@ async function checkUpdate(){
 }
 document.addEventListener('visibilitychange',async()=>{
   if(document.hidden)return;
-  checkSession();
+  await checkSession();
   await checkUpdate();
   if(pendingReload&&!draft&&view!=='scan'&&safe()){sessionStorage.setItem('goto',view);location.reload();return}
   refresh();
 });
-addEventListener('focus',refresh);
+addEventListener('pageshow',()=>{checkSession();});
+addEventListener('focus',()=>{checkSession();refresh();});
 setInterval(refresh,30000);
 setInterval(checkUpdate,300000);
 boot();checkUpdate();
